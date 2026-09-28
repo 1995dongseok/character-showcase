@@ -14,15 +14,15 @@
 - UE/Visual Studio의 설치·버전·빌드 가능 여부는 미확정이다. 정규 경로에서 찾지 못한 사실만으로 미설치를 단정하지 않는다.
 - 현재 인계에는 UE 컴파일, Automation 실행, 화면 표시 검증 결과가 없다. 소스 작성과 실행 성공을 구분한다.
 - 프로젝트 JSON, 모듈/타깃 이름, generated header include 순서, UTF-8 정적 검사는 통과했다. 소스 검토에서 큰 문제는 발견하지 못했으나 컴파일 검증을 대신하지 않는다.
-- 최초 작업 폴더는 Git 저장소가 아니었다. 다음 작업 시작 시 현재 Git 상태를 다시 확인한다.
+- 최초 작업 폴더는 Git 저장소가 아니었다. **2026-09-28 P0/P1 세션 기준으로 이는 더 이상 사실이 아니다**: 저장소가 초기화되어 있고 `origin` 리모트(`https://github.com/1995dongseok/character-showcase.git`)도 연결되어 있으며 `main` 브랜치에 커밋 1개(`28a9557 Initial commit: UE5 character portfolio viewer base`)가 있다. 자세한 내용은 13절을 참고한다. 다음 작업 시작 시에도 현재 Git 상태(branch/remote/변경 파일)는 다시 확인한다.
 
 ### 1.1 2026-09-28 상태 재확인 결과 (분석만 수행, 파일 변경 없음)
 
 - 파일 구성은 위 표와 정확히 일치한다. 소스 12개 파일 외에 추가된 것은 없다.
 - `Content/`, `Config/`, `Plugins/` 폴더가 없다. `.uasset`/`.umap`/아트 에셋은 0개이며, 보존 대상은 소스 파일뿐이다.
-- `Config/DefaultEngine.ini`, `DefaultGame.ini`, `DefaultInput.ini`가 없다. P0-6의 GameMode/Default Map과 Enhanced Input 기본 클래스 설정은 이 파일들을 새로 만들어야 한다.
-- 이 폴더와 상위 폴더 모두 Git 저장소가 아니다. `C:\Users\WINCARD1\.git`가 빈 폴더로 존재하여 일부 도구가 홈 디렉터리를 저장소로 오인하지만(branch가 `HEAD`로 표시됨), git 자체는 저장소로 인식하지 않는다. 이 빈 폴더는 이 프로젝트와 무관하며 건드리지 않는다.
-- 이 PC에는 UE, Epic Games Launcher, Visual Studio, MSVC, Windows SDK, .NET SDK가 모두 없다. 자세한 확인 범위는 2.1절, Git/도구 상태는 11.1절에 있다.
+- `Config/DefaultEngine.ini`, `DefaultGame.ini`, `DefaultInput.ini`가 없다. P0-6의 GameMode/Default Map과 Enhanced Input 기본 클래스 설정은 이 파일들을 새로 만들어야 한다. (2026-09-28 P0/P1 세션에서 세 파일을 모두 생성함. 13절 참고.)
+- 이 폴더와 상위 폴더 모두 Git 저장소가 아니다. `C:\Users\WINCARD1\.git`가 빈 폴더로 존재하여 일부 도구가 홈 디렉터리를 저장소로 오인하지만(branch가 `HEAD`로 표시됨), git 자체는 저장소로 인식하지 않는다. 이 빈 폴더는 이 프로젝트와 무관하며 건드리지 않는다. **(2026-09-28 P0/P1 세션 기준 갱신: 이 문단은 더 이상 사실이 아니다. 이 폴더는 이제 Git 저장소이며 `origin` 리모트가 `https://github.com/1995dongseok/character-showcase.git`로 연결되어 있고 `main` 브랜치에 커밋 1개가 있다. 13절 참고.)**
+- 이 PC에는 UE, Epic Games Launcher, Visual Studio, MSVC, Windows SDK, .NET SDK가 모두 없다. 자세한 확인 범위는 2.1절, Git/도구 상태는 11.1절에 있다. **2026-09-28 P0/P1 세션 시작 시점에는 엔진/VS 설치가 조정자(coordinator)에 의해 병렬로 진행 중이라고 전달받았으나, 이 세션에서 직접 재확인하지는 않았다. 실제 설치 완료 여부는 다음 세션에서 2.1절 절차로 다시 확인해야 한다.**
 - 따라서 P0-0(Editor 타깃 빌드 + NullSafety 테스트 통과)은 미달성이며, 빌드/테스트/화면 표시는 여전히 실행 미검증이다.
 - 소스 정적 검토 추가 사항: 테스트의 `GetSkeletalMeshAsset()`와 `TObjectPtr` 사용으로 코드는 UE 5.1 이상을 전제한다. 5.5 이후 `EAutomationTestFlags`가 enum class로 바뀌었으나 현재 `EditorContext | EngineFilter` 조합은 실제 버전에서 컴파일 확인이 필요하다. `Build.cs` 의존 모듈은 Core/CoreUObject/Engine뿐이므로 P0 구현 시 `EnhancedInput`, `InputCore`, `UMG`, `Slate`, `SlateCore` 추가가 필요하다.
 
@@ -254,23 +254,23 @@ stage 후 `git lfs ls-files`로 추적을 확인한 뒤 commit한다. 기존 his
 
 다음 세션에서 commit/push를 진행하려면 사용자로부터 (1) commit 신원, (2) remote URL을 받아야 한다. remote가 없으면 `git init` → `git lfs install --local` → 로컬 commit까지만 수행하고 push 미수행으로 보고한다.
 
-### 11.2 2026-09-28 기준 다음 세션 진행 가능 범위
+### 11.2 2026-09-28 기준 다음 세션 진행 가능 범위 (P0/P1 C++ 세션 시작 시점 기준. 결과는 13절 참고)
 
 | 요청 | 가능 여부 | 사유 |
 | --- | --- | --- |
-| 빌드 + NullSafety 테스트 확인 (P0-0) | 불가 | 엔진·컴파일러 없음. 자동 설치 금지 |
-| P0 C++ (GameMode, Controller, CameraPawn, Profile 구도 필드, Widget C++ 기반) + `Config/*.ini` | 가능, 컴파일 미검증 | 순수 소스/설정 파일 |
-| P0 Editor 에셋 (IA/IMC, WBP, LV_Portfolio, BP_GameMode, DA_Character) | 불가 | `.uasset`/`.umap` 임의 생성 금지, Editor 없음. 수동 절차로 기록 |
-| P1 C++ (프리셋, Turntable, Sequence/Pose, Morph 표정, Slot 재질, Clean View) | 가능, 컴파일 미검증 | 12절 지시가 "가능한 C++ 구현을 남겨라"를 허용 |
-| P2 | 진행 불가 | P0/P1 검증 불가 상태에서 범위 확장 금지 |
-| 로컬 commit | 가능 | 위 11.1의 신원 지정 후 |
-| push | 불가 | remote 없음 |
+| 빌드 + NullSafety 테스트 확인 (P0-0) | 불가 | 엔진·컴파일러 없음(세션 시작 시점 기준; 설치는 조정자가 병렬 진행 중이라고 전달받았으나 이 세션에서 재확인하지 않음). 자동 설치 금지 |
+| P0 C++ (GameMode, Controller, CameraPawn, Profile 구도 필드, Widget C++ 기반) + `Config/*.ini` | 완료, 컴파일 미검증 | 순수 소스/설정 파일. 13절 참고 |
+| P0 Editor 에셋 (IA/IMC, WBP, LV_Portfolio, BP_GameMode, DA_Character) | 불가 | `.uasset`/`.umap` 임의 생성 금지, Editor 없음. 13절에 수동 절차로 기록 |
+| P1 C++ (프리셋, Turntable, Sequence/Pose, Morph 표정, Slot 재질, Clean View) | 완료, 컴파일 미검증 | 12절 지시가 "가능한 C++ 구현을 남겨라"를 허용. 13절 참고 |
+| P2 | 진행 안 함 | P0/P1 컴파일·실행 검증 불가 상태에서 범위 확장 금지 |
+| 로컬 commit | 가능 (이 세션에서는 수행하지 않음) | 저장소는 이미 존재(11.1은 과거 기록). 이 세션은 커밋/푸시를 조정자(coordinator)에게 위임받은 구현 세션이라 commit/push를 직접 실행하지 않았다 |
+| push | 가능 (이 세션에서는 수행하지 않음) | remote(`origin`)가 이미 연결되어 있다. 위와 동일한 이유로 이 세션에서는 실행하지 않았다 |
 
-다음 세션 착수 전 사용자 결정 사항:
-1. 엔진/VS를 직접 설치할지, 아니면 "C++ 작성 + 수동 절차 + 실행 미검증"으로 한정할지.
-2. 엔진 없는 상태에서 P0 C++만 작성할지, P0+P1 C++까지 작성할지. 어느 쪽이든 완료 주장은 하지 않는다.
-3. commit 신원(`user.name`/`user.email`)과 remote URL.
-4. IA/IMC 에셋을 만들 수 없으므로 Controller가 런타임에 `UInputAction`/`UInputMappingContext`를 생성하는 폴백을 둘지, 문서대로 Editor 에셋 필수로 두고 수동 절차만 남길지.
+이번 P0/P1 C++ 구현 세션 착수 전 결정된 사항 (이번 세션에 적용된 선택):
+1. 엔진/VS를 이번 세션에서 직접 설치하지 않고 "C++ 작성 + 수동 절차 + 실행 미검증"으로 진행했다.
+2. P0+P1 C++까지 모두 작성했다(13절). 완료 주장은 하지 않는다 — 빌드/Automation/PIE 실행 증거가 없다.
+3. commit 신원과 remote URL은 이미 저장소에 설정되어 있었다(11.1은 그 이전 세션의 기록이며 이후 갱신되지 않았다). 이 세션은 commit/push를 실행하지 않는다(조정자가 수행).
+4. IA/IMC Editor 에셋을 만들 수 없으므로, Controller가 런타임에 `UInputAction`/`UInputMappingContext`를 생성하는 폴백을 기본값(`bCreateFallbackInputAssets = true`)으로 채택했다. Editor 에셋이 준비되면 인스턴스에 할당해 폴백을 대체할 수 있다.
 
 ## 12. Claude Code에 전달할 작업 지시
 
@@ -289,3 +289,110 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 
 설치 도구의 호환 버전은 [Epic의 Visual Studio 설정 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine)에서 선택한 UE 버전 기준으로 확인한다.
 Automation UI/명령 옵션은 [Epic의 Automation 실행 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/run-automation-tests-in-unreal-engine)를 따른다.
+
+## 13. 2026-09-28 P0/P1 C++ 구현 결과 (컴파일 미검증)
+
+이 절은 엔진/Visual Studio가 설치되지 않은 상태에서 P0(5절) + P1(6절) 범위의 C++와 `Config/*.ini`를 작성한 세션의 결과다.
+**빌드/Automation/PIE 실행 증거는 없다.** 모든 항목은 "정적 검토 통과, 실행 미검증"으로 취급한다. `.uasset`/`.umap`은 만들지 않았다.
+
+### 13.1 변경/추가 파일 목록
+
+| 파일 | 상태 | 내용 |
+| --- | --- | --- |
+| `CharacterShowcase.uproject` | 수정 | `Plugins` 배열에 `EnhancedInput` 추가(Enabled=true). `EngineAssociation`은 계속 빈 값 |
+| `Source/CharacterShowcase/CharacterShowcase.Build.cs` | 수정 | Public 의존성에 `InputCore`, `EnhancedInput`, `UMG` 추가. Private 의존성에 `Slate`, `SlateCore` 추가 |
+| `Config/DefaultEngine.ini` | 신규 | GameDefaultMap/EditorStartupMap = `/Game/Portfolio/Maps/LV_Portfolio`, GlobalDefaultGameMode = `CharacterViewerGameMode`, Enhanced Input 기본 클래스(`DefaultPlayerInputClass`, `DefaultInputComponentClass`) |
+| `Config/DefaultGame.ini` | 신규 | `ProjectID`, `ProjectName=CharacterShowcase` |
+| `Config/DefaultInput.ini` | 신규 | 주석 전용. Enhanced Input 기본 클래스는 DefaultEngine.ini에 있다는 점과 런타임 폴백 입력 자산을 문서화 |
+| `Source/CharacterShowcase/Character/CharacterProfileData.h` | 수정 | 8절 계획 스키마 구현(아래 13.2) |
+| `Source/CharacterShowcase/Character/CharacterProfileData.cpp` | 신규 | `Find*`/`GetResetFraming()` 구현 (헤더에 선언만 있던 기존 3필드 전용 데이터 애셋에는 `.cpp`가 없었음) |
+| `Source/CharacterShowcase/Character/PortfolioCharacterActor.h/.cpp` | 수정 | Turntable, Animation(Sequence/Pose), Expression(Morph), MaterialVariant, `ClearRuntimeState()`, `AdvanceTurntable()` 공개 테스트 훅 추가. 기존 `ApplyProfile` null-safety 계약은 그대로 유지 |
+| `Source/CharacterShowcase/CharacterViewer/CharacterViewerCameraPawn.h/.cpp` | 신규 | Orbit/Zoom/Reset/프리셋 보간 카메라 Pawn (P0-2, P1-1) |
+| `Source/CharacterShowcase/CharacterViewer/CharacterViewerController.h/.cpp` | 신규 | Enhanced Input 바인딩(+런타임 폴백), 드래그 판정, Turntable/Clean View 토글, Widget 연결 (P0-1, P0-4, P1-2, P1-6) |
+| `Source/CharacterShowcase/CharacterViewer/CharacterViewerGameMode.h/.cpp` | 신규 | DefaultPawnClass/PlayerControllerClass 지정, `PostLogin`에서 DefaultProfile 적용 및 Controller에 Viewer Actor 전달 (P0-1) |
+| `Source/CharacterShowcase/UI/CharacterViewerWidget.h/.cpp` | 신규 | WBP_CharacterViewer의 C++ 베이스. 목록 Getter, `OnViewerDataChanged` 이벤트, Request* 전달 함수 (P0-5, P1) |
+| `Source/CharacterShowcase/Tests/CharacterProfileTests.cpp` | 변경 없음 | 기존 `CharacterShowcase.Profile.NullSafety` 유지 |
+| `Source/CharacterShowcase/Tests/CharacterViewerTests.cpp` | 신규 | `CharacterShowcase.Viewer.ActorFeatureNullSafety`, `CharacterShowcase.Viewer.CameraClamp`, `CharacterShowcase.Viewer.ProfileLookup` (아래 13.5) |
+
+### 13.2 구현된 Profile 스키마 (`CharacterProfileData.h`)
+
+기존 3필드(`DisplayName`, `Description`, `SkeletalMesh`)는 그대로 유지하고 아래를 추가했다:
+
+- `FViewerCameraFraming` (TargetOffset, Distance, FOV, MinDistance, MaxDistance, MinPitch, MaxPitch) + `DefaultFraming`(P0 전신 구도).
+- `FViewerCameraPreset`(Id, DisplayName, Framing) + `TArray<FViewerCameraPreset> CameraPresets` + `FName DefaultPresetId`(Reset 대상, 없거나 못 찾으면 `DefaultFraming` 사용).
+- `FViewerAnimationEntry`(Id, DisplayName, Sequence, bLoop, bIsPose, PoseTime) + `TArray Animations` + `TSubclassOf<UAnimInstance> DefaultAnimClass` + `FName DefaultAnimationId`.
+- `FViewerMorphWeight`(MorphName, Weight), `FViewerExpression`(Id, DisplayName, Morphs) + `TArray Expressions` (Neutral = 빈 `Morphs`).
+- `FViewerMaterialSlotOverride`(SlotName, SlotIndex, Material), `FViewerMaterialVariant`(Id, DisplayName, Slots) + `TArray MaterialVariants`.
+- `float TurntableSpeedDegreesPerSecond = 20`.
+- C++ 전용 헬퍼(⚠ Blueprint에 노출하지 않음 — UHT가 USTRUCT 포인터 반환을 지원하지 않음): `FindPreset/FindAnimation/FindExpression/FindMaterialVariant(FName) const` → `nullptr` 또는 포인터. `GetResetFraming() const`(BlueprintPure, 값 반환)는 `DefaultPresetId` 프리셋을 우선 사용하고 없으면 `DefaultFraming`을 반환한다.
+
+Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable 회전/재생 위치/카메라 상태는 Actor·Pawn 쪽 런타임 멤버에만 있다(8절 원칙 유지).
+
+### 13.3 런타임 입력 폴백과 Editor 에셋 스펙
+
+`ACharacterViewerController::bCreateFallbackInputAssets = true`(기본값)이면 `SetupInputComponent()`에서 `MappingContext`가 null일 때만 폴백 `IMC_CharacterViewer_Fallback`과 6개의 폴백 IA를 `NewObject`로 만들고 매핑한다(리뷰 반영: `MappingContext`가 이미 Editor 에셋으로 할당돼 있으면 그 에셋은 완전히 사용자 관리로 간주하고 절대 건드리지 않는다 — 그렇지 않으면 PIE를 반복 실행할 때마다 같은 공유 에셋 객체에 `MapKey`가 누적 호출될 수 있다). 즉 `MappingContext`만 Editor 에셋으로 할당하고 개별 `OrbitAction` 등 IA 프로퍼티를 비워두면, 그 IA들은 폴백 생성 대상이 아니므로 계속 null로 남고 해당 기능은 바인딩되지 않는다 — IMC와 6개 IA는 항상 함께 할당하거나 함께 폴백에 맡겨야 한다.
+
+| Editor 에셋(만들어야 함, 이번 세션에서 생성하지 않음) | 값 형식 | 매핑 | 대응 Controller 프로퍼티 |
+| --- | --- | --- | --- |
+| `IA_OrbitPress` | Bool | LeftMouseButton | `OrbitPressAction` |
+| `IA_Orbit` | Axis2D | Mouse2D | `OrbitAction` |
+| `IA_Zoom` | Axis1D | MouseWheelAxis | `ZoomAction` |
+| `IA_ResetCamera` | Bool | R | `ResetCameraAction` |
+| `IA_ToggleTurntable` | Bool | SpaceBar | `ToggleTurntableAction` |
+| `IA_ToggleCleanView` | Bool | H | `ToggleCleanViewAction` |
+| `IMC_CharacterViewer` | Input Mapping Context | 위 6개 IA를 우선순위 0으로 매핑 | `MappingContext` |
+
+런타임 폴백은 위 표와 정확히 같은 키/값 형식으로 생성된다(`EnsureFallbackInputAssets()` 참고). 즉 Editor 에셋 없이도 Left-drag Orbit(드래그 임계값 `DragThresholdPixels`, 기본 6px), Wheel Zoom, R Reset, Space Turntable, H Clean View가 모두 동작해야 한다(미검증).
+
+### 13.4 `Config/*.ini` 요약과 근거
+
+- `DefaultEngine.ini`의 `[/Script/EngineSettings.GameMapsSettings]`: `GameDefaultMap`/`EditorStartupMap` = `/Game/Portfolio/Maps/LV_Portfolio.LV_Portfolio`, `GlobalDefaultGameMode` = `/Script/CharacterShowcase.CharacterViewerGameMode`. **`LV_Portfolio.umap`은 존재하지 않으므로 이 설정은 그 레벨을 Editor에서 만들기 전까지 효과가 없다.** (2026-09-28 리뷰 반영으로 정정) Editor/PIE는 존재하지 않는 기본 맵을 빈 레벨로 폴백 처리하지만, **`-game` 실행이나 패키지 빌드는 다르다**: 찾을 수 없는 `GameDefaultMap`을 UE가 "Failed to enter" Fatal 오류로 처리하고 즉시 종료하는 것으로 알려져 있다. **`LV_Portfolio`를 실제로 만들기 전에는 `-game`/패키지 실행을 하지 말 것.** Editor/PIE 범위에서도 이 프로젝트로 직접 확인한 적은 없다.
+- **(2026-09-28 리뷰 반영으로 정정) Enhanced Input 기본 클래스(`DefaultPlayerInputClass`, `DefaultInputComponentClass`)는 `DefaultEngine.ini`가 아니라 `DefaultInput.ini`의 `[/Script/Engine.InputSettings]`에 있다.** `UInputSettings`는 `config=Input` 클래스라 `DefaultEngine.ini`의 같은 섹션은 애초에 읽지 않으므로, 이전 버전처럼 `DefaultEngine.ini`에 이 키들을 둔 것은 조용히 무시되는 잘못된 설정이었다.
+- `DefaultGame.ini`: `ProjectID`(임의 32자리 16진수 placeholder, 실제 프로젝트 GUID로 교체 가능), `ProjectName=CharacterShowcase`.
+- `DefaultInput.ini`: 위에서 옮긴 `[/Script/Engine.InputSettings]`의 두 키(Enhanced Input 기본 클래스)를 실제로 설정하고, Editor IA/IMC 에셋 스펙과 런타임 입력 폴백을 설명하는 주석을 함께 둔다.
+
+### 13.5 추가한 테스트 (모두 애셋 불필요, `WITH_DEV_AUTOMATION_TESTS`)
+
+- `CharacterShowcase.Viewer.ActorFeatureNullSafety` (`Tests/CharacterViewerTests.cpp`): 프로필 없음/빈 배열 프로필에서 `SetAnimation`/`SetExpression`/`SetMaterialVariant`가 알 수 없는 id에 대해 false를 반환하고 크래시하지 않는지, `AdvanceTurntable(float)`(Tick 없이 직접 호출 가능한 공개 함수)로 켜짐/꺼짐 상태에서 yaw가 `speed * dt`만큼만 움직이는지, `ApplyProfile(nullptr)`이 회전과 선택 id들을 초기화하는지 확인한다.
+- `CharacterShowcase.Viewer.CameraClamp`: `SetFraming(..., true)`로 즉시 구도 적용 후 큰 값의 `Orbit()`이 Min/MaxPitch로, `Zoom()`이 Min/MaxDistance로 clamp되는지, `ResetToFraming()` 후 큰 DeltaSeconds로 `Tick()`을 한 번 호출하면 보간이 끝나고 Distance/Pitch/Yaw가 기본값으로 돌아오는지 확인한다.
+- `CharacterShowcase.Viewer.ProfileLookup`: 프리셋/애니메이션/표정/재질 Variant 배열을 채운 `UCharacterProfileData`에서 `Find*`가 올바른 항목/`nullptr`을 반환하는지, `GetResetFraming()`이 `DefaultPresetId`를 우선 사용하고 못 찾으면 `DefaultFraming`으로 폴백하는지 확인한다.
+
+기존 `CharacterShowcase.Profile.NullSafety`(`Tests/CharacterProfileTests.cpp`)는 수정하지 않았다.
+
+### 13.6 남은 Editor 수동 절차 (P0-5/P0-6, 이번 세션에서 수행 불가)
+
+1. `WBP_CharacterViewer`를 생성하고 부모 클래스를 `UCharacterViewerWidget`(C++)으로 지정. 오른쪽 어두운 패널에 VIEW/EXPRESSION/ANIMATION/APPEARANCE/DISPLAY 섹션을 배치하고, 각 목록은 `Get*`(BlueprintPure) 결과를 바인딩, 버튼 클릭은 `Request*` 함수를 호출하도록 그래프 구성. `bEnabled=false` 항목은 비활성화/숨김 처리.
+2. `BP_CharacterViewerGameMode`를 `ACharacterViewerGameMode`에서 파생하고 `DefaultProfile`(예: 기존 `DA_Character`)과 `ViewerWidgetClass = WBP_CharacterViewer`를 지정.
+3. `LV_Portfolio` 레벨을 `Portfolio/Maps`에 생성하고 `APortfolioCharacterActor`를 배치, World Settings의 GameMode Override를 `BP_CharacterViewerGameMode`로 지정(또는 `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`에 맡김).
+4. (선택) `IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`를 13.3 표대로 생성하고 `BP_CharacterViewerController`(또는 Controller 인스턴스)에 할당. 생성하지 않아도 런타임 폴백이 동작해야 하므로 필수는 아니다.
+5. PIE에서: 표시/Orbit(clamp 양끝 포함)/Zoom(clamp 양끝 포함)/R Reset/Space Turntable/H Clean View/UI 위 입력 차단/프로필 2개 교체를 직접 확인하고 이 절의 "미검증" 표시를 실제 결과로 교체한다.
+
+### 13.7 검증 상태
+
+| 항목 | 상태 |
+| --- | --- |
+| 빌드(Editor 타깃) | 미실행 — 엔진/VS 없음(2.1절) |
+| `CharacterShowcase.Profile.NullSafety` | 미실행 |
+| `CharacterShowcase.Viewer.ActorFeatureNullSafety` / `CameraClamp` / `ProfileLookup` | 미실행 |
+| PIE 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | 미실행 |
+| Win64 패키지 | 미실행 |
+| 정적 자체 점검(아래) | 실행함 |
+
+### 13.8 정적 자체 점검 결과 (이 세션에서 실행)
+
+- `.generated.h` 마지막 include 여부: 헤더 6개(`CharacterProfileData.h`, `PortfolioCharacterActor.h`, `CharacterViewerCameraPawn.h`, `CharacterViewerController.h`, `CharacterViewerGameMode.h`, `CharacterViewerWidget.h`) 전수 확인, 전부 마지막 줄이 자기 이름의 `.generated.h`. 문제 0건.
+- BOM/비-UTF-8 검사: `Source/**/*.{h,cpp,cs}` 17개 + `Config/*.ini` 3개 = 21개 파일, `python3`로 BOM 바이트와 UTF-8 디코딩 실패를 전수 검사. 문제 0건.
+- UPROPERTY 오브젝트 포인터: 모든 UPROPERTY 선언을 grep으로 전수 확인, 원시 포인터(`T*`) UPROPERTY 0건 — 전부 `TObjectPtr`/`TSubclassOf`이고, Widget의 뷰어 참조는 `TWeakObjectPtr`(비-UPROPERTY, `NativeDestruct`에서 `Reset()`)로 유지.
+- 헤더 선언 대비 `.cpp` 정의: out-of-line 함수 선언 61개(생성자/virtual override 10개 포함) 중 60개가 대응하는 `.cpp`에 정의됨을 grep으로 확인. 나머지 1개(`UCharacterViewerWidget::OnViewerDataChanged`)는 `UFUNCTION(BlueprintImplementableEvent)`로, UHT가 기본 구현을 생성하므로 `.cpp` 정의가 없는 것이 정상이다.
+- `Build.cs` 의존성: 이번 세션에서 실제로 include한 Enhanced Input/UMG/Camera 헤더(`EnhancedInputComponent.h`, `EnhancedInputSubsystems.h`, `InputAction.h`, `InputActionValue.h`, `InputMappingContext.h`, `Blueprint/UserWidget.h`, `Components/SlateWrapperTypes.h`, `Camera/CameraComponent.h`)를 제공하는 모듈(`EnhancedInput`, `InputCore`, `UMG`)이 모두 `PublicDependencyModuleNames`에 있음을 확인. `InputModifiers.h`/`InputTriggers.h`는 이번 구현(단순 Started/Triggered/Completed/Canceled 바인딩만 사용)에서 실제로 사용하지 않아 include하지 않았다.
+
+### 13.9 남은 문제·위험 (컴파일러로 확인 못 함)
+
+- (2026-09-28 리뷰로 정정) `ACharacterViewerGameMode`는 `BeginPlay()`가 아니라 `PostLogin(APlayerController*)`에서 DefaultProfile 적용과 Controller/Widget 연결을 수행한다. 처음에는 "PostLogin이 PlayerController의 BeginPlay/OnPossess 이후 호출된다"고 가정했으나, 실제로는 그 반대다: LoadMap과 PIE 모두 `SpawnPlayActor`(그 안에서 `PostLogin` 호출)가 `World::BeginPlay` 패스보다 먼저 실행되므로 **`PostLogin`은 PlayerController/액터들의 `BeginPlay`보다 먼저 실행된다.** 이 정정에 맞춰 `PostLogin`은 `DefaultProfile`이 null이 아닐 때만 `ApplyProfile`을 호출하도록 바꿨고(레벨에 배치된 Actor의 기존 Profile을 `ApplyProfile(nullptr)`로 지우지 않기 위함), `APortfolioCharacterActor::InitialRotation` 캡처도 `BeginPlay`에서 `PostInitializeComponents()`로 옮겼다(그래야 `PostLogin`이 `BeginPlay`보다 먼저 `ApplyProfile`을 호출해도 배치 회전이 0으로 리셋되지 않는다). 여전히 이 프로젝트의 실제 UE 버전으로 PIE에서 직접 확인하지는 않았다. Controller 쪽은 순서와 무관하게 안전하도록(`EnsureWidgetCreated()`를 `BeginPlay`와 `SetViewerActor` 양쪽에서 모두 호출, idempotent) 방어적으로 작성했지만 최종 확인은 PIE 몫이다.
+- `APortfolioCharacterActor::SetAnimation`의 스켈레톤 호환성 검사는 `Entry->Sequence->GetSkeleton() == Mesh->GetSkeletalMeshAsset()->GetSkeleton()` 포인터 비교만 사용한다(요청 사양의 "가장 단순하고 안전한 검사"). 실제 리타겟/호환 스켈레톤 조합에서는 이 검사가 지나치게 엄격할 수 있어 실제 에셋으로 확인이 필요하다.
+- `ACharacterViewerController`의 포커스 상실(Alt-Tab 등) 처리는 `APlayerController`에 직접적인 "포커스 잃음" 콜백이 없어서 Enhanced Input의 `Completed`/`Canceled` 트리거와 `EndPlay`에서 드래그 상태를 정리하는 것으로 근사했다. 창 포커스를 잃은 채 마우스를 뗀 경우 드래그 상태가 남아있을 가능성을 배제하지 못한다(엔진에서 직접 확인 필요).
+- `UCharacterViewerWidget::IsPointerOverPanel()`은 `UWidget::IsHovered()`에 의존한다. UMG 계층 구성(패널의 Visibility, 자식 위젯의 히트테스트 설정)에 따라 최상위 UserWidget의 hover 상태가 기대와 다르게 갱신될 수 있어 WBP 제작 후 확인이 필요하다.
+- `ACharacterViewerCameraPawn`의 프리셋/리셋 보간은 항상 Yaw/Pitch를 0으로 되돌린다(즉 "복귀"이지 "현재 각도 유지한 채 줌만 전환"이 아니다). 이는 요청 사양의 카메라 클램프 테스트("ResetToFraming(instant)이 Distance/pitch/yaw 기본값을 복원") 문구를 프리셋 전환에도 동일하게 적용한 설계 판단이며, 실제 사용성 확인 후 프리셋 전환만 각도를 유지하도록 바꿀 수 있다.
+- `EAutomationTestFlags::EditorContext | EngineFilter` 조합은 기존 `CharacterProfileTests.cpp`와 동일하게 유지했다(1.1절에 기록된 5.5+ enum class 변경 관련 위험이 새 테스트 파일에도 동일하게 적용됨).
+- `Config/DefaultGame.ini`의 `ProjectID`는 실제로 생성된 GUID가 아니라 placeholder 16진수 문자열이다. Editor에서 프로젝트를 한 번 열면 엔진이 재발급할 수 있으며, 필요하면 교체할 것.
+- 모든 API 이름(`GetMaterialIndex`, `SetMorphTarget`, `FindMorphTarget`, `SetPosition`, `SetAnimInstanceClass`, `InterpEaseInOut` 등)은 UE 5.1~5.6 문서/기억에 근거해 작성했으나 실제 헤더로 시그니처를 대조하지 못했다. 빌드 시 가장 먼저 깨질 가능성이 있는 지점이다.
