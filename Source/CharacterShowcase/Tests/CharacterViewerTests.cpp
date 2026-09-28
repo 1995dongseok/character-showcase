@@ -23,6 +23,11 @@ bool FCharacterViewerActorFeatureNullSafetyTest::RunTest(const FString& Paramete
 		return false;
 	}
 
+	// Mirror the real runtime: without this, AreActorsInitialized() is false and
+	// SpawnActor skips PostInitializeComponents(), so the actor never captures
+	// its initial (placed) rotation.
+	World->InitializeActorsForPlay(FURL());
+
 	APortfolioCharacterActor* Actor = World->SpawnActor<APortfolioCharacterActor>();
 	if (!TestNotNull(TEXT("Character actor exists"), Actor))
 	{

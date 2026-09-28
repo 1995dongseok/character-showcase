@@ -22,7 +22,7 @@
 - `Content/`, `Config/`, `Plugins/` 폴더가 없다. `.uasset`/`.umap`/아트 에셋은 0개이며, 보존 대상은 소스 파일뿐이다.
 - `Config/DefaultEngine.ini`, `DefaultGame.ini`, `DefaultInput.ini`가 없다. P0-6의 GameMode/Default Map과 Enhanced Input 기본 클래스 설정은 이 파일들을 새로 만들어야 한다. (2026-09-28 P0/P1 세션에서 세 파일을 모두 생성함. 13절 참고.)
 - 이 폴더와 상위 폴더 모두 Git 저장소가 아니다. `C:\Users\WINCARD1\.git`가 빈 폴더로 존재하여 일부 도구가 홈 디렉터리를 저장소로 오인하지만(branch가 `HEAD`로 표시됨), git 자체는 저장소로 인식하지 않는다. 이 빈 폴더는 이 프로젝트와 무관하며 건드리지 않는다. **(2026-09-28 P0/P1 세션 기준 갱신: 이 문단은 더 이상 사실이 아니다. 이 폴더는 이제 Git 저장소이며 `origin` 리모트가 `https://github.com/1995dongseok/character-showcase.git`로 연결되어 있고 `main` 브랜치에 커밋 1개가 있다. 13절 참고.)**
-- 이 PC에는 UE, Epic Games Launcher, Visual Studio, MSVC, Windows SDK, .NET SDK가 모두 없다. 자세한 확인 범위는 2.1절, Git/도구 상태는 11.1절에 있다. **2026-09-28 P0/P1 세션 시작 시점에는 엔진/VS 설치가 조정자(coordinator)에 의해 병렬로 진행 중이라고 전달받았으나, 이 세션에서 직접 재확인하지는 않았다. 실제 설치 완료 여부는 다음 세션에서 2.1절 절차로 다시 확인해야 한다.**
+- (2026-09-28 갱신) 같은 날 오후에 Epic Games Launcher, UE 5.6.1, Visual Studio 2022(C++ 게임 개발 워크로드)를 설치했고 빌드·테스트를 실행했다. 결과는 13.7절. 아래 굵은 글씨의 재확인 요구는 해소되었다. 원래 기록: 이 PC에는 UE, Epic Games Launcher, Visual Studio, MSVC, Windows SDK, .NET SDK가 모두 없었다. 자세한 확인 범위는 2.1절, Git/도구 상태는 11.1절에 있다. **2026-09-28 P0/P1 세션 시작 시점에는 엔진/VS 설치가 조정자(coordinator)에 의해 병렬로 진행 중이라고 전달받았으나, 이 세션에서 직접 재확인하지는 않았다. 실제 설치 완료 여부는 다음 세션에서 2.1절 절차로 다시 확인해야 한다.**
 - 따라서 P0-0(Editor 타깃 빌드 + NullSafety 테스트 통과)은 미달성이며, 빌드/테스트/화면 표시는 여전히 실행 미검증이다.
 - 소스 정적 검토 추가 사항: 테스트의 `GetSkeletalMeshAsset()`와 `TObjectPtr` 사용으로 코드는 UE 5.1 이상을 전제한다. 5.5 이후 `EAutomationTestFlags`가 enum class로 바뀌었으나 현재 `EditorContext | EngineFilter` 조합은 실제 버전에서 컴파일 확인이 필요하다. `Build.cs` 의존 모듈은 Core/CoreUObject/Engine뿐이므로 P0 구현 시 `EnhancedInput`, `InputCore`, `UMG`, `Slate`, `SlateCore` 추가가 필요하다.
 
@@ -46,7 +46,7 @@
 6. `.uproject` 우클릭 → **Generate Visual Studio project files**. 메뉴가 없으면 아래 UBT 명령을 사용한다.
 7. Editor를 닫고 `CharacterShowcaseEditor / Development / Win64`를 빌드한다. 실패 시 해당 오류만 수정한다.
 
-### 2.1 2026-09-28 엔진/도구 확인 결과
+### 2.1 2026-09-28 엔진/도구 확인 결과 (오전 기준. 오후에 설치 완료, 13.7절 참고)
 
 확인 범위: 레지스트리(`HKLM\SOFTWARE\EpicGames\Unreal Engine`, `HKCU\SOFTWARE\Epic Games\Unreal Engine\Builds`), 설치 프로그램 목록(Uninstall 키), `C:\ProgramData\Epic`, `Program Files`/`Program Files (x86)`, `AppData\Local`, PATH, 그리고 C: 드라이브 전체의 `UE_*`/`UnrealEngine`/`Epic Games` 폴더 및 `UnrealEditor.exe` 검색. 고정 드라이브는 C: 하나뿐이다.
 
@@ -244,8 +244,8 @@ stage 후 `git lfs ls-files`로 추적을 확인한 뒤 commit한다. 기존 his
 
 | 항목 | 결과 |
 | --- | --- |
-| 프로젝트 Git 저장소 | 없음 (`git rev-parse` 실패). 상위 폴더도 저장소 아님 |
-| remote / upstream | 없음. URL을 추측하거나 원격 저장소를 자동 생성하지 않는다 |
+| 프로젝트 Git 저장소 | 있음 (같은 날 오후 `git init -b main`, `git lfs install --local` 완료) |
+| remote / upstream | `origin` = https://github.com/1995dongseok/character-showcase (사용자 제공), `main` → `origin/main` |
 | Git / Git LFS | Git 2.55.0, Git LFS 3.7.1 설치됨 |
 | LFS 필터 | system config에 `filter.lfs.*` 등록됨. 저장소 생성 후 `git lfs install --local`은 여전히 실행한다 |
 | 전역 `user.name` / `user.email` | 미설정. commit 전에 사용자가 신원을 지정해야 한다 |
@@ -258,7 +258,7 @@ stage 후 `git lfs ls-files`로 추적을 확인한 뒤 commit한다. 기존 his
 
 | 요청 | 가능 여부 | 사유 |
 | --- | --- | --- |
-| 빌드 + NullSafety 테스트 확인 (P0-0) | 불가 | 엔진·컴파일러 없음(세션 시작 시점 기준; 설치는 조정자가 병렬 진행 중이라고 전달받았으나 이 세션에서 재확인하지 않음). 자동 설치 금지 |
+| 빌드 + NullSafety 테스트 확인 (P0-0) | 완료 (13.7절) | 사용자 지시로 UE 5.6.1/VS 2022를 설치한 뒤 실행. 빌드 오류 0, 테스트 4/4 통과 |
 | P0 C++ (GameMode, Controller, CameraPawn, Profile 구도 필드, Widget C++ 기반) + `Config/*.ini` | 완료, 컴파일 미검증 | 순수 소스/설정 파일. 13절 참고 |
 | P0 Editor 에셋 (IA/IMC, WBP, LV_Portfolio, BP_GameMode, DA_Character) | 불가 | `.uasset`/`.umap` 임의 생성 금지, Editor 없음. 13절에 수동 절차로 기록 |
 | P1 C++ (프리셋, Turntable, Sequence/Pose, Morph 표정, Slot 재질, Clean View) | 완료, 컴파일 미검증 | 12절 지시가 "가능한 C++ 구현을 남겨라"를 허용. 13절 참고 |
@@ -290,7 +290,7 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 설치 도구의 호환 버전은 [Epic의 Visual Studio 설정 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine)에서 선택한 UE 버전 기준으로 확인한다.
 Automation UI/명령 옵션은 [Epic의 Automation 실행 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/run-automation-tests-in-unreal-engine)를 따른다.
 
-## 13. 2026-09-28 P0/P1 C++ 구현 결과 (컴파일 미검증)
+## 13. 2026-09-28 P0/P1 C++ 구현 결과 (빌드·자동화 테스트 통과, PIE 미검증)
 
 이 절은 엔진/Visual Studio가 설치되지 않은 상태에서 P0(5절) + P1(6절) 범위의 C++와 `Config/*.ini`를 작성한 세션의 결과다.
 **빌드/Automation/PIE 실행 증거는 없다.** 모든 항목은 "정적 검토 통과, 실행 미검증"으로 취급한다. `.uasset`/`.umap`은 만들지 않았다.
@@ -367,16 +367,27 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 4. (선택) `IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`를 13.3 표대로 생성하고 `BP_CharacterViewerController`(또는 Controller 인스턴스)에 할당. 생성하지 않아도 런타임 폴백이 동작해야 하므로 필수는 아니다.
 5. PIE에서: 표시/Orbit(clamp 양끝 포함)/Zoom(clamp 양끝 포함)/R Reset/Space Turntable/H Clean View/UI 위 입력 차단/프로필 2개 교체를 직접 확인하고 이 절의 "미검증" 표시를 실제 결과로 교체한다.
 
-### 13.7 검증 상태
+### 13.7 검증 상태 (2026-09-28 실제 실행 결과)
+
+환경: UE 5.6.1 (`C:\Program Files\Epic Games\UE_5.6`, Launcher 설치), Visual Studio 2022 Community 17.14 + MSVC 14.38.33130 + Windows SDK 10.0.22621. `.uproject`의 `EngineAssociation`은 `5.6`으로 설정했다.
 
 | 항목 | 상태 |
 | --- | --- |
-| 빌드(Editor 타깃) | 미실행 — 엔진/VS 없음(2.1절) |
-| `CharacterShowcase.Profile.NullSafety` | 미실행 |
-| `CharacterShowcase.Viewer.ActorFeatureNullSafety` / `CameraClamp` / `ProfileLookup` | 미실행 |
-| PIE 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | 미실행 |
+| 프로젝트 파일 생성 (`Build.bat -projectfiles`) | 성공, 종료 코드 0 |
+| 빌드 `CharacterShowcaseEditor Win64 Development` | 성공, 종료 코드 0. 16개 액션, 오류 0, 경고 0. `Binaries/Win64/UnrealEditor-CharacterShowcase.dll` 생성 |
+| `CharacterShowcase.Profile.NullSafety` | 통과 (오류 0) |
+| `CharacterShowcase.Viewer.ActorFeatureNullSafety` | 통과 (오류 0). 1차 실행에서는 실패했고 아래 수정 후 통과 |
+| `CharacterShowcase.Viewer.CameraClamp` | 통과 (오류 0) |
+| `CharacterShowcase.Viewer.ProfileLookup` | 통과 (오류 0) |
+| Automation 합계 | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`) |
+| PIE 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | 미실행 — 13.6절의 Editor 수동 절차(LV_Portfolio, WBP, BP_GameMode, DA_Character)가 아직 없음 |
 | Win64 패키지 | 미실행 |
-| 정적 자체 점검(아래) | 실행함 |
+
+1차 테스트 실패와 수정: `ActorFeatureNullSafety`의 "ApplyProfile(nullptr) resets turntable rotation" 검사가 yaw 20으로 실패했다. 원인은 테스트 월드가 `InitializeActorsForPlay`를 호출하지 않아 `PostInitializeComponents`가 실행되지 않고 `InitialRotation` 캡처가 건너뛰어진 것이다. 실제 런타임과 같도록 테스트에서 `World->InitializeActorsForPlay(FURL())`를 SpawnActor 앞에 추가했다. 액터 코드는 바꾸지 않았다.
+
+빌드 로그의 `IncludeOrderVersion = Unreal5_3` 업그레이드 안내는 경고가 아니며, 두 Target.cs를 5.6 템플릿과 맞출 때 함께 정리한다.
+
+Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEditor.AndroidFileServerRuntimeSettings]` 섹션을 자동 추가했다. UE 기본 동작이며 매 실행 시 재생성되므로 그대로 둔다. UBT가 생성한 `.vsconfig`(필요한 VS 구성 요소 목록)도 커밋에 포함한다.
 
 ### 13.8 정적 자체 점검 결과 (이 세션에서 실행)
 
