@@ -47,6 +47,9 @@ enum class ECharacterViewerButtonKind : uint8
 	ToggleTurntable,
 	ResetCamera,
 	ToggleCleanView,
+	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): CHARACTER section, one button per
+	// ACharacterViewerGameMode::ProfileLibrary entry. Id is the target UCharacterProfileData's own asset FName.
+	CharacterProfile,
 };
 
 // Tiny helper object bound to one fallback-panel UButton::OnClicked
@@ -113,6 +116,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Viewer")
 	TArray<FViewerListItem> GetMaterialVariants() const;
 
+	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): the
+	// current ACharacterViewerGameMode's ProfileLibrary, one row per profile
+	// (Id = that UCharacterProfileData's own asset FName). Empty (section
+	// hidden) if there is no GameMode or ProfileLibrary is empty.
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	TArray<FViewerListItem> GetCharacterLibrary() const;
+
 	UFUNCTION(BlueprintPure, Category = "Viewer")
 	bool IsTurntableEnabled() const;
 
@@ -127,6 +137,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Viewer")
 	FName GetCurrentCameraPresetId() const { return CurrentCameraPresetId; }
+
+	// Test-only accessor (Tests/CharacterViewerGameSmokeTest.cpp, P1 profile-switch
+	// evidence): the fallback panel's actually-rendered DisplayName text, so a test
+	// can confirm the panel was rebuilt (RefreshFallbackUI() ran) rather than only
+	// that the underlying Profile data changed. Empty if the fallback UI was never built.
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	FText GetFallbackDisplayNameText() const;
 
 	// True while the pointer is over this panel; the Controller uses this to
 	// skip Orbit/Zoom when a press/drag/wheel started over UMG instead of the viewport.
@@ -149,6 +166,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void RequestMaterialVariant(FName Id);
+
+	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): forwards to
+	// ACharacterViewerController::SelectCharacterProfile(), i.e. a CHARACTER section button click.
+	UFUNCTION(BlueprintCallable, Category = "Viewer")
+	void RequestCharacterProfile(FName ProfileAssetName);
 
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void RequestToggleTurntable();
@@ -200,6 +222,13 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> FallbackDescriptionText;
+
+	// CHARACTER: top section, one button per ACharacterViewerGameMode::ProfileLibrary entry (section 6/13.6).
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> FallbackCharacterSectionBox;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> FallbackCharacterSectionHeader;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UVerticalBox> FallbackViewSectionBox;

@@ -52,6 +52,13 @@ namespace CharacterViewerGameSmokeTest
 		float TurntableStartYaw = 0.f;
 		TWeakObjectPtr<UMaterialInterface> OriginalSlot0Material;
 
+		// Captured once in FValidateSceneCommand, before any turntable/orbit
+		// manipulation: the actor's placed rotation (ClearRuntimeState()'s
+		// InitialRotation), used by FSwitchProfileAndVerifyCommand (deliverable A,
+		// section 6) to confirm ApplyProfile() resets turntable rotation on a
+		// profile switch instead of comparing against a hardcoded yaw.
+		FRotator RestRotation = FRotator::ZeroRotator;
+
 		// UUserWidget's own constructor defaults Visibility to
 		// SelfHitTestInvisible (not Visible; see UserWidget.cpp), so the
 		// "starts visible" / "Clean View restores it" checks below compare
@@ -112,6 +119,7 @@ namespace CharacterViewerGameSmokeTest
 			if (Test->TestNotNull(TEXT("APortfolioCharacterActor was found"), FoundActor))
 			{
 				State->Actor = FoundActor;
+				State->RestRotation = FoundActor->GetActorRotation();
 				Test->TestNotNull(TEXT("Viewer actor's Mesh has a SkeletalMesh assigned"), FoundActor->Mesh ? FoundActor->Mesh->GetSkeletalMeshAsset() : nullptr);
 				Test->TestNotNull(TEXT("Viewer actor's Profile is assigned"), FoundActor->Profile.Get());
 			}
@@ -445,6 +453,95 @@ namespace CharacterViewerGameSmokeTest
 		FAutomationTestBase* Test;
 		TSharedRef<FSharedState> State;
 	};
+
+	// Step 7/8 (P1 completion evidence, Docs/CHARACTER_VIEWER_SETUP.md section 6,
+	// deliverable A): switch the live viewer to a *different* profile
+	// (DA_Character_Cube, then back to DA_Character) purely via
+	// ACharacterViewerController::SwitchProfile() / SelectCharacterProfile() --
+	// no C++/Blueprint code change between profiles -- and confirm the actor,
+	// camera and widget all followed the new profile's own data. Symmetric: both
+	// switches (to Cube and back to Character) run through the same command and
+	// check state against whatever ProfilePath's own asset says, so "switch back
+	// restores the original mesh/framing" falls out of re-running this with
+	// DA_Character's path rather than needing separate before/after assertions.
+	class FSwitchProfileAndVerifyCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSwitchProfileAndVerifyCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, FString InProfilePath)
+			: Test(InTest), State(InState), ProfilePath(MoveTemp(InProfilePath))
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			ACharacterViewerCameraPawn* Pawn = State->Pawn.Get();
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			if (!Controller || !Actor || !Pawn)
+			{
+				Test->AddError(TEXT("FSwitchProfileAndVerifyCommand: missing controller/actor/pawn from a previous step."));
+				return true;
+			}
+
+			UCharacterProfileData* NewProfile = LoadObject<UCharacterProfileData>(nullptr, *ProfilePath);
+			if (!Test->TestNotNull(FString::Printf(TEXT("Loaded profile asset '%s'"), *ProfilePath), NewProfile))
+			{
+				return true;
+			}
+
+			// Exercises the same public entry point the CHARACTER section
+			// fallback-UI buttons use (UCharacterViewerWidget::RequestCharacterProfile ->
+			// ACharacterViewerController::SelectCharacterProfile), not SwitchProfile()
+			// directly, so this also proves ProfileLibrary lookup by asset name works.
+			Controller->SelectCharacterProfile(NewProfile->GetFName());
+
+			Test->TestEqual(FString::Printf(TEXT("Actor Profile is now '%s'"), *ProfilePath), Actor->Profile.Get(), NewProfile);
+
+			USkeletalMesh* ExpectedMesh = NewProfile->SkeletalMesh.Get();
+			USkeletalMesh* ActualMesh = Actor->Mesh ? Actor->Mesh->GetSkeletalMeshAsset() : nullptr;
+			Test->TestEqual(TEXT("Mesh->GetSkeletalMeshAsset() matches the switched-to profile's SkeletalMesh"), ActualMesh, ExpectedMesh);
+
+			// ApplyProfile() clears the OLD selection unconditionally (ClearRuntimeState()),
+			// but then RestoreDefaultAnimationState() immediately re-selects the NEW profile's
+			// own DefaultAnimationId if it has one (DA_Character: "Idle"; DA_Character_Cube has
+			// no Animations/DefaultAnimationId, so it stays None) -- mirror that logic here
+			// instead of asserting NAME_None unconditionally, which is only true for a profile
+			// with no default animation.
+			const FName ExpectedAnimationId = (!NewProfile->DefaultAnimClass && NewProfile->DefaultAnimationId != NAME_None)
+				? NewProfile->DefaultAnimationId
+				: NAME_None;
+			Test->TestEqual(TEXT("Animation id matches the switched-to profile's default playback state"), Actor->GetCurrentAnimationId(), ExpectedAnimationId);
+			Test->TestEqual(TEXT("Expression id cleared by the profile switch"), Actor->GetCurrentExpressionId(), NAME_None);
+			Test->TestEqual(TEXT("Material variant id cleared by the profile switch"), Actor->GetCurrentVariantId(), NAME_None);
+
+			Test->TestTrue(TEXT("Turntable rotation reset to the actor's placed rotation after the profile switch"),
+				Actor->GetActorRotation().Equals(State->RestRotation, 0.5f));
+
+			const FViewerCameraFraming ExpectedFraming = NewProfile->GetResetFraming();
+			const float ExpectedDistance = FMath::Clamp(ExpectedFraming.Distance, ExpectedFraming.MinDistance, ExpectedFraming.MaxDistance);
+			Test->TestEqual(TEXT("Camera distance matches the switched-to profile's reset framing"), Pawn->GetDistance(), ExpectedDistance, 1.f);
+			Test->TestTrue(TEXT("Camera target offset matches the switched-to profile's reset framing"),
+				Pawn->GetTargetOffset().Equals(ExpectedFraming.TargetOffset, 0.5f));
+
+			if (Widget)
+			{
+				Test->TestEqual(TEXT("Widget panel rebuilt: fallback DisplayName text matches the switched-to profile"),
+					Widget->GetFallbackDisplayNameText().ToString(), NewProfile->DisplayName.ToString());
+			}
+			else
+			{
+				Test->AddError(TEXT("FSwitchProfileAndVerifyCommand: widget missing."));
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		FString ProfilePath;
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCharacterViewerGameSmokeTest,
@@ -481,6 +578,18 @@ bool FCharacterViewerGameSmokeTest::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Clean")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCleanViewOffCommand(this, State));
+
+	// 7/8. Profile switch (P1 completion evidence, section 6, deliverable A):
+	// DA_Character -> DA_Character_Cube -> DA_Character, entirely through
+	// ProfileLibrary/SelectCharacterProfile(), no code change between profiles.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSwitchProfileAndVerifyCommand(this, State, TEXT("/Game/Portfolio/Data/DA_Character_Cube.DA_Character_Cube")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Profile2")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSwitchProfileAndVerifyCommand(this, State, TEXT("/Game/Portfolio/Data/DA_Character.DA_Character")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Profile1")));
 
 	return true;
 }

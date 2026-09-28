@@ -99,6 +99,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void SwitchProfile(UCharacterProfileData* NewProfile);
 
+	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): looks
+	// up ProfileAssetName (a UCharacterProfileData's own asset FName, e.g.
+	// "DA_Character_Cube") in the current ACharacterViewerGameMode's
+	// ProfileLibrary and, if found, calls SwitchProfile() with it. No-op
+	// (no crash) if there is no GameMode or no matching entry. This is what
+	// the widget's CHARACTER section buttons call, so switching to a new
+	// character in ProfileLibrary never requires a C++/Blueprint code change.
+	UFUNCTION(BlueprintCallable, Category = "Viewer")
+	void SelectCharacterProfile(FName ProfileAssetName);
+
 	// Preferred way to give the controller its viewer actor (called by
 	// ACharacterViewerGameMode); falls back to TActorIterator in BeginPlay if never called.
 	UFUNCTION(BlueprintCallable, Category = "Viewer")

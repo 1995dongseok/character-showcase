@@ -1,5 +1,6 @@
 #include "CharacterViewer/CharacterViewerGameMode.h"
 
+#include "Character/CharacterProfileData.h"
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerController.h"
@@ -56,4 +57,18 @@ void ACharacterViewerGameMode::PostLogin(APlayerController* NewPlayer)
 		}
 		ViewerController->SetViewerActor(ViewerActor);
 	}
+}
+
+TArray<UCharacterProfileData*> ACharacterViewerGameMode::GetProfileLibrary() const
+{
+	TArray<UCharacterProfileData*> Result;
+	Result.Reserve(ProfileLibrary.Num());
+	for (const TObjectPtr<UCharacterProfileData>& LibraryProfile : ProfileLibrary)
+	{
+		if (LibraryProfile)
+		{
+			Result.Add(LibraryProfile);
+		}
+	}
+	return Result;
 }

@@ -3,6 +3,7 @@
 #include "Character/CharacterProfileData.h"
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
+#include "CharacterViewer/CharacterViewerGameMode.h"
 #include "Components/SlateWrapperTypes.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -481,5 +482,29 @@ void ACharacterViewerController::SwitchProfile(UCharacterProfileData* NewProfile
 	if (ViewerWidget)
 	{
 		ViewerWidget->BindToViewer(this, ViewerActor, CameraPawn);
+	}
+}
+
+void ACharacterViewerController::SelectCharacterProfile(FName ProfileAssetName)
+{
+	if (ProfileAssetName == NAME_None)
+	{
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+	const ACharacterViewerGameMode* GameMode = World ? World->GetAuthGameMode<ACharacterViewerGameMode>() : nullptr;
+	if (!GameMode)
+	{
+		return;
+	}
+
+	for (UCharacterProfileData* LibraryProfile : GameMode->GetProfileLibrary())
+	{
+		if (LibraryProfile && LibraryProfile->GetFName() == ProfileAssetName)
+		{
+			SwitchProfile(LibraryProfile);
+			return;
+		}
 	}
 }

@@ -40,6 +40,15 @@ DATA_PACKAGE = "/Game/Portfolio/Data"
 DATA_ASSET_NAME = "DA_Character"
 DATA_ASSET_PATH = f"{DATA_PACKAGE}/{DATA_ASSET_NAME}"
 
+# P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): a second
+# profile, so ACharacterViewerGameMode.ProfileLibrary can offer a code-free
+# runtime profile switch. Uses another engine-shipped placeholder (a simple
+# skeletal cube) instead of a second real character, since no second real
+# character asset exists yet -- see Scripts/CreatePortfolioAssets.py module
+# docstring for the same rationale applied to DA_Character/TutorialTPP.
+DATA_ASSET_CUBE_NAME = "DA_Character_Cube"
+DATA_ASSET_CUBE_PATH = f"{DATA_PACKAGE}/{DATA_ASSET_CUBE_NAME}"
+
 BP_PACKAGE = "/Game/Portfolio/Blueprints"
 BP_ASSET_NAME = "BP_CharacterViewerGameMode"
 BP_ASSET_PATH = f"{BP_PACKAGE}/{BP_ASSET_NAME}"
@@ -57,6 +66,7 @@ TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_I
 TUTORIAL_WALK = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Walk_Fwd.Tutorial_Walk_Fwd"
 TUTORIAL_MAT = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP_Mat.TutorialTPP_Mat"
 GRID_MAT = "/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"
+SKELETAL_CUBE_MESH = "/Engine/EngineMeshes/SkeletalCube.SkeletalCube"
 CYLINDER_MESH = "/Engine/BasicShapes/Cylinder.Cylinder"
 AMBIENT_CUBEMAP = "/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap"
 DARK_MAT = "/Engine/EngineMaterials/T_Default_Material.T_Default_Material"  # fallback if BasicShapeMaterial unavailable
@@ -259,6 +269,148 @@ def create_or_update_character_profile():
     return profile
 
 
+def measure_skeletal_mesh_extent(mesh):
+    """Returns (origin: unreal.Vector, box_extent: unreal.Vector) for `mesh`,
+    trying get_bounds() then get_imported_bounds() (both confirmed present on
+    unreal.SkeletalMesh in this UE 5.6 Python API; imported bounds are the
+    un-transformed import-time bounds, render bounds are get_bounds()).
+    Falls back to a conservative guess (50cm half-extent cube) if neither
+    call succeeds, so profile creation never hard-fails on this.
+    """
+    for method_name in ("get_bounds", "get_imported_bounds"):
+        method = getattr(mesh, method_name, None)
+        if method is None:
+            continue
+        try:
+            bounds = method()
+            origin = bounds.origin
+            extent = bounds.box_extent
+            log(f"[CreatePortfolioAssets] {mesh.get_name()}.{method_name}() -> origin={origin} extent={extent}")
+            return origin, extent
+        except Exception as exc:
+            report_exception(f"measure_skeletal_mesh_extent via {mesh.get_name()}.{method_name}()", exc)
+    log_warn(f"[CreatePortfolioAssets] Could not measure bounds for '{mesh.get_name()}', using a 50cm half-extent guess.")
+    return unreal.Vector(0.0, 0.0, 0.0), unreal.Vector(50.0, 50.0, 50.0)
+
+
+# ---------------------------------------------------------------------------
+# 1b. DA_Character_Cube (second CharacterProfileData, P1 completion evidence:
+#     a code-free runtime profile switch needs a second profile to switch to)
+# ---------------------------------------------------------------------------
+
+def create_or_update_character_profile_cube():
+    ensure_directory(DATA_PACKAGE)
+
+    data_asset_class = unreal.CharacterProfileData
+
+    if EAL.does_asset_exist(DATA_ASSET_CUBE_PATH):
+        profile = EAL.load_asset(DATA_ASSET_CUBE_PATH)
+        log(f"[CreatePortfolioAssets] DA_Character_Cube already exists, updating in place: {DATA_ASSET_CUBE_PATH}")
+    else:
+        factory = unreal.DataAssetFactory()
+        try:
+            factory.set_editor_property("data_asset_class", data_asset_class)
+        except Exception as exc:
+            report_exception("DataAssetFactory.data_asset_class (cube)", exc)
+        profile = asset_tools.create_asset(DATA_ASSET_CUBE_NAME, DATA_PACKAGE, data_asset_class, factory)
+        if profile is None:
+            raise RuntimeError("asset_tools.create_asset returned None for DA_Character_Cube")
+        log(f"[CreatePortfolioAssets] Created DA_Character_Cube at {DATA_ASSET_CUBE_PATH}")
+
+    skel_mesh = load_or_none(SKELETAL_CUBE_MESH)
+    grid_mat = load_or_none(GRID_MAT)
+
+    profile.set_editor_property("display_name", unreal.Text("Skeletal Cube (placeholder)"))
+    profile.set_editor_property(
+        "description",
+        unreal.Text(
+            "Engine skeletal-mesh cube (/Engine/EngineMeshes/SkeletalCube) used as a second, "
+            "clearly different placeholder profile. Its only purpose is to prove that switching "
+            "the active character in the viewer (ACharacterViewerController::SwitchProfile / "
+            "SelectCharacterProfile) requires no C++/Blueprint code change -- just adding an "
+            "entry to ACharacterViewerGameMode.ProfileLibrary. It has no animations or morph "
+            "targets, so Animations/Expressions are intentionally empty."
+        ),
+    )
+    profile.set_editor_property("skeletal_mesh", skel_mesh)
+
+    # --- Default framing: measured from the mesh's own bounds so it fills the frame ---
+    if skel_mesh is not None:
+        origin, extent = measure_skeletal_mesh_extent(skel_mesh)
+    else:
+        origin, extent = unreal.Vector(0.0, 0.0, 0.0), unreal.Vector(50.0, 50.0, 50.0)
+
+    max_extent = max(extent.x, extent.y, extent.z, 1.0)
+    # SkeletalCube measures ~12.6cm half-extent (a ~25cm cube). A naive
+    # "fit-the-frustum" minimum (half_extent / tan(fov/2)) leaves ~zero
+    # headroom and, for a small object this close to the lens, the first
+    # -game smoke run at that minimum showed the cube filling/overflowing
+    # the whole frame (see Docs/CHARACTER_VIEWER_SETUP.md section 13.7.2) --
+    # so this uses a much larger multiplier (~6x half-extent) for generous
+    # headroom on every side, matching DA_Character's own Full framing ratio
+    # (distance 380 / TutorialTPP half-height ~96 = ~4x) plus extra margin
+    # for how much smaller this object is in absolute (cm) terms.
+    cube_distance = max_extent * 6.0
+    cube_framing = unreal.ViewerCameraFraming()
+    cube_framing.set_editor_property("target_offset", unreal.Vector(origin.x, origin.y, origin.z))
+    cube_framing.set_editor_property("distance", cube_distance)
+    cube_framing.set_editor_property("fov", 50.0)
+    cube_framing.set_editor_property("min_distance", max(max_extent * 2.0, 10.0))
+    cube_framing.set_editor_property("max_distance", max_extent * 15.0)
+    cube_framing.set_editor_property("min_pitch", -80.0)
+    cube_framing.set_editor_property("max_pitch", 80.0)
+    profile.set_editor_property("default_framing", cube_framing)
+
+    # A single "Full" preset mirroring DefaultFraming, so DefaultPresetId
+    # resolves to a real preset (GetResetFraming() would fall back to
+    # DefaultFraming anyway if this were left empty, but this matches
+    # DA_Character's shape and keeps the VIEW section non-empty).
+    full_preset = unreal.ViewerCameraPreset()
+    full_preset.set_editor_property("id", "Full")
+    full_preset.set_editor_property("display_name", unreal.Text("Full"))
+    full_preset.set_editor_property("framing", cube_framing)
+    profile.set_editor_property("camera_presets", [full_preset])
+    profile.set_editor_property("default_preset_id", "Full")
+
+    # --- No animations or morph targets on this mesh: leave both empty ---
+    profile.set_editor_property("animations", [])
+    profile.set_editor_property("default_animation_id", unreal.Name())
+    profile.set_editor_property("expressions", [])
+
+    # --- Material variants: Default (no overrides) + one engine-material variant ---
+    slot_name = unreal.Name()
+    try:
+        if skel_mesh is not None:
+            materials = skel_mesh.get_editor_property("materials")
+            if materials:
+                slot_name = materials[0].get_editor_property("material_slot_name")
+                log(f"[CreatePortfolioAssets] SkeletalCube slot 0 name = '{slot_name}'")
+    except Exception as exc:
+        report_exception("reading SkeletalCube material slot name", exc)
+
+    default_variant = unreal.ViewerMaterialVariant()
+    default_variant.set_editor_property("id", "Default")
+    default_variant.set_editor_property("display_name", unreal.Text("Default"))
+    default_variant.set_editor_property("slots", [])
+
+    grid_slot = unreal.ViewerMaterialSlotOverride()
+    grid_slot.set_editor_property("slot_name", slot_name if slot_name else unreal.Name())
+    grid_slot.set_editor_property("slot_index", 0)
+    grid_slot.set_editor_property("material", grid_mat)
+
+    grid_variant = unreal.ViewerMaterialVariant()
+    grid_variant.set_editor_property("id", "Grid")
+    grid_variant.set_editor_property("display_name", unreal.Text("Grid"))
+    grid_variant.set_editor_property("slots", [grid_slot])
+
+    profile.set_editor_property("material_variants", [default_variant, grid_variant])
+
+    profile.set_editor_property("turntable_speed_degrees_per_second", 45.0)
+
+    save(DATA_ASSET_CUBE_PATH)
+    return profile
+
+
 # ---------------------------------------------------------------------------
 # 2. WBP_CharacterViewer (Widget Blueprint, parent = UCharacterViewerWidget)
 #    Left with an empty designer tree on purpose: the C++ fallback panel
@@ -293,7 +445,7 @@ def create_or_update_widget_blueprint():
 # 3. BP_CharacterViewerGameMode (Blueprint, parent = ACharacterViewerGameMode)
 # ---------------------------------------------------------------------------
 
-def create_or_update_gamemode_blueprint(profile, wbp):
+def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
     ensure_directory(BP_PACKAGE)
 
     if EAL.does_asset_exist(BP_ASSET_PATH):
@@ -323,6 +475,11 @@ def create_or_update_gamemode_blueprint(profile, wbp):
     cdo.set_editor_property("default_profile", profile)
     wbp_generated_class = wbp.generated_class() if wbp else None
     cdo.set_editor_property("viewer_widget_class", wbp_generated_class)
+    # P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): the
+    # runtime CHARACTER UI section offers every entry here (default profile
+    # first) via ACharacterViewerController::SelectCharacterProfile() -- no
+    # C++/Blueprint change needed to add DA_Character_Cube as a second choice.
+    cdo.set_editor_property("profile_library", [profile, cube_profile])
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -504,8 +661,9 @@ def update_default_engine_ini():
 def main():
     log("[CreatePortfolioAssets] ==== START ====")
     profile = create_or_update_character_profile()
+    cube_profile = create_or_update_character_profile_cube()
     wbp = create_or_update_widget_blueprint()
-    gamemode_bp = create_or_update_gamemode_blueprint(profile, wbp)
+    gamemode_bp = create_or_update_gamemode_blueprint(profile, cube_profile, wbp)
     create_or_update_level(profile, gamemode_bp)
     update_default_engine_ini()
 

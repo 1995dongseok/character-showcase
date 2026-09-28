@@ -152,6 +152,7 @@ Idle/Walk/Combat/Pose, Neutral/Smile/Angry/Surprised는 예시 이름이며 필�
 표정의 다른 실행 방식(Montage/Control Rig/Blueprint Event)은 현재 범위에서 구현하지 않는다.
 P1 완료 증거: 프로필 2개로 코드 수정 없는 교체, 기능별 실행 확인, 모든 선택 데이터가 빈 경우의 무충돌, Win64 패키지 기본 실행.
 실제 에셋이 없어 검증할 수 없는 기능은 명시적으로 미검증 처리한다. P0/P1 안정화 전 P2 개발을 시작하지 않는다.
+**(2026-09-28 후속 세션) P1 완료 증거 4개 항목 전부 실행 확인 완료 — 13.7.2절 참고.**
 
 ## 7. P2 — Inspection과 Wireframe
 
@@ -390,6 +391,10 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 
 `.uasset`/`.umap`은 손으로 만들지 않았고 전부 위 스크립트의 Editor API 호출로 생성·저장되었다(실행 증거는 13.7절).
 
+**(2026-09-28 후속 세션, P1 완료 증거 — 코드 수정 없는 프로필 교체) `Content/Portfolio/Data/DA_Character_Cube.uasset`** — 두 번째 `CharacterProfileData`. SkeletalMesh = `/Engine/EngineMeshes/SkeletalCube`(존재 확인함; TutorialTPP와 달리 애니메이션/Morph가 없는 완전히 다른 엔진 placeholder). Python에서 `skeletal_mesh.get_bounds()`로 측정한 half-extent(12.598cm 균등)를 기준으로 `DefaultFraming`(Distance = half-extent×6, TargetOffset = 측정된 origin, FOV 50)과 이를 그대로 복사한 단일 "Full" `CameraPreset`(`DefaultPresetId=Full`)을 계산해 설정한다(하드코딩 값 아님). 처음에는 배율 2.3×로 계산했으나 `-game` 스모크 스크린샷(`ViewerSmoke_Profile2`)에서 큐브가 화면을 완전히 뒤덮어 형태를 알아볼 수 없었고(13.7.2절), 배율을 6×로 올려 재확인했다. Animations/Expressions는 의도적으로 빈 배열(이 메시는 둘 다 없음). MaterialVariants는 DA_Character와 동일한 패턴(Default=오버라이드 없음, Grid=슬롯0→WorldGridMaterial). DisplayName="Skeletal Cube (placeholder)", TurntableSpeedDegreesPerSecond=45(DA_Character의 20과 다르게 하여 두 프로필이 명확히 구분되게 함). `create_or_update_character_profile_cube()`가 담당하며 idempotent(재실행 시 기존 에셋 갱신)하다.
+
+**`ACharacterViewerGameMode.ProfileLibrary`** — `create_or_update_gamemode_blueprint()`가 `BP_CharacterViewerGameMode`의 CDO에 `profile_library = [DA_Character, DA_Character_Cube]`(기본 프로필이 0번)를 설정한다. C++ 스키마 변경 없이(요청대로 `UCharacterProfileData`는 손대지 않았다) `ACharacterViewerGameMode`에 `TArray<TObjectPtr<UCharacterProfileData>> ProfileLibrary` + `BlueprintPure GetProfileLibrary()`만 추가했다. 런타임에서 이 배열을 실제로 쓰는 것은 `ACharacterViewerController::SelectCharacterProfile(FName ProfileAssetName)`(자산 FName으로 `ProfileLibrary`를 찾아 기존 `SwitchProfile()`을 호출)와 `UCharacterViewerWidget::GetCharacterLibrary()`/`RequestCharacterProfile()`(폴백 UI의 새 CHARACTER 섹션, 13.10절)이다.
+
 **사람이 Editor GUI로 하는 대안** (짧게만): Content Browser에서 각 폴더에 우클릭 → Miscellaneous/Blueprint Class/Widget Blueprint/Level로 동일한 이름·부모 클래스·값을 지정하고 저장. IA/IMC 6개(`IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`, 13.3절 표)는 여전히 선택 사항이며 만들지 않으면 런타임 폴백 입력이 대신 동작한다.
 
 ### 13.7 검증 상태 (2026-09-28 실제 실행 결과)
@@ -406,7 +411,7 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 | `CharacterShowcase.Viewer.ProfileLookup` | 통과 (오류 0) |
 | Automation 합계(Editor 컨텍스트) | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`). 13.6절 자산 생성 이후 최종 재확인도 4/4 |
 | PIE(사람이 Editor GUI로 클릭) 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | **여전히 미실행 — 아래 `-game` 스모크 테스트가 대신 실제 GameMode/레벨/BeginPlay로 이 항목들을 프로그램적으로 검증했다** |
-| Win64 패키지 | 미실행 |
+| Win64 패키지 | **완료 — 13.7.2절 참고 (2026-09-28 후속 세션)** |
 
 1차 테스트 실패와 수정: `ActorFeatureNullSafety`의 "ApplyProfile(nullptr) resets turntable rotation" 검사가 yaw 20으로 실패했다. 원인은 테스트 월드가 `InitializeActorsForPlay`를 호출하지 않아 `PostInitializeComponents`가 실행되지 않고 `InitialRotation` 캡처가 건너뛰어진 것이다. 실제 런타임과 같도록 테스트에서 `World->InitializeActorsForPlay(FURL())`를 SpawnActor 앞에 추가했다. 액터 코드는 바꾸지 않았다.
 
@@ -449,6 +454,49 @@ Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEd
 
 `r.DefaultFeature.AutoExposure=False`(고정 노출, 장면 휘도 1 = EV100 약 3)는 그대로 유지한다 — 위 lux 값은 이 고정 노출 기준으로 정했다.
 
+#### 13.7.2 P1 완료 증거 보강: 프로필 2개 코드 없는 교체 + Win64 패키지 기본 실행 (2026-09-28 후속 세션)
+
+이 절은 6절 P1 완료 증거의 나머지 2개 항목("프로필 2개로 코드 수정 없는 교체", "Win64 패키지 기본 실행")을 다룬다. 나머지 2개("기능별 실행 확인", "빈 데이터 무충돌")는 13.7/13.7.1절에서 이미 확인됨.
+
+**A. 두 번째 프로필 + 런타임 프로필 교체 (코드 수정 없음)**
+
+- `Scripts/CreatePortfolioAssets.py`를 확장해 `Content/Portfolio/Data/DA_Character_Cube.uasset`을 추가로 생성한다(13.6절에 상세). `/Engine/EngineMeshes/SkeletalCube`(존재 확인함, TutorialTPP와 무관한 별도 엔진 placeholder)를 사용하고, Animations/Expressions는 빈 배열, TurntableSpeedDegreesPerSecond=45(DA_Character의 20과 다름)로 두 프로필이 명확히 구분되게 했다.
+- `ACharacterViewerGameMode`에 `TArray<TObjectPtr<UCharacterProfileData>> ProfileLibrary`(EditDefaultsOnly) + `GetProfileLibrary()`(BlueprintPure)만 추가했다 — `UCharacterProfileData` 스키마는 손대지 않았다. `create_or_update_gamemode_blueprint()`가 `BP_CharacterViewerGameMode`의 CDO에 `profile_library = [DA_Character, DA_Character_Cube]`를 설정한다.
+- 교체 자체는 기존 `ACharacterViewerController::SwitchProfile(UCharacterProfileData*)`를 그대로 쓴다. 새로 추가한 `SelectCharacterProfile(FName ProfileAssetName)`은 `ProfileLibrary`에서 자산 FName이 일치하는 항목을 찾아 `SwitchProfile()`을 호출할 뿐이다 — 새 프로필을 추가/교체하려면 `ProfileLibrary` 배열에 에셋을 넣는 것만으로 충분하며 C++/Blueprint 코드는 그대로다.
+- `UCharacterViewerWidget`에 `GetCharacterLibrary()`(현재 GameMode의 `ProfileLibrary`를 항목화)와 `RequestCharacterProfile(FName)`을 추가하고, 13.10절 폴백 패널에 새 **CHARACTER** 섹션(맨 위, DisplayName/Description 바로 아래)을 추가해 프로필마다 버튼 하나씩 표시한다.
+- `Tests/CharacterViewerGameSmokeTest.cpp`에 `FSwitchProfileAndVerifyCommand`를 추가하고(기존 Clean View 단계 뒤에 실행), DA_Character → DA_Character_Cube → DA_Character 순으로 `SelectCharacterProfile()`을 호출해 각각 확인한다: Actor `Profile`이 실제로 바뀜, `Mesh->GetSkeletalMeshAsset()`이 새 프로필의 SkeletalMesh와 일치, `GetCurrentAnimationId()`가 새 프로필의 기본 재생 상태와 일치(`RestoreDefaultAnimationState()`가 `DefaultAnimationId`를 즉시 재적용하므로 DA_Character는 "Idle", DA_Character_Cube는 애니메이션이 없어 `NAME_None` — 처음에는 두 경우 모두 `NAME_None`을 기대해 1차 실행에서 실패했고, 프로필의 실제 기본 재생 로직을 반영하도록 기대값을 고쳐 통과시켰다), `GetCurrentExpressionId()`/`GetCurrentVariantId()`가 `NAME_None`으로 초기화, 액터 회전이 레벨에 배치된 회전(`FValidateSceneCommand`가 최초에 캡처한 값)으로 복원, `ACharacterViewerCameraPawn`의 Distance/TargetOffset이 새 프로필의 `GetResetFraming()`과 일치, 폴백 패널의 실제 렌더링된 텍스트(`UCharacterViewerWidget::GetFallbackDisplayNameText()`, 이번에 추가한 테스트 전용 접근자)가 새 프로필의 DisplayName과 일치. 각 전환 후 `ViewerSmoke_Profile2.png`/`ViewerSmoke_Profile1.png` 스크린샷을 찍는다.
+- 결과: **1/1 통과, 오류 0.** (`Saved/Automation/Game/index.json`, 아래 B의 패키지 스모크와 동일한 테스트를 Editor `-game` 프로세스로도 재실행해 확인.) 최초 큐브 프로필의 `DefaultFraming.Distance`를 측정된 half-extent(12.598cm) × 2.3으로 계산했을 때 `ViewerSmoke_Profile2.png`에서 큐브가 화면을 거의 뒤덮어(형태를 알아볼 수 없는 근접 샷) 나왔고, × 6.0으로 올려 재확인해 정상적으로 프레이밍됨을 육안 확인했다(13.9절에 원인 기록).
+- **스크린샷 육안 확인** (`Saved/Screenshots/WindowsEditor/`): **`ViewerSmoke_UI.png`** — 노란 마네킹 전신 + 우측 패널 맨 위에 **CHARACTER** 섹션("Tutorial Mannequin (placeholder)", "Skeletal Cube (pla…" 두 버튼)이 VIEW보다 먼저 보인다. **`ViewerSmoke_Profile2.png`** — DA_Character_Cube로 전환한 직후: 화면 중앙에 회색 체커보드 무늬의 정육면체(SkeletalCube의 엔진 기본 머티리얼, WorldGridMaterial이 아님)가 헤드룸을 두고 잘 프레이밍되어 있고, 아래 플랫폼과 그림자가 보이며, 우측 패널 설명 텍스트가 "Skeletal Cube (placeholder)"로 바뀌어 있다(VIEW 섹션은 Animations/Expressions가 빈 이 프로필에서도 CameraPresets=[Full] 덕분에 여전히 표시됨). **`ViewerSmoke_Profile1.png`** — DA_Character로 다시 전환한 직후: 마네킹 전신이 원래 크기/위치/포즈(Idle)로 복원되어 `ViewerSmoke_UI.png`와 동일하게 보인다.
+
+**B. Win64 패키지 기본 실행**
+
+- `Config/DefaultGame.ini`에 `[/Script/UnrealEd.ProjectPackagingSettings]`를 추가: `bCookAll=False` + `+MapsToCook=(FilePath="/Game/Portfolio/Maps/LV_Portfolio")`. `LV_Portfolio`가 참조하는 `BP_CharacterViewerGameMode`(그 CDO의 `ProfileLibrary`를 통해 `DA_Character`/`DA_Character_Cube` 양쪽 모두, 그리고 각 프로필이 참조하는 엔진 튜토리얼/엔진 메시 에셋까지)는 전부 하드 레퍼런스라 명시적 Primary Asset 등록 없이도 맵을 쿡하면 함께 쿡된다.
+- Game 타깃(`CharacterShowcase Win64 Development`) 단독 빌드: **성공, 종료 코드 0, 20개 액션, 오류 0, 경고 0**(UAT 실행 전 별도 확인).
+- UAT 명령:
+  ```powershell
+  & "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
+      -project="C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
+      -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive `
+      -archivedirectory="C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Packaged" `
+      -unattended -noP4 -utf8output
+  ```
+  결과: **BUILD SUCCESSFUL, 종료 코드 0.** `BuildCookRun time: 42.97s`(스테이지+아카이브만 별도 집계된 시간; 코드 재사용 덕분에 쿡 자체는 전체 388→454개 패키지를 몇 분 내로 끝냄 — 이 프로젝트 콘텐츠가 적어 예상(20~60분)보다 훨씬 빨랐다), AutomationTool 총 실행 0h 0m 44s. 로그에 `error`/`fail` 문자열로 걸리는 실제 실패는 없었다(`LogObj: ... SlateThemeManager ...` 한 줄은 무해한 기존 엔진 경고).
+  - 산출물: `Saved/Packaged/Windows/CharacterShowcase.exe`(런처) + `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe`(실제 실행 파일) + `Content/Paks/*.pak`.
+  - 쿡된 에셋 확인: `Saved/Cooked/Windows/CharacterShowcase/Content/Portfolio/Data/DA_Character_Cube.uasset`(+`.uexp`) 존재 확인. 같은 폴더에 `DA_Character`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`도 모두 쿡됨.
+- 패키지 스모크 실행(내부 exe, Development 빌드는 자동화 테스트 코드 포함):
+  ```powershell
+  & "...\Saved\Packaged\Windows\CharacterShowcase\Binaries\Win64\CharacterShowcase.exe" `
+      -windowed -ResX=1280 -ResY=720 -log -unattended `
+      "-ExecCmds=Automation RunTests CharacterShowcase.Game" `
+      "-TestExit=Automation Test Queue Empty" `
+      "-ReportExportPath=...\Saved\Automation\Packaged"
+  ```
+  결과: **1/1 통과, 오류 0** (`Saved/Automation/Packaged/index.json`: `"succeeded": 1, "failed": 0`, `CharacterShowcase.Game.ViewerSmoke` = `Success`). 편집기 `-game` 실행과 동일한 검증 항목(A절 + 13.7.1절)이 패키지에서도 전부 통과했다.
+  - 패키지 스크린샷 경로: `Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/{ViewerSmoke_UI,ViewerSmoke_Clean,ViewerSmoke_Profile2,ViewerSmoke_Profile1}.png`. 육안 확인: 4장 모두 Editor `-game` 스크린샷과 픽셀 단위로 사실상 동일 — 마네킹/큐브 프레이밍, CHARACTER 섹션 버튼 2개, VIEW 섹션 모두 정상 렌더링.
+- 부수적으로 프로젝트 루트에 `Build/Windows/FileOpenOrder/*.log`(UAT가 쿡 시 자동 생성하는 파일 순서 로그, 880KB)가 새로 생겼다 — 커밋 대상이 아니므로 `.gitignore`에 `/Build/`를 추가했다(기존 `/Binaries/`, `/Saved/` 등과 같은 패턴).
+
+**결론**: 6절 P1 완료 증거 4개 항목 모두 이번 세션까지 포함해 전부 실행 확인됨(기능별 실행 확인/빈 데이터 무충돌은 13.7.1절, 프로필 2개 교체/Win64 패키지는 이 절).
+
 ### 13.8 정적 자체 점검 결과 (이 세션에서 실행)
 
 - `.generated.h` 마지막 include 여부: 헤더 6개(`CharacterProfileData.h`, `PortfolioCharacterActor.h`, `CharacterViewerCameraPawn.h`, `CharacterViewerController.h`, `CharacterViewerGameMode.h`, `CharacterViewerWidget.h`) 전수 확인, 전부 마지막 줄이 자기 이름의 `.generated.h`. 문제 0건.
@@ -458,6 +506,8 @@ Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEd
 - `Build.cs` 의존성: 이번 세션에서 실제로 include한 Enhanced Input/UMG/Camera 헤더(`EnhancedInputComponent.h`, `EnhancedInputSubsystems.h`, `InputAction.h`, `InputActionValue.h`, `InputMappingContext.h`, `Blueprint/UserWidget.h`, `Components/SlateWrapperTypes.h`, `Camera/CameraComponent.h`)를 제공하는 모듈(`EnhancedInput`, `InputCore`, `UMG`)이 모두 `PublicDependencyModuleNames`에 있음을 확인. `InputModifiers.h`/`InputTriggers.h`는 이번 구현(단순 Started/Triggered/Completed/Canceled 바인딩만 사용)에서 실제로 사용하지 않아 include하지 않았다.
 
 **2026-09-28 후속 세션(13.6~13.10) 재점검**: 신규/변경 파일 24개(`Source/**/*.{h,cpp,cs}` + `Scripts/*.py` + `Config/*.ini` + `CharacterShowcase.uproject`)를 같은 방식으로 전수 재검사 — BOM/비-UTF-8 0건. `.generated.h` 마지막 include: 이번에 새로 수정한 `CharacterViewerWidget.h`도 마지막 줄이 `CharacterViewerWidget.generated.h`. UPROPERTY 원시 포인터: `CharacterViewerWidget.h`(폴백 UI 위젯 포인터 다수 포함)와 `CharacterViewerController.h`(신규 Get* 접근자)를 포함해 전수 재확인, 전부 `TObjectPtr`/`TSubclassOf`/`TArray<TObjectPtr<...>>`. 빌드는 0 오류/0 경고로 4회 재현(초기 P0/P1 세션 1회 + 이번 세션 C++ 변경마다 3회).
+
+**2026-09-28 P1 완료 증거 보강 세션(13.7.2절) 재점검**: 이번에 수정/추가한 파일(`CharacterViewerGameMode.h/.cpp`, `CharacterViewerController.h/.cpp`, `CharacterViewerWidget.h/.cpp`, `CharacterViewerGameSmokeTest.cpp`, `Scripts/CreatePortfolioAssets.py`, `Config/DefaultGame.ini`, `.gitignore`)를 같은 방식으로 재검사 — BOM/비-UTF-8 0건(21개 파일 전수), `.generated.h` 마지막 include 이상 없음(`CharacterViewerGameMode.h`, `CharacterViewerWidget.h` 재확인), 신규 UPROPERTY(`ProfileLibrary`, 폴백 CHARACTER 섹션 멤버) 전부 `TArray<TObjectPtr<...>>`/`TObjectPtr<...>`, 원시 포인터 UPROPERTY 0건. Editor 빌드 0오류/0경고 2회 재현(테스트 1차 실패 수정 전후), Game 타깃 빌드 0오류/0경고 1회. `git status --short`는 의도한 파일만 표시(위 목록 + `Content/Portfolio/Data/DA_Character_Cube.uasset` 신규 + `Content/Portfolio/Blueprints/BP_CharacterViewerGameMode.uasset`/`Content/Portfolio/Maps/LV_Portfolio.umap` 갱신). `git check-attr filter -- Content/Portfolio/Data/DA_Character_Cube.uasset` = `lfs` 확인.
 
 ### 13.9 남은 문제·위험 (컴파일러로 확인 못 함)
 
@@ -472,6 +522,10 @@ Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEd
 - (2026-09-28 Opus 에스컬레이션, 해결) `-game` 스모크 스크린샷의 검은 화면은 해결됐다(원인·조치는 13.7.1절). 남은 주의점: (a) 조명 값(키 7 lux / 필 2 lux / Daylight 큐브맵 SkyLight 1.0)은 `r.DefaultFeature.AutoExposure=False` 고정 노출 기준으로 이 PC(Intel UHD 630) 스크린샷 1장을 눈으로 보고 정한 값이며, 배경은 하늘/배경막이 없어 검정이다. 실제 포트폴리오 아트가 들어오면 재조정 대상이다. (b) 스크린샷은 `FSlateApplication::TakeScreenshot`으로 게임 창을 캡처하므로 창이 최소화되는 등 Slate가 창을 그리지 않는 환경(원격 잠금/헤드리스)에서는 테스트가 "TakeScreenshot failed (visible/minimized …)" 오류로 실패한다(의도된 명시적 실패). 엔진 `FScreenshotRequest(bInShowUI=true)` 경로가 이 환경에서 조용히 실패한 이유 자체는 규명하지 않았다. (c) 이 PC는 5 FPS라 자동화 프레임워크의 `FWaitForInteractiveFrameRate`(≥10 FPS)가 매번 600초 타임아웃까지 기다린 뒤 테스트를 시작한다 — `-game` 스모크 1회에 약 11분.
 - 폴백 패널: 720p에서는 설명 문구가 길어 VIEW 섹션과 ANIMATION 일부만 스크롤 없이 보이고 EXPRESSION/APPEARANCE/DISPLAY 섹션은 ScrollBox 아래에 있다(스크린샷으로는 앞부분만 확인). 폴백 트리 생성 시점을 `NativeConstruct()`→`RebuildWidget()`으로 옮긴 변경은 Editor 컨텍스트 테스트 4개가 다루지 않으며 `-game` 스크린샷으로만 확인됐다. 디자이너가 트리를 채운 WBP에서는 기존과 같이 폴백이 건너뛰어진다(`RootWidget != nullptr`).
 - `Scripts/CreatePortfolioAssets.py`의 레벨 재생성은 idempotent 요구를 만족시키기 위해 "기존 액터를 지우고 재사용"이 아니라 "기존 `LV_Portfolio` 에셋을 삭제하고 완전히 새로 생성"하는 방식으로 되어 있다(13.7.1절의 3차 시도 실패 참고). 따라서 레벨에 스크립트가 만들지 않은 액터(예: 나중에 아티스트가 손으로 배치한 추가 소품)를 넣어 두면 스크립트를 재실행할 때 함께 사라진다 — 그런 손 배치 요소가 필요해지면 이 재생성 전략을 "기존 레벨을 열고 스크립트가 소유하는 액터만 정확히 추적해 치환"하는 방식으로 다시 바꿔야 한다.
+- **(2026-09-28 후속 세션, P1 완료 증거 보강)** `DA_Character_Cube`의 `DefaultFraming.Distance`를 처음에는 `측정된 half-extent × 2.3`로 계산했는데, `-game` 스모크의 `ViewerSmoke_Profile2` 스크린샷에서 큐브가 카메라를 거의 뒤덮어(형태를 알아볼 수 없는 근접 샷) 화면을 가득 채우는 것을 육안으로 확인했다(13.7.2절). 배율을 `×6.0`로 올려 재확인했고 정상적으로 프레이밍되었다. 이 배율은 DA_Character(Distance/half-height ≈ 4×)보다도 여유를 더 준 값으로, 절대 크기(cm)가 훨씬 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요했다 — `FViewerCameraFraming.Distance`를 mesh bounds로부터 자동 계산할 때는 이 절대 크기 편향을 고려해야 한다. `UCameraComponent::FieldOfView`가 정확히 수평/수직 중 어느 쪽 기준인지는 이번에도 엔진 소스로 확정하지 않았다(경험적 배율 조정으로 우회).
+- `SkeletalCube`의 기본(override 없는) 머티리얼은 옅은 회색 체커보드 패턴이다(엔진이 기본 제공하는 머티리얼이며 이 프로젝트가 지정한 것이 아니다). `ViewerSmoke_Profile2` 스크린샷에서 보이는 체커 무늬는 "Grid" MaterialVariant(WorldGridMaterial)가 아니라 이 메시의 기본 머티리얼이다 — 시각적으로 WorldGridMaterial과 혼동하기 쉬우므로 실제 캐릭터 에셋으로 교체 시 유의한다.
+- CHARACTER 섹션 버튼(`RequestCharacterProfile`)은 다른 폴백 버튼들과 마찬가지로 `-game` 스모크 테스트에서 실제 마우스 클릭이 아니라 `ACharacterViewerController::SelectCharacterProfile()`을 직접 호출해 검증했다(13.7.2절). `UButton::OnClicked` 델리게이트 배선 자체(`UCharacterViewerButtonBinding`)는 13.10절 기존 버튼들과 동일한 경로를 재사용하므로 위험이 새로 추가되지는 않지만, 실제 마우스 클릭 경로는 여전히 사람이 확인해야 한다(기존 P0/P1 버튼들과 동일한 미검증 범위).
+- Win64 패키지 스모크(13.7.2절)는 Development 구성으로 확인했다. Shipping 빌드는 자동화 테스트 코드가 기본적으로 포함되지 않아(`WITH_DEV_AUTOMATION_TESTS`가 Shipping에서 꺼짐) 이 절차로 검증할 수 없고, 이번 요청 범위(Win64 패키지 "기본 실행")에도 포함되지 않았다 — Shipping 배포 전에는 별도 수동 확인이 필요하다.
 
 ### 13.10 폴백 UI 패널 (`UCharacterViewerWidget`, 2026-09-28 후속 세션)
 

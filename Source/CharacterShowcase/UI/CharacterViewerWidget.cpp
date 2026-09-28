@@ -5,6 +5,7 @@
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerController.h"
+#include "CharacterViewer/CharacterViewerGameMode.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -44,6 +45,9 @@ void UCharacterViewerButtonBinding::HandleClicked()
 		break;
 	case ECharacterViewerButtonKind::ToggleCleanView:
 		OwnerWidget->RequestToggleCleanView();
+		break;
+	case ECharacterViewerButtonKind::CharacterProfile:
+		OwnerWidget->RequestCharacterProfile(Id);
 		break;
 	}
 }
@@ -171,6 +175,35 @@ TArray<FViewerListItem> UCharacterViewerWidget::GetMaterialVariants() const
 	return Items;
 }
 
+TArray<FViewerListItem> UCharacterViewerWidget::GetCharacterLibrary() const
+{
+	TArray<FViewerListItem> Items;
+
+	const ACharacterViewerController* Controller = WeakController.Get();
+	const UWorld* World = Controller ? Controller->GetWorld() : nullptr;
+	const ACharacterViewerGameMode* GameMode = World ? World->GetAuthGameMode<ACharacterViewerGameMode>() : nullptr;
+	if (!GameMode)
+	{
+		return Items;
+	}
+
+	for (UCharacterProfileData* LibraryProfile : GameMode->GetProfileLibrary())
+	{
+		if (!LibraryProfile)
+		{
+			continue;
+		}
+
+		FViewerListItem Item;
+		Item.Id = LibraryProfile->GetFName();
+		Item.DisplayName = LibraryProfile->DisplayName;
+		Item.bEnabled = true;
+		Items.Add(Item);
+	}
+
+	return Items;
+}
+
 bool UCharacterViewerWidget::IsTurntableEnabled() const
 {
 	const APortfolioCharacterActor* Actor = WeakActor.Get();
@@ -239,6 +272,19 @@ void UCharacterViewerWidget::RequestMaterialVariant(FName Id)
 	{
 		Controller->SelectMaterialVariant(Id);
 	}
+}
+
+void UCharacterViewerWidget::RequestCharacterProfile(FName ProfileAssetName)
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->SelectCharacterProfile(ProfileAssetName);
+	}
+}
+
+FText UCharacterViewerWidget::GetFallbackDisplayNameText() const
+{
+	return FallbackDisplayNameText ? FallbackDisplayNameText->GetText() : FText::GetEmpty();
 }
 
 void UCharacterViewerWidget::RequestToggleTurntable()
@@ -363,6 +409,14 @@ void UCharacterViewerWidget::BuildFallbackUI()
 		ScrollBox->AddChild(OutBox);
 	};
 
+	// CHARACTER: top section (P1 completion evidence, section 6/13.6/13.10), one
+	// button per ACharacterViewerGameMode::ProfileLibrary entry.
+	UVerticalBox* CharacterBox = nullptr;
+	UTextBlock* CharacterHeader = nullptr;
+	MakeSection(TEXT("FallbackCharacterSectionBox"), TEXT("FallbackCharacterSectionHeader"), CharacterBox, CharacterHeader);
+	FallbackCharacterSectionBox = CharacterBox;
+	FallbackCharacterSectionHeader = CharacterHeader;
+
 	UVerticalBox* ViewBox = nullptr;
 	UTextBlock* ViewHeader = nullptr;
 	MakeSection(TEXT("FallbackViewSectionBox"), TEXT("FallbackViewSectionHeader"), ViewBox, ViewHeader);
@@ -421,6 +475,7 @@ void UCharacterViewerWidget::RefreshFallbackUI()
 		FallbackDescriptionText->SetText(GetDescription());
 	}
 
+	PopulateFallbackSection(FallbackCharacterSectionBox, FallbackCharacterSectionHeader, FText::FromString(TEXT("CHARACTER")), GetCharacterLibrary(), ECharacterViewerButtonKind::CharacterProfile);
 	PopulateFallbackSection(FallbackViewSectionBox, FallbackViewSectionHeader, FText::FromString(TEXT("VIEW")), GetCameraPresets(), ECharacterViewerButtonKind::CameraPreset);
 	PopulateFallbackSection(FallbackAnimationSectionBox, FallbackAnimationSectionHeader, FText::FromString(TEXT("ANIMATION")), GetAnimations(), ECharacterViewerButtonKind::Animation);
 	PopulateFallbackSection(FallbackExpressionSectionBox, FallbackExpressionSectionHeader, FText::FromString(TEXT("EXPRESSION")), GetExpressions(), ECharacterViewerButtonKind::Expression);

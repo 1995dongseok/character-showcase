@@ -24,6 +24,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Viewer")
 	TSubclassOf<UCharacterViewerWidget> ViewerWidgetClass;
 
+	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): the
+	// set of profiles offered by the runtime CHARACTER UI section without any
+	// code change (ACharacterViewerController::SwitchProfile() picks an entry
+	// from this array by its asset FName). DefaultProfile should normally be
+	// ProfileLibrary[0]; this array does not replace DefaultProfile.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Viewer")
+	TArray<TObjectPtr<UCharacterProfileData>> ProfileLibrary;
+
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	TArray<UCharacterProfileData*> GetProfileLibrary() const;
+
 protected:
 	// NOTE: PostLogin actually runs BEFORE the level's World::BeginPlay pass
 	// in both LoadMap and PIE (SpawnPlayActor happens first), i.e. BEFORE the
