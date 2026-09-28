@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "",
+	"Category": "",
+	"Description": "3D character portfolio viewer",
+	"Modules": [
+		{
+			"Name": "CharacterShowcase",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

@@ -1,0 +1,26 @@
+/Binaries/
+/DerivedDataCache/
+/Intermediate/
+/Saved/
+/Plugins/**/Binaries/
+/Plugins/**/Intermediate/
+/.vs/
+/.idea/
+*.sln
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Keep original DCC project files outside the runtime repository.
+*.ztl
+*.zpr
+*.ma
+*.mb
+*.spp
+*.psd
+*.psb
