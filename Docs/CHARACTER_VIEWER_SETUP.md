@@ -79,6 +79,8 @@ $viewerProject = Join-Path $viewerRoot 'CharacterShowcase.uproject'
 
 ## 3. 현재 최소 구현을 Editor에서 확인하기
 
+> (2026-09-28 후속 세션 포인터) 이 절은 DisplayName/Description/SkeletalMesh 3필드뿐이던 최초 상태 기준이다. 지금은 `DA_Character`/`LV_Portfolio`/`BP_CharacterViewerGameMode`/`WBP_CharacterViewer`가 13.6절 `Scripts/CreatePortfolioAssets.py`로 이미 만들어져 있으므로, 아래 수동 절차 대신 13.6절을 따른다.
+
 1. 빌드 성공 후 `CharacterShowcase.uproject`를 연다.
 2. Content Browser에 `Portfolio/Characters`, `Portfolio/Data`, `Portfolio/Maps` 폴더를 만든다.
 3. 사용 가능한 Skeletal Mesh를 Import하거나 이미 보유한 mannequin/placeholder를 추가한다. 원본 에셋은 수정하지 않는다.
@@ -191,6 +193,8 @@ Profile은 설정 데이터다. 현재 선택/Turntable/재생 시간/카메라 
 
 ## 9. 구현 후 아티스트 사용 절차
 
+> (2026-09-28 후속 세션 포인터) `BP_CharacterViewerGameMode`/`DA_Character`/`LV_Portfolio`/`WBP_CharacterViewer`는 이제 존재한다(13.6절, 현재는 엔진 튜토리얼 placeholder를 가리킴). 아래 8번의 "P0 GameMode 구현 후 사용 가능" 전제는 충족되었고, 아래 절차는 이제 placeholder를 실제 캐릭터로 교체하는 절차로 읽으면 된다. WBP 디자이너 트리를 만들지 않아도 13.10절의 C++ 폴백 패널이 최소 UI를 대신 그린다.
+
 1. 최종 Skeletal Mesh와 필요한 Texture/Material을 `Portfolio/Characters/<캐릭터>`에 Import한다. 원본 제작 파일은 별도 관리한다.
 2. `Portfolio/Data`에 CharacterProfileData를 만들고 표시 이름, 설명, Mesh를 지정한다.
 3. P1 구현 후 Expressions에 실제 Morph 이름/Weight를 등록한다. Mesh에 없는 Morph는 추가하지 않고 Neutral은 빈 목록으로 둔다.
@@ -292,6 +296,8 @@ Automation UI/명령 옵션은 [Epic의 Automation 실행 문서](https://dev.ep
 
 ## 13. 2026-09-28 P0/P1 C++ 구현 결과 (빌드·자동화 테스트 통과, PIE 미검증)
 
+> (2026-09-28 후속 세션 포인터) 아래 도입부는 이 절을 처음 쓴 세션(엔진 미설치, C++만 작성) 기준이라 이제는 낡았다. 같은 날 오후 세션에서 엔진 설치 후 빌드/Automation을 실제로 실행했고(13.7절), 또 다른 후속 세션에서 13.6절의 `.uasset`/`.umap`을 Python으로 생성한 뒤 `-game` 프로세스로 실제 GameMode/레벨/BeginPlay를 검증했다(13.7.1절). "사람이 Editor GUI에서 PIE 버튼을 클릭해 확인"이라는 의미의 PIE만 여전히 미실행이다.
+
 이 절은 엔진/Visual Studio가 설치되지 않은 상태에서 P0(5절) + P1(6절) 범위의 C++와 `Config/*.ini`를 작성한 세션의 결과다.
 **빌드/Automation/PIE 실행 증거는 없다.** 모든 항목은 "정적 검토 통과, 실행 미검증"으로 취급한다. `.uasset`/`.umap`은 만들지 않았다.
 
@@ -359,13 +365,32 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 
 기존 `CharacterShowcase.Profile.NullSafety`(`Tests/CharacterProfileTests.cpp`)는 수정하지 않았다.
 
-### 13.6 남은 Editor 수동 절차 (P0-5/P0-6, 이번 세션에서 수행 불가)
+### 13.6 Editor 수동 절차의 자동화 (2026-09-28 후속 세션: Python으로 수행, 사람이 Editor를 클릭하지 않음)
 
-1. `WBP_CharacterViewer`를 생성하고 부모 클래스를 `UCharacterViewerWidget`(C++)으로 지정. 오른쪽 어두운 패널에 VIEW/EXPRESSION/ANIMATION/APPEARANCE/DISPLAY 섹션을 배치하고, 각 목록은 `Get*`(BlueprintPure) 결과를 바인딩, 버튼 클릭은 `Request*` 함수를 호출하도록 그래프 구성. `bEnabled=false` 항목은 비활성화/숨김 처리.
-2. `BP_CharacterViewerGameMode`를 `ACharacterViewerGameMode`에서 파생하고 `DefaultProfile`(예: 기존 `DA_Character`)과 `ViewerWidgetClass = WBP_CharacterViewer`를 지정.
-3. `LV_Portfolio` 레벨을 `Portfolio/Maps`에 생성하고 `APortfolioCharacterActor`를 배치, World Settings의 GameMode Override를 `BP_CharacterViewerGameMode`로 지정(또는 `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`에 맡김).
-4. (선택) `IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`를 13.3 표대로 생성하고 `BP_CharacterViewerController`(또는 Controller 인스턴스)에 할당. 생성하지 않아도 런타임 폴백이 동작해야 하므로 필수는 아니다.
-5. PIE에서: 표시/Orbit(clamp 양끝 포함)/Zoom(clamp 양끝 포함)/R Reset/Space Turntable/H Clean View/UI 위 입력 차단/프로필 2개 교체를 직접 확인하고 이 절의 "미검증" 표시를 실제 결과로 교체한다.
+13.6의 5개 항목(WBP_CharacterViewer, BP_CharacterViewerGameMode, DA_Character, LV_Portfolio, GlobalDefaultGameMode)은 더 이상 "남은 Editor 수동 절차"가 아니다. `Scripts/CreatePortfolioAssets.py`가 Unreal Editor Python API(`unreal.AssetToolsHelpers`, `unreal.DataAssetFactory`, `unreal.BlueprintFactory`, `unreal.WidgetBlueprintFactory`, `unreal.LevelEditorSubsystem`, `unreal.EditorActorSubsystem`)로 이 5개를 전부 생성·저장한다. 아래는 그 실행 방법과 무엇을 만드는지, 그리고 각 항목의 수동(Editor GUI) 대안이다.
+
+**재실행 방법** (idempotent — 몇 번을 실행해도 안전, 기존 에셋을 결정적으로 덮어씀):
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
+    "-ExecutePythonScript=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Scripts\CreatePortfolioAssets.py" `
+    -unattended -nosplash -nop4 -log
+```
+
+`CharacterShowcase.uproject`의 `Plugins` 배열에 `PythonScriptPlugin`(Editor 전용, 패키징에는 영향 없음)을 추가해 두었다. 실행 로그는 `Saved/Logs/CharacterShowcase.log`의 `LogPython` 줄, 특히 `[CreatePortfolioAssets] ==== START/DONE ====`을 확인한다.
+
+**만들어지는 것** (모두 엔진 튜토리얼 placeholder 에셋만 참조하며, 프로젝트 아트는 아직 없음 — 9절 참고):
+
+1. `Content/Portfolio/Data/DA_Character.uasset` — `CharacterProfileData`. DisplayName/Description(placeholder임을 명시), SkeletalMesh = `/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP`, DefaultFraming + CameraPresets(Face/Upper/Full, DefaultPresetId=Full), Animations(Idle/Walk 루프, Pose=Tutorial_Idle 정지 0.5s, DefaultAnimationId=Idle), Expressions(Neutral 하나, 빈 Morphs — **이 메시는 Morph Target이 없어 표정 기능 자체는 검증 불가**), MaterialVariants(Default=오버라이드 없음, Grid=슬롯0→`/Engine/EngineMaterials/WorldGridMaterial`), TurntableSpeedDegreesPerSecond=20.
+2. `Content/Portfolio/Blueprints/BP_CharacterViewerGameMode.uasset` — 부모 `ACharacterViewerGameMode`, `DefaultProfile=DA_Character`, `ViewerWidgetClass=WBP_CharacterViewer`.
+3. `Content/Portfolio/UI/WBP_CharacterViewer.uasset` — 부모 `UCharacterViewerWidget`, 디자이너 트리는 의도적으로 비움(13.10절의 C++ 폴백 패널이 채움).
+4. `Content/Portfolio/Maps/LV_Portfolio.umap` — `APortfolioCharacterActor`(원점, yaw 90 = 정면이 기본 카메라(-X) 쪽, Profile=DA_Character) 1개, KeyLight DirectionalLight(Movable, pitch -40/yaw 30, 7 lux, ForwardShadingPriority 1) 1개, FillLight DirectionalLight(Movable, pitch -15/yaw -50, 2 lux, 그림자 없음) 1개, SkyLight(Movable, Intensity 1, Specified Cubemap = `/Engine/MapTemplates/Sky/DaylightAmbientCubemap`) 1개, Cylinder 플랫폼 1개. World Settings의 `DefaultGameMode` = BP_CharacterViewerGameMode. 라이트매스 빌드 불필요(전부 Movable). (2026-09-28 Opus 에스컬레이션에서 값 변경, 근거는 13.7.1절)
+5. `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`를 C++ 클래스 경로에서 `/Game/Portfolio/Blueprints/BP_CharacterViewerGameMode.BP_CharacterViewerGameMode_C`로 갱신.
+
+`.uasset`/`.umap`은 손으로 만들지 않았고 전부 위 스크립트의 Editor API 호출로 생성·저장되었다(실행 증거는 13.7절).
+
+**사람이 Editor GUI로 하는 대안** (짧게만): Content Browser에서 각 폴더에 우클릭 → Miscellaneous/Blueprint Class/Widget Blueprint/Level로 동일한 이름·부모 클래스·값을 지정하고 저장. IA/IMC 6개(`IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`, 13.3절 표)는 여전히 선택 사항이며 만들지 않으면 런타임 폴백 입력이 대신 동작한다.
 
 ### 13.7 검증 상태 (2026-09-28 실제 실행 결과)
 
@@ -379,8 +404,8 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 | `CharacterShowcase.Viewer.ActorFeatureNullSafety` | 통과 (오류 0). 1차 실행에서는 실패했고 아래 수정 후 통과 |
 | `CharacterShowcase.Viewer.CameraClamp` | 통과 (오류 0) |
 | `CharacterShowcase.Viewer.ProfileLookup` | 통과 (오류 0) |
-| Automation 합계 | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`) |
-| PIE 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | 미실행 — 13.6절의 Editor 수동 절차(LV_Portfolio, WBP, BP_GameMode, DA_Character)가 아직 없음 |
+| Automation 합계(Editor 컨텍스트) | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`). 13.6절 자산 생성 이후 최종 재확인도 4/4 |
+| PIE(사람이 Editor GUI로 클릭) 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | **여전히 미실행 — 아래 `-game` 스모크 테스트가 대신 실제 GameMode/레벨/BeginPlay로 이 항목들을 프로그램적으로 검증했다** |
 | Win64 패키지 | 미실행 |
 
 1차 테스트 실패와 수정: `ActorFeatureNullSafety`의 "ApplyProfile(nullptr) resets turntable rotation" 검사가 yaw 20으로 실패했다. 원인은 테스트 월드가 `InitializeActorsForPlay`를 호출하지 않아 `PostInitializeComponents`가 실행되지 않고 `InitialRotation` 캡처가 건너뛰어진 것이다. 실제 런타임과 같도록 테스트에서 `World->InitializeActorsForPlay(FURL())`를 SpawnActor 앞에 추가했다. 액터 코드는 바꾸지 않았다.
@@ -389,6 +414,41 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 
 Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEditor.AndroidFileServerRuntimeSettings]` 섹션을 자동 추가했다. UE 기본 동작이며 매 실행 시 재생성되므로 그대로 둔다. UBT가 생성한 `.vsconfig`(필요한 VS 구성 요소 목록)도 커밋에 포함한다.
 
+#### 13.7.1 `-game` 스모크 테스트 결과 (2026-09-28 후속 세션, 실제 렌더링, NullRHI 아님)
+
+13.6절 자산을 만든 뒤 `Tests/CharacterViewerGameSmokeTest.cpp`(`CharacterShowcase.Game.ViewerSmoke`, `ClientContext | ProductFilter`라서 Editor 컨텍스트에서는 실행되지 않고 위 4/4에 포함되지 않음)를 실제 `-game` 프로세스로 실행했다:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
+    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
+    /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1280 -ResY=720 -log -unattended -nosplash `
+    "-ExecCmds=Automation RunTests CharacterShowcase.Game" `
+    "-TestExit=Automation Test Queue Empty" `
+    "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation\Game"
+```
+
+| 시도 | 결과 | 원인/조치 |
+| --- | --- | --- |
+| 1차 | `-TestExit` 즉시 트리거, 테스트 자체가 실행되지 않음 | PowerShell `Start-Process -ArgumentList`가 공백 포함 값(`-ExecCmds="Automation RunTests ..."`)의 따옴표를 보존하지 않아 커맨드라인에서 `Automation`/`RunTests`/`CharacterShowcase.Game`이 별개 토큰으로 쪼개짐 → `-TestExit=Automation`만 남아 시작 로그의 "Automation" 문자열에 즉시 매치. 전체 커맨드라인 문자열을 직접 조립(각 값에 리터럴 큰따옴표 포함)해 해결 |
+| 2차 | 스크린샷이 대부분 검은 화면(아래 참고), 자동화 자체는 통과 | 5차·6차에서 해결(아래 참고) |
+| 3차 | `Exactly one APortfolioCharacterActor exists`가 1이 아니라 2로 실패, 카메라 clamp가 프로필 값이 아닌 `FViewerCameraFraming` 기본값(1000/50)으로 실패 | 13.6절 스크립트의 레벨 재생성 로직이 "기존 액터를 destroy 후 재생성"이었는데, 같은 Python 틱 안에서 destroy가 즉시 `TActorIterator`/저장에 반영된다는 보장이 없어 액터가 중복 저장됨. `Scripts/CreatePortfolioAssets.py`를 "기존 `LV_Portfolio` 삭제 후 완전히 새로 생성"으로 변경(스크립트 자체 코드 주석에 근거 기록), 재실행 후 해결 |
+| 4차 | **성공. 1/1 통과, 오류 0, 경고 0** | 카메라 clamp가 실제 Full 프리셋 값(Distance 120~700, Pitch -80~80)으로 정확히 검증됨. 스크린샷은 여전히 검은 화면 |
+| 5차 (Opus 에스컬레이션) | 1/1 통과. 마네킹 전신·정면·조명 정상, 하지만 UI 패널 없음 + 화면에 "Multiple directional lights are competing…" 엔진 경고 텍스트 | 조명/방향/프레이밍 수정(아래 원인 1~3), 스크린샷 경로 교체(원인 4). 패널 미표시는 원인 5로 규명 |
+| 6차(최종) | **1/1 통과, 오류 0, 경고 0. UI 스크린샷에 마네킹 전신 + 우측 패널, Clean 스크린샷에 마네킹만** | 원인 5 수정, 키 라이트 `ForwardShadingPriority=1`, 키/필 7/2 lux |
+
+최종 `Saved/Automation/Game/index.json`: `"succeeded": 1, "failed": 0`, `CharacterShowcase.Game.ViewerSmoke` = `Success`, `errors: 0`. 검증된 항목: 씬에 `APortfolioCharacterActor` 정확히 1개(Mesh/Profile 할당), `ACharacterViewerController`/`ACharacterViewerCameraPawn`/위젯 인스턴스 정상 연결·`IsInputEnabled()==true`, 큰 Orbit 델타의 Pitch clamp(Max/Min ±80), 큰 Zoom의 Distance clamp(120/700), `ResetCamera()` 후 1초 뒤 Distance/Pitch/Yaw가 Full 프리셋 값으로 복귀, `SetTurntableEnabled(true)` 후 0.5초 뒤 yaw 변화 확인 후 다시 off, `SelectAnimation("Idle")`→`AnimationSingleNode`+`SingleNodeInstance` 자산 설정, `SelectAnimation("Pose")`→정지 상태, `SelectMaterialVariant("Grid")`→슬롯0=WorldGridMaterial, `SelectMaterialVariant("Default")`→원래 재질 복원, `SelectExpression("Neutral")`=true/`SelectExpression("Nope")`=false(크래시 없음), `ToggleCleanView()`로 위젯이 원래 Visibility(`SelfHitTestInvisible`, UUserWidget 기본값 — `ESlateVisibility::Visible`이 아님, 테스트가 하드코딩 대신 시작 시점 값을 캡처해 비교하도록 수정)와 커서 상태로 정확히 복원.
+
+**스크린샷 (2026-09-28 Opus 에스컬레이션에서 해결)**: `Saved/Screenshots/WindowsEditor/ViewerSmoke_UI.png`, `Saved/Screenshots/WindowsEditor/ViewerSmoke_Clean.png` (둘 다 1280×720, 게임 창 전체 = UMG 포함). 육안 확인(6차): **UI** — 화면 중앙에 노란색 placeholder 마네킹(TutorialTPP)이 정면을 향해 머리부터 발끝까지 전부 보이고(Pose = Tutorial_Idle 0.5s, 소총 조준 자세), 발밑 회색 체커 플랫폼과 캐릭터 그림자가 보이며, 우측 어두운 패널(320 Slate 단위, 720p DPI 스케일로 약 213px)에 이름("Tutorial Mannequin (placeholder)"), 설명, VIEW(Face/Upper Body/Full Body), ANIMATION(Idle/Walk…) 버튼이 보인다(나머지 섹션은 스크롤 영역 아래). **Clean** — 패널이 완전히 사라지고 마네킹·플랫폼·그림자는 UI 스크린샷과 같은 위치·밝기로 그대로 보인다. 배경은 의도대로 검정(스카이/배경막 없음).
+
+이전(2~4차)의 "거의 검은 화면 + 위쪽 주황색 얼룩 2개"는 캡처 경로 문제가 아니라 **실제 렌더링 결과**였고, 원인은 다음과 같다(모두 코드/로그로 확인):
+1. **키 라이트가 바닥 아래에서 위로 비춤.** `unreal.Rotator`의 위치 인자 순서는 `(roll, pitch, yaw)`인데 스크립트가 `unreal.Rotator(-45.0, 45.0, 0.0)`을 (pitch, yaw, roll)로 가정했다. Editor Python으로 레벨을 열어 확인한 KeyLight 값: `pitch=45 roll=-45`, forward=`(0.707, 0, +0.707)`(위쪽). 반지름 200cm 플랫폼이 캐릭터 전체에 그림자를 드리워, 플랫폼 가장자리 밖으로 나온 머리 꼭대기·한 손만 빛을 받았다(= 주황색 얼룩 2개). 라이트 강도·자동 노출 조정이 효과가 없던 이유다. → 모든 `unreal.Rotator`를 키워드 인자로 바꾸고 키 라이트 `pitch=-40, yaw=30`(카메라 쪽 좌상단), 7 lux로 수정.
+2. **보조광이 사실상 0.** SkyLight가 `Captured Scene`인데 레벨에 하늘이 없어 검은색을 캡처 → 기여 0. → 엔진 `/Engine/MapTemplates/Sky/DaylightAmbientCubemap`을 `Specified Cubemap`으로 지정(Intensity 1) + 그림자 없는 필 DirectionalLight(`pitch=-15, yaw=-50`, 2 lux) 추가. 두 번째 DirectionalLight 때문에 화면에 뜨는 "Multiple directional lights are competing…" 엔진 경고는 키 라이트 `ForwardShadingPriority=1`로 제거.
+3. **카메라가 캐릭터 옆면을 보고 머리가 잘림.** TutorialTPP 임포트 바운드는 X ±100(팔), Y ±16.6, Z 0~192로 메시는 +Y를 향한다. 카메라는 yaw 0에서 -X 쪽에서 +X를 본다(`ACharacterViewerCameraPawn::UpdateCameraTransform`). → 캐릭터 액터를 yaw 90으로 배치해 정면이 카메라를 향하게 함. FOV 60(수평, 16:9 → 수직 약 36°)에서 Distance 300/Z 90은 Z -7~187만 담아 머리(192)가 잘렸으므로 DefaultFraming/Full 프리셋을 Distance 380, TargetOffset Z 95로 변경(Z 약 -28~218).
+4. **기존 스크린샷은 UMG를 원천적으로 제외.** `FScreenshotRequest::RequestScreenshot(Name, bInShowUI=false, …)`는 3D 뷰포트만 읽는다. `bInShowUI=true`로 바꾸자 이 `-game` 환경에서 파일도 로그도 없이 조용히 실패했다(5차 1회 시도에서 확인). → 테스트에 `FCaptureWindowScreenshotCommand`를 추가해 `FSlateApplication::TakeScreenshot(게임 창)`으로 직접 캡처·`FImageUtils::SaveImageByExtension`으로 저장하고, 실패 시 테스트 오류로 보고하도록 함. 캡처 전 대기도 1s→3s로 늘림(포즈/재질 변경 및 시간 누적 조명 안정화).
+5. **C++ 폴백 패널이 실제로는 한 번도 화면에 그려지지 않음.** `UCharacterViewerWidget`이 `NativeConstruct()`에서 `WidgetTree->RootWidget`을 채웠지만, `NativeConstruct()`는 `UUserWidget::RebuildWidget()`이 RootWidget(당시 null → `SSpacer`)으로 Slate 위젯을 이미 만든 뒤(`OnWidgetRebuilt`)에 호출된다. 그래서 위젯 인스턴스·Visibility 검사는 통과해도 화면은 비어 있었다. → `RebuildWidget()` override에서 `Super::RebuildWidget()` **이전에** `BuildFallbackUI()`를 호출(디자인 타임 제외), `NativeConstruct()`는 `RefreshFallbackUI()`만 수행.
+
+`r.DefaultFeature.AutoExposure=False`(고정 노출, 장면 휘도 1 = EV100 약 3)는 그대로 유지한다 — 위 lux 값은 이 고정 노출 기준으로 정했다.
+
 ### 13.8 정적 자체 점검 결과 (이 세션에서 실행)
 
 - `.generated.h` 마지막 include 여부: 헤더 6개(`CharacterProfileData.h`, `PortfolioCharacterActor.h`, `CharacterViewerCameraPawn.h`, `CharacterViewerController.h`, `CharacterViewerGameMode.h`, `CharacterViewerWidget.h`) 전수 확인, 전부 마지막 줄이 자기 이름의 `.generated.h`. 문제 0건.
@@ -396,6 +456,8 @@ Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEd
 - UPROPERTY 오브젝트 포인터: 모든 UPROPERTY 선언을 grep으로 전수 확인, 원시 포인터(`T*`) UPROPERTY 0건 — 전부 `TObjectPtr`/`TSubclassOf`이고, Widget의 뷰어 참조는 `TWeakObjectPtr`(비-UPROPERTY, `NativeDestruct`에서 `Reset()`)로 유지.
 - 헤더 선언 대비 `.cpp` 정의: out-of-line 함수 선언 61개(생성자/virtual override 10개 포함) 중 60개가 대응하는 `.cpp`에 정의됨을 grep으로 확인. 나머지 1개(`UCharacterViewerWidget::OnViewerDataChanged`)는 `UFUNCTION(BlueprintImplementableEvent)`로, UHT가 기본 구현을 생성하므로 `.cpp` 정의가 없는 것이 정상이다.
 - `Build.cs` 의존성: 이번 세션에서 실제로 include한 Enhanced Input/UMG/Camera 헤더(`EnhancedInputComponent.h`, `EnhancedInputSubsystems.h`, `InputAction.h`, `InputActionValue.h`, `InputMappingContext.h`, `Blueprint/UserWidget.h`, `Components/SlateWrapperTypes.h`, `Camera/CameraComponent.h`)를 제공하는 모듈(`EnhancedInput`, `InputCore`, `UMG`)이 모두 `PublicDependencyModuleNames`에 있음을 확인. `InputModifiers.h`/`InputTriggers.h`는 이번 구현(단순 Started/Triggered/Completed/Canceled 바인딩만 사용)에서 실제로 사용하지 않아 include하지 않았다.
+
+**2026-09-28 후속 세션(13.6~13.10) 재점검**: 신규/변경 파일 24개(`Source/**/*.{h,cpp,cs}` + `Scripts/*.py` + `Config/*.ini` + `CharacterShowcase.uproject`)를 같은 방식으로 전수 재검사 — BOM/비-UTF-8 0건. `.generated.h` 마지막 include: 이번에 새로 수정한 `CharacterViewerWidget.h`도 마지막 줄이 `CharacterViewerWidget.generated.h`. UPROPERTY 원시 포인터: `CharacterViewerWidget.h`(폴백 UI 위젯 포인터 다수 포함)와 `CharacterViewerController.h`(신규 Get* 접근자)를 포함해 전수 재확인, 전부 `TObjectPtr`/`TSubclassOf`/`TArray<TObjectPtr<...>>`. 빌드는 0 오류/0 경고로 4회 재현(초기 P0/P1 세션 1회 + 이번 세션 C++ 변경마다 3회).
 
 ### 13.9 남은 문제·위험 (컴파일러로 확인 못 함)
 
@@ -407,3 +469,18 @@ Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEd
 - `EAutomationTestFlags::EditorContext | EngineFilter` 조합은 기존 `CharacterProfileTests.cpp`와 동일하게 유지했다(1.1절에 기록된 5.5+ enum class 변경 관련 위험이 새 테스트 파일에도 동일하게 적용됨).
 - `Config/DefaultGame.ini`의 `ProjectID`는 실제로 생성된 GUID가 아니라 placeholder 16진수 문자열이다. Editor에서 프로젝트를 한 번 열면 엔진이 재발급할 수 있으며, 필요하면 교체할 것.
 - 모든 API 이름(`GetMaterialIndex`, `SetMorphTarget`, `FindMorphTarget`, `SetPosition`, `SetAnimInstanceClass`, `InterpEaseInOut` 등)은 UE 5.1~5.6 문서/기억에 근거해 작성했으나 실제 헤더로 시그니처를 대조하지 못했다. 빌드 시 가장 먼저 깨질 가능성이 있는 지점이다.
+- (2026-09-28 Opus 에스컬레이션, 해결) `-game` 스모크 스크린샷의 검은 화면은 해결됐다(원인·조치는 13.7.1절). 남은 주의점: (a) 조명 값(키 7 lux / 필 2 lux / Daylight 큐브맵 SkyLight 1.0)은 `r.DefaultFeature.AutoExposure=False` 고정 노출 기준으로 이 PC(Intel UHD 630) 스크린샷 1장을 눈으로 보고 정한 값이며, 배경은 하늘/배경막이 없어 검정이다. 실제 포트폴리오 아트가 들어오면 재조정 대상이다. (b) 스크린샷은 `FSlateApplication::TakeScreenshot`으로 게임 창을 캡처하므로 창이 최소화되는 등 Slate가 창을 그리지 않는 환경(원격 잠금/헤드리스)에서는 테스트가 "TakeScreenshot failed (visible/minimized …)" 오류로 실패한다(의도된 명시적 실패). 엔진 `FScreenshotRequest(bInShowUI=true)` 경로가 이 환경에서 조용히 실패한 이유 자체는 규명하지 않았다. (c) 이 PC는 5 FPS라 자동화 프레임워크의 `FWaitForInteractiveFrameRate`(≥10 FPS)가 매번 600초 타임아웃까지 기다린 뒤 테스트를 시작한다 — `-game` 스모크 1회에 약 11분.
+- 폴백 패널: 720p에서는 설명 문구가 길어 VIEW 섹션과 ANIMATION 일부만 스크롤 없이 보이고 EXPRESSION/APPEARANCE/DISPLAY 섹션은 ScrollBox 아래에 있다(스크린샷으로는 앞부분만 확인). 폴백 트리 생성 시점을 `NativeConstruct()`→`RebuildWidget()`으로 옮긴 변경은 Editor 컨텍스트 테스트 4개가 다루지 않으며 `-game` 스크린샷으로만 확인됐다. 디자이너가 트리를 채운 WBP에서는 기존과 같이 폴백이 건너뛰어진다(`RootWidget != nullptr`).
+- `Scripts/CreatePortfolioAssets.py`의 레벨 재생성은 idempotent 요구를 만족시키기 위해 "기존 액터를 지우고 재사용"이 아니라 "기존 `LV_Portfolio` 에셋을 삭제하고 완전히 새로 생성"하는 방식으로 되어 있다(13.7.1절의 3차 시도 실패 참고). 따라서 레벨에 스크립트가 만들지 않은 액터(예: 나중에 아티스트가 손으로 배치한 추가 소품)를 넣어 두면 스크립트를 재실행할 때 함께 사라진다 — 그런 손 배치 요소가 필요해지면 이 재생성 전략을 "기존 레벨을 열고 스크립트가 소유하는 액터만 정확히 추적해 치환"하는 방식으로 다시 바꿔야 한다.
+
+### 13.10 폴백 UI 패널 (`UCharacterViewerWidget`, 2026-09-28 후속 세션)
+
+P0-5/P1 당시 `UCharacterViewerWidget`은 목록 Getter(`Get*`)와 `Request*` 전달 함수, `OnViewerDataChanged`(`BlueprintImplementableEvent`)만 제공하고 실제 화면 구성은 전적으로 WBP 디자이너(사람의 수작업)에 맡겨져 있었다. `WBP_CharacterViewer`가 13.6절 Python 스크립트로 생성되긴 하지만 디자이너 트리는 의도적으로 비워 두므로(파서/디자이너 그래프를 Python으로 구성하는 것은 범위 밖), 그 상태로는 화면에 아무것도 나오지 않는다. 이를 메우기 위해 `NativeConstruct()`에서 `WidgetTree->RootWidget == nullptr`(즉 디자이너가 아무것도 만들지 않은 경우)일 때만 최소 UMG 트리를 C++로 직접 구성하도록 `BuildFallbackUI()`를 추가했다. (2026-09-28 Opus 에스컬레이션 정정: `NativeConstruct()` 시점에는 Slate 위젯이 이미 만들어져 패널이 화면에 나오지 않았으므로, 생성 시점을 `RebuildWidget()` override(Super 호출 전)로 옮겼다. 13.7.1절 원인 5)
+
+- **구조**: `UCanvasPanel`(WidgetTree의 새 RootWidget) → 오른쪽 끝에 앵커된(Anchors (1,0)-(1,1), Alignment (1,0), Offsets (0,0,320,0)) 폭 320px 전체높이의 `UBorder`(어두운 반투명, `FLinearColor(0,0,0,0.65)`) → 그 안에 `UScrollBox` → DisplayName(큰 폰트) → Description(줄바꿈) → VIEW/ANIMATION/EXPRESSION/APPEARANCE/DISPLAY 5개 섹션(`UVerticalBox`, 헤더 `UTextBlock` + 항목별 `UButton`+`UTextBlock`).
+- **데이터 소스**: VIEW/ANIMATION/EXPRESSION/APPEARANCE 4개 섹션은 기존 `Get*`(BlueprintPure) 결과로 채워지며, 항목이 0개면 헤더를 포함해 섹션 전체가 `Collapsed`된다(`bEnabled=false` 항목은 `SetIsEnabled(false)`로 비활성화만 하고 숨기지는 않음). DISPLAY 섹션은 데이터와 무관하게 항상 "Turntable (Space)"(상태에 따라 텍스트가 `Turntable: On/Off (Space)`로 갱신됨) / "Reset Camera (R)" / "Clean View (H)" 3개 버튼을 고정 표시한다.
+- **버튼 클릭 배선**: `UButton::OnClicked`는 인자가 없는 dynamic delegate라 클릭된 항목의 Id/종류를 직접 실어 보낼 수 없다. 그래서 작은 헬퍼 `UCLASS() UCharacterViewerButtonBinding : public UObject`(같은 `UI/CharacterViewerWidget.h/.cpp`에 정의)가 `TWeakObjectPtr<UCharacterViewerWidget> Widget`, `FName Id`, `ECharacterViewerButtonKind Kind`를 들고 있다가 `UFUNCTION() void HandleClicked()`에서 `Kind`에 따라 `RequestCameraPreset/RequestAnimation/RequestExpression/RequestMaterialVariant/RequestToggleTurntable/RequestResetCamera/RequestToggleCleanView` 중 하나를 호출해 기존 Controller API로 그대로 전달한다. 버튼마다 하나씩 만들어지는 이 바인딩 객체들은 `UPROPERTY(Transient) TArray<TObjectPtr<UCharacterViewerButtonBinding>> FallbackButtonBindings`에 보관해 GC로부터 보호한다(버튼의 delegate는 `AddDynamic`으로 바인딩 객체를 약하게가 아니라 델리게이트 자체가 참조하지만, 배열의 강한 참조가 없으면 다음 GC에서 회수될 수 있다).
+- **재구성 시점**: `BindToViewer()`(Controller가 possess/`SetViewerActor`/`SwitchProfile` 때마다 호출)에서 기존 `OnViewerDataChanged()`(BlueprintImplementableEvent, 디자이너 WBP용으로 유지) 호출 직후 C++ 쪽 `RefreshFallbackUI()`를 호출해 폴백 패널의 이름/설명/각 섹션/턴테이블 버튼 텍스트를 다시 채운다. `RequestToggleTurntable()`도 호출 직후 `RefreshFallbackUI()`를 한 번 더 호출해 버튼에 켜짐/꺼짐 상태가 즉시 반영되게 한다.
+- **디자이너 WBP가 있으면 자동으로 건너뜀**: `BuildFallbackUI()`는 `WidgetTree->RootWidget != nullptr`이면 즉시 반환한다. 즉 누군가 `WBP_CharacterViewer`(또는 이를 상속한 다른 WBP)를 열어 디자이너에서 위젯 트리를 구성해 저장하면, 다음 실행부터는 이 폴백이 전혀 개입하지 않고 그 디자이너 트리가 그대로 쓰인다 — 코드 변경이 필요 없다.
+- **`IsPointerOverPanel()`과의 연동**: 폴백 패널의 `UBorder`를 `FallbackPanelBorder`에 저장해 두고, `IsPointerOverPanel()`은 `FallbackPanelBorder->IsHovered()`를 우선 확인한 뒤 `UWidget::IsHovered()`(디자이너 WBP 경로)로 폴백한다. 이렇게 해야 320px 패널 위에서는 Orbit/Zoom이 차단되고, 그 바깥의 빈 Canvas 영역에서는 차단되지 않는다(13.9절에 기록된 "WBP 제작 후 확인 필요"였던 항목이 폴백 UI에 한해서는 이번 세션에 코드 수준으로 해결됨. WBP 디자이너 경로의 `IsHovered()` 동작 자체는 여전히 실제 WBP 제작 후 확인이 필요하다).
+- **검증**: `-game` 스모크 테스트(13.7.1절)가 `Widget->IsInViewport()`, 초기 `GetVisibility()`(UUserWidget 기본값 캡처), `ToggleCleanView()`로 위젯이 `Collapsed`되고 커서가 숨겨지는지, 다시 껐을 때 정확히 원래 상태로 복원되는지를 확인했다 — 모두 통과. 다만 이는 위젯의 "표시/숨김/포커스" 상태만 프로그램적으로 검증한 것이고, 패널의 실제 레이아웃(글자 크기, 320px 폭, 버튼 배치)이 화면에서 의도한 대로 "보이는지"는 13.7.1절에 기록한 스크린샷 캡처 문제로 인해 육안 확인이 되지 않았다.

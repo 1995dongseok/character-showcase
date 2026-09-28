@@ -104,6 +104,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void SetViewerActor(APortfolioCharacterActor* InActor);
 
+	// --- Read-only accessors (mainly for automation tests; see Tests/CharacterViewerGameSmokeTest.cpp) ---
+
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	APortfolioCharacterActor* GetViewerActor() const { return ViewerActor; }
+
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	ACharacterViewerCameraPawn* GetCameraPawn() const { return CameraPawn; }
+
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	UCharacterViewerWidget* GetViewerWidget() const { return ViewerWidget; }
+
+	// False when zero or more-than-one APortfolioCharacterActor was found in the level (see FindViewerActorIfNeeded()/SetViewerActor()).
+	UFUNCTION(BlueprintPure, Category = "Viewer")
+	bool IsInputEnabled() const { return bInputEnabled; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
