@@ -172,6 +172,7 @@ Wireframe은 `viewmode wireframe` 같은 Editor 전용 동작에 의존하지 �
 대상 플랫폼에서 불가능하면 아티스트가 제공하는 topology presentation mesh 등 대안을 검토하고 제한을 기록한다.
 삼각형 수/텍스처 해상도를 매 프레임 추론하지 않는다. 해당 LOD/에셋 기준을 포함한 작성 데이터를 표시한다.
 P2 완료 증거: 클릭/드래그 충돌 없음, UI 위 선택 차단, 선택/해제 복원, Variant→Wireframe→Variant 정확한 복원, Shipping 실행.
+**(2026-09-28 P2 구현 세션) P2-0~P2-4 전체 구현·실행 증거는 13.11절 참고.**
 
 ## 8. 향후 Profile 스키마와 에셋 연결
 
@@ -337,7 +338,7 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 
 ### 13.3 런타임 입력 폴백과 Editor 에셋 스펙
 
-`ACharacterViewerController::bCreateFallbackInputAssets = true`(기본값)이면 `SetupInputComponent()`에서 `MappingContext`가 null일 때만 폴백 `IMC_CharacterViewer_Fallback`과 6개의 폴백 IA를 `NewObject`로 만들고 매핑한다(리뷰 반영: `MappingContext`가 이미 Editor 에셋으로 할당돼 있으면 그 에셋은 완전히 사용자 관리로 간주하고 절대 건드리지 않는다 — 그렇지 않으면 PIE를 반복 실행할 때마다 같은 공유 에셋 객체에 `MapKey`가 누적 호출될 수 있다). 즉 `MappingContext`만 Editor 에셋으로 할당하고 개별 `OrbitAction` 등 IA 프로퍼티를 비워두면, 그 IA들은 폴백 생성 대상이 아니므로 계속 null로 남고 해당 기능은 바인딩되지 않는다 — IMC와 6개 IA는 항상 함께 할당하거나 함께 폴백에 맡겨야 한다.
+`ACharacterViewerController::bCreateFallbackInputAssets = true`(기본값)이면 `SetupInputComponent()`에서 `MappingContext`가 null일 때만 폴백 `IMC_CharacterViewer_Fallback`과 8개의 폴백 IA를 `NewObject`로 만들고 매핑한다(리뷰 반영: `MappingContext`가 이미 Editor 에셋으로 할당돼 있으면 그 에셋은 완전히 사용자 관리로 간주하고 절대 건드리지 않는다 — 그렇지 않으면 PIE를 반복 실행할 때마다 같은 공유 에셋 객체에 `MapKey`가 누적 호출될 수 있다). 즉 `MappingContext`만 Editor 에셋으로 할당하고 개별 `OrbitAction` 등 IA 프로퍼티를 비워두면, 그 IA들은 폴백 생성 대상이 아니므로 계속 null로 남고 해당 기능은 바인딩되지 않는다 — IMC와 8개 IA는 항상 함께 할당하거나 함께 폴백에 맡겨야 한다.
 
 | Editor 에셋(만들어야 함, 이번 세션에서 생성하지 않음) | 값 형식 | 매핑 | 대응 Controller 프로퍼티 |
 | --- | --- | --- | --- |
@@ -347,9 +348,11 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 | `IA_ResetCamera` | Bool | R | `ResetCameraAction` |
 | `IA_ToggleTurntable` | Bool | SpaceBar | `ToggleTurntableAction` |
 | `IA_ToggleCleanView` | Bool | H | `ToggleCleanViewAction` |
-| `IMC_CharacterViewer` | Input Mapping Context | 위 6개 IA를 우선순위 0으로 매핑 | `MappingContext` |
+| `IA_ToggleInspection` | Bool | I | `ToggleInspectionAction` (2026-09-28 P2 세션 추가, 13.11절) |
+| `IA_ToggleWireframe` | Bool | W | `ToggleWireframeAction` (2026-09-28 P2 세션 추가, 13.11절) |
+| `IMC_CharacterViewer` | Input Mapping Context | 위 8개 IA를 우선순위 0으로 매핑 | `MappingContext` |
 
-런타임 폴백은 위 표와 정확히 같은 키/값 형식으로 생성된다(`EnsureFallbackInputAssets()` 참고). 즉 Editor 에셋 없이도 Left-drag Orbit(드래그 임계값 `DragThresholdPixels`, 기본 6px), Wheel Zoom, R Reset, Space Turntable, H Clean View가 모두 동작해야 한다(미검증).
+런타임 폴백은 위 표와 정확히 같은 키/값 형식으로 생성된다(`EnsureFallbackInputAssets()` 참고). 즉 Editor 에셋 없이도 Left-drag Orbit(드래그 임계값 `DragThresholdPixels`, 기본 6px), Wheel Zoom, R Reset, Space Turntable, H Clean View, **I Inspection 토글, W Wireframe 토글**(2026-09-28 P2 세션 추가)이 모두 동작한다(`-game`/패키지 스모크로 실행 확인, 13.11절).
 
 ### 13.4 `Config/*.ini` 요약과 근거
 
@@ -412,6 +415,8 @@ Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable �
 | Automation 합계(Editor 컨텍스트) | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`). 13.6절 자산 생성 이후 최종 재확인도 4/4 |
 | PIE(사람이 Editor GUI로 클릭) 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | **여전히 미실행 — 아래 `-game` 스모크 테스트가 대신 실제 GameMode/레벨/BeginPlay로 이 항목들을 프로그램적으로 검증했다** |
 | Win64 패키지 | **완료 — 13.7.2절 참고 (2026-09-28 후속 세션)** |
+| P2 Inspection/Wireframe (Editor 테스트 2개 + `-game`/패키지 스모크) | **완료 — 13.11절 참고 (2026-09-28 P2 구현 세션)** |
+| Win64 Shipping 패키지 실행 | **완료 (자동화 테스트 미포함) — 13.11절 참고 (2026-09-28 P2 구현 세션)** |
 
 1차 테스트 실패와 수정: `ActorFeatureNullSafety`의 "ApplyProfile(nullptr) resets turntable rotation" 검사가 yaw 20으로 실패했다. 원인은 테스트 월드가 `InitializeActorsForPlay`를 호출하지 않아 `PostInitializeComponents`가 실행되지 않고 `InitialRotation` 캡처가 건너뛰어진 것이다. 실제 런타임과 같도록 테스트에서 `World->InitializeActorsForPlay(FURL())`를 SpawnActor 앞에 추가했다. 액터 코드는 바꾸지 않았다.
 
@@ -538,3 +543,137 @@ P0-5/P1 당시 `UCharacterViewerWidget`은 목록 Getter(`Get*`)와 `Request*` �
 - **디자이너 WBP가 있으면 자동으로 건너뜀**: `BuildFallbackUI()`는 `WidgetTree->RootWidget != nullptr`이면 즉시 반환한다. 즉 누군가 `WBP_CharacterViewer`(또는 이를 상속한 다른 WBP)를 열어 디자이너에서 위젯 트리를 구성해 저장하면, 다음 실행부터는 이 폴백이 전혀 개입하지 않고 그 디자이너 트리가 그대로 쓰인다 — 코드 변경이 필요 없다.
 - **`IsPointerOverPanel()`과의 연동**: 폴백 패널의 `UBorder`를 `FallbackPanelBorder`에 저장해 두고, `IsPointerOverPanel()`은 `FallbackPanelBorder->IsHovered()`를 우선 확인한 뒤 `UWidget::IsHovered()`(디자이너 WBP 경로)로 폴백한다. 이렇게 해야 320px 패널 위에서는 Orbit/Zoom이 차단되고, 그 바깥의 빈 Canvas 영역에서는 차단되지 않는다(13.9절에 기록된 "WBP 제작 후 확인 필요"였던 항목이 폴백 UI에 한해서는 이번 세션에 코드 수준으로 해결됨. WBP 디자이너 경로의 `IsHovered()` 동작 자체는 여전히 실제 WBP 제작 후 확인이 필요하다).
 - **검증**: `-game` 스모크 테스트(13.7.1절)가 `Widget->IsInViewport()`, 초기 `GetVisibility()`(UUserWidget 기본값 캡처), `ToggleCleanView()`로 위젯이 `Collapsed`되고 커서가 숨겨지는지, 다시 껐을 때 정확히 원래 상태로 복원되는지를 확인했다 — 모두 통과. 다만 이는 위젯의 "표시/숨김/포커스" 상태만 프로그램적으로 검증한 것이고, 패널의 실제 레이아웃(글자 크기, 320px 폭, 버튼 배치)이 화면에서 의도한 대로 "보이는지"는 13.7.1절에 기록한 스크린샷 캡처 문제로 인해 육안 확인이 되지 않았다.
+
+### 13.11 P2 구현 (2026-09-28)
+
+이 절은 7절(P2 — Inspection과 Wireframe)의 P2-0~P2-4를 구현·빌드·테스트·패키지까지 실행한 세션의 결과다. P0/P1은 13.7/13.7.1/13.7.2절 기준으로 이미 검증되어 있었다.
+
+#### 13.11.1 P2-0 조사 결과 (placeholder `TutorialTPP` 구조 확정)
+
+Python(`unreal.load_asset` + `unreal.MaterialEditingLibrary` + `UPhysicsAsset::GetConstraints()`/`ConstraintInstanceBlueprintLibrary.get_attached_body_names()`)로 직접 측정했다. `PhysicsAsset.SkeletalBodySetups`는 UPROPERTY이지만 C++ 클래스 선언에서 `public:` 이전(사실상 `private`)에 있어 Python `get_editor_property`가 "protected and cannot be read"로 거부한다(엔진 코드, 수정 대상 아님) — 대신 body 목록을 얻을 수 있는 유일한 BlueprintCallable 경로인 `UPhysicsAsset::GetConstraints()` + `ConstraintInstanceBlueprintLibrary::GetAttachedBodyNames()`로 제약(constraint) 트리의 22개 edge를 순회해 본(bone) 집합을 역산했다(부모만으로 등장하는 본이 계층의 root).
+
+| 항목 | 값 |
+| --- | --- |
+| SkeletalMesh | `/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP` |
+| Skeleton 전체 본 수 | 68 |
+| PhysicsAsset | `TutorialTPP_PhysicsAsset` |
+| Physics Body(=Constraint 트리로 역산한 본) 수 | 22: `pelvis`(root, 가상의 `Root`에 연결), `spine_01/02/03`, `clavicle_l/r`, `upperarm_l/r`, `lowerarm_l/r`, `hand_l/r`, `neck_01`, `head`, `thigh_l/r`, `calf_l/r`, `foot_l/r`, `ball_l/r` |
+| Material Slot | 1개, `TutorialTPP_Mat` |
+| LOD 수 | 1 |
+| LOD0 정점/삼각형 수 | 3924 verts / **6118 triangles** (AssetRegistry `Vertices`/`Triangles` 태그) |
+| `TutorialTPP_Mat` 셰이딩/블렌드 | `MSM_Subsurface` / `BLEND_Opaque`, Expression 4개 |
+| `TutorialTPP_Mat`의 텍스처 | **0개** — BaseColor가 `MaterialExpressionConstant3Vector`(단색 상수)에 직결. `unreal.MaterialEditingLibrary.get_used_textures()`가 빈 배열을 반환해 확인 |
+| `SkeletalCube`(DA_Character_Cube용) | PhysicsAsset 없음, 본 2개(`Bone01`,`Bone02`), Material Slot 1개(머티리얼 미지정, 엔진 기본 재질), 12 triangles / 24 verts |
+
+**파츠 식별 방법 결정(placeholder 한정)**: **Bone 기반** — Line Trace hit의 `BoneName`을 프로필이 정의한 Part(`FViewerPartInfo::BoneNames`)와 정확히 매칭하고, 매칭되지 않으면(예: 손가락 본) `USkeletalMeshComponent::GetParentBone()`으로 최대 10단계까지 부모 본을 걸어 올라가며 다시 조회한다(`ACharacterViewerController::InspectAtScreenPosition()`). 이 구조는 단일 `SkeletalMeshComponent` + 22개 물리 바디이므로 Component Tag 기반 식별은 애초에 불가능하다(Component가 하나뿐). 스키마(`FViewerPartInfo`)는 `ComponentTag`도 함께 가지고 있어, 실제 캐릭터가 Face/Hair/Jacket을 별도 Component로 구성한다면 코드 변경 없이 Component Tag 매칭으로 전환할 수 있다(현재는 미사용).
+
+**Part 매핑(6개, 물리 바디 22개를 정확히 분배)** — `DA_Character`:
+
+| Part Id | BoneNames | TriangleCount | MaterialName | TextureResolution |
+| --- | --- | --- | --- | --- |
+| Head | head, neck_01 | 6118 | TutorialTPP_Mat | N/A (no texture) |
+| Torso | pelvis, spine_01, spine_02, spine_03 | 6118 | TutorialTPP_Mat | N/A (no texture) |
+| LeftArm | clavicle_l, upperarm_l, lowerarm_l, hand_l | 6118 | TutorialTPP_Mat | N/A (no texture) |
+| RightArm | clavicle_r, upperarm_r, lowerarm_r, hand_r | 6118 | TutorialTPP_Mat | N/A (no texture) |
+| LeftLeg | thigh_l, calf_l, foot_l, ball_l | 6118 | TutorialTPP_Mat | N/A (no texture) |
+| RightLeg | thigh_r, calf_r, foot_r, ball_r | 6118 | TutorialTPP_Mat | N/A (no texture) |
+
+**한계(정직하게 기록)**: `TutorialTPP`는 Material Slot이 1개뿐인 단일 렌더 섹션이라, 파츠별 실제 삼각형 수를 나눌 방법이 없다(엔진 Python API로 섹션별 삼각형을 얻을 BlueprintCallable 경로가 없음 — `UEditorSkeletalMeshLibrary`에는 `get_num_verts(mesh, lod)`만 있고 섹션/파츠 단위 API가 없다). 그래서 6개 Part 모두 LOD0 전체 삼각형 수(6118)와 동일한 `TriangleCount`/`MaterialName`을 authored data로 기록했다 — 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 이 값들은 파츠마다 달라야 하며, 그때는 Python으로 섹션별 삼각형 수를 다시 측정해 갱신해야 한다. `DA_Character_Cube`는 PhysicsAsset 자체가 없어(위 표) Part 1개("Cube", BoneNames=[Bone01, Bone02])만 스키마/프로필 교체 검증용으로 두었다 — 실제 클릭 판정 대상은 아니다(13.11.5절).
+
+#### 13.11.2 Profile 스키마 추가 (`CharacterProfileData.h`, 8절 계획대로)
+
+`FViewerPartInfo`(Id, DisplayName, PartType, Description, BoneNames, ComponentTag, TriangleCount, MaterialName, TextureResolution) + `TArray<FViewerPartInfo> Parts` + `UCharacterProfileData::FindPart(Id)`/`FindPartByBone(Bone)`(C++ 전용 헬퍼, 기존 `Find*`와 동일한 패턴). `TObjectPtr<UMaterialInterface> WireframeMaterial`(null 허용 — Wireframe 버튼 비활성화의 근거).
+
+#### 13.11.3 파츠 선택/강조 구현 (`PortfolioCharacterActor`, `ACharacterViewerController`)
+
+- **충돌**: `Mesh->SetCollisionEnabled(QueryOnly)` + `SetCollisionResponseToAllChannels(Ignore)` + `SetCollisionResponseToChannel(ECC_Visibility, Block)`(Viewer Actor 한정, 원본 Physics Asset은 손대지 않음). 물리(Simulate)는 계속 꺼져 있고, PhysicsAsset의 22개 바디가 그대로 Query 충돌 형상으로 쓰인다.
+- **클릭 판정**: `ACharacterViewerController::InspectAtScreenPosition(FVector2D)`가 `GetHitResultAtScreenPosition(ScreenPos, ECC_Visibility, false, Hit)`으로 트레이스하고, `Hit.GetActor() == ViewerActor && Hit.Component == ViewerActor->Mesh`만 수락한다. `Hit.BoneName`을 `Profile->FindPartByBone()`로 조회하고 실패 시 `Mesh->GetParentBone()`으로 최대 10단계 부모를 걸어 올라간다(손가락 본 → `hand_l` → "Left Arm"). 실제 클릭 경로(`HandleOrbitPressCompleted`, release가 `DragThresholdPixels` 미만이고 press가 UI 위에서 시작하지 않았을 때만)와 테스트가 이 함수 하나를 공유한다.
+- **선택 해제**: 빈 공간 클릭(hit 없음) 또는 Actor/Mesh 이외의 hit → `ClearSelectedPart()`.
+- **강조 표시**: `SetSelectedPart(PartId)`는 `Profile->FindPart(PartId)`로 유효성을 확인한 뒤(없는 Id는 무시, 기존 선택 유지) `ApplyHighlightState()`로 `Mesh->SetRenderCustomDepth(true)` + `SetCustomDepthStencilValue(1)` + `Mesh->SetOverlayMaterial(HighlightOverlayMaterial)`을 적용한다. `HighlightOverlayMaterial`은 `M_ViewerHighlight`(unlit/translucent, **마젠타 (1.0, 0.0, 0.8) Emissive, Opacity 0.55**, `bUsedWithSkeletalMesh=true`)다. 선택 해제/Inspection 종료/프로필 교체 시 `SetOverlayMaterial(nullptr)` + Custom Depth off로 원상 복구한다(`ClearSelectedPart()`, `SetInspectionEnabled(false)`, `ClearRuntimeState()`).
+- **한계(중요)**: **Custom Depth와 Overlay 강조는 둘 다 Component 단위로 적용된다.** 이 placeholder는 단일 `SkeletalMeshComponent`이므로 어떤 파츠를 선택하든 **메시 전체**가 똑같이 마젠타로 덮이고 Custom Depth도 메시 전체에 켜진다 — 화면의 강조만으로는 어느 파츠가 선택됐는지 구분할 수 없으며, **선택된 파츠는 오직 INSPECTION 패널 텍스트(DisplayName 등)로만 식별된다.** 파츠 영역만 강조하려면 (a) 파츠가 별도 Component인 실제 캐릭터를 쓰거나 (b) 프로젝트가 CustomStencil을 읽는 Post Process Material + 파츠별 stencil 구분 수단을 추가해야 한다(이번 범위 밖, 아티스트/후속 작업 항목).
+- **Clean View 연동**: `ACharacterViewerController::ToggleCleanView()`가 ON 전환 시 `ViewerActor->SetHighlightVisible(false)`, OFF 전환 시 `SetHighlightVisible(true)`를 호출한다. Actor는 `bHighlightVisible`이 false인 동안 선택 id는 그대로 기록하되 Overlay/Custom Depth는 끈 상태로 유지하고(이후 `SetSelectedPart()`가 호출돼도 표시하지 않음), true가 되면 현재 선택을 다시 표시한다 — 4절의 "선택 강조"도 Clean View가 숨기는 대상이라는 원칙을 반영. **Clean View 중 Inspection 클릭은 무시한다(설계 결정)**: 4절이 Clean View에서 유지하는 입력은 Orbit/Zoom/Space/H뿐이므로, `InspectAtScreenPosition()`이 `bCleanViewActive`이면 선택을 바꾸지 않고 `false`를 반환한다(파츠 클릭도 빈 공간 클릭도 선택에 영향 없음). `-game` 스모크가 Clean View 중 토르소/빈 공간 클릭이 무시되고, Actor 수준에서 선택을 바꿔도 강조가 숨겨진 채 유지되며, Clean View 해제 시 강조가 복원됨을 확인한다.
+- **Inspection 종료 시 선택 해제 / 프로필 교체 시 Inspection 유지(설계 결정, 문서화)**: `SetInspectionEnabled(false)`는 선택을 지운다(4절 원칙과 일치). 반면 프로필 교체(`ApplyProfile`)는 액터 쪽 선택/Wireframe만 지우고(`ClearRuntimeState()`), Controller의 Inspection 토글 상태 자체는 유지한다 — "다른 캐릭터를 고른 뒤에도 계속 Inspection 모드로 둘러보고 싶다"는 사용성을 우선한 결정이며, `-game` 스모크(13.11.5절)가 이 두 가지를 모두 검증한다.
+
+#### 13.11.4 Wireframe 구현 (`PortfolioCharacterActor::SetWireframeEnabled`)
+
+- 켤 때: `Profile->WireframeMaterial`(`M_Wireframe`: unlit/opaque/two-sided, `Wireframe=true`, 청록 Emissive, `bUsedWithSkeletalMesh=true`)을 모든 Material Slot에 `SetMaterial()`로 적용한다. `viewmode wireframe` 같은 Editor 전용 명령에 의존하지 않는다(런타임 Material 방식).
+- 끌 때: override 배열을 스냅샷/복사하지 않고 `ApplyMaterialsForCurrentVariant()`(현재 `CurrentVariantId`로 `Profile->FindMaterialVariant()`를 다시 조회해 슬롯을 재적용)를 호출한다 — 7절이 명시한 함정("Wireframe을 끌 때 이전 override 배열을 잘못 복사해 Variant를 잃지 않는다")을 정확히 이 방식으로 피한다.
+- **Wireframe·Variant 선택 동시 발생 시 우선순위(설계 결정, 문서화)**: Wireframe이 켜진 동안 `SelectMaterialVariant()`를 호출하면 `CurrentVariantId`는 갱신되지만(다음에 Wireframe을 끌 때 그 Variant가 나오도록) 화면에는 계속 Wireframe이 보인다 — **Wireframe이 Variant보다 시각적으로 우선**한다. `-game` 스모크가 Grid 선택 중에도 슬롯 재질이 여전히 `M_Wireframe`임을, 이후 Wireframe을 끄면 Grid Variant(`WorldGridMaterial`)로 바뀜을 확인한다(13.11.5절).
+- 선택 강조(Overlay Material)와는 별도 슬롯(`SetOverlayMaterial` vs `SetMaterial`)이라 Wireframe과 파츠 선택은 항상 공존한다.
+- **프로필에 `WireframeMaterial`이 없으면**: `SetWireframeEnabled()`가 `false`를 반환하는 안전한 no-op이고, Controller의 `ToggleWireframe()`도 그대로 `false`를 반환한다. 폴백 패널의 Wireframe 버튼은 `Actor->Profile->WireframeMaterial != nullptr`일 때만 활성화된다(`RefreshFallbackUI()`).
+- **테스트를 위한 구현 조정(엔진 제약)**: `USkinnedMeshComponent::GetNumMaterials()`는 실제 SkeletalMesh 에셋이 할당되어야만 0보다 크다. Editor 자동화 테스트(NullRHI, 에셋 없음)에서 Wireframe↔Variant 왕복을 검증하려면 에셋 없이도 override 슬롯을 조작할 수 있어야 해서, `ApplyMaterialsForCurrentVariant()`의 슬롯 인덱스 유효성 검사를 `(NumMaterials > 0 && ResolvedIndex >= NumMaterials)`로(즉 메시 에셋이 아예 없으면 authored SlotIndex를 신뢰) 완화하고, `SetWireframeEnabled(true)`의 "모든 슬롯" 루프 범위를 `Max(GetNumMaterials(), GetNumOverrideMaterials())`로 바꿨다. 실제 에셋이 할당된 경우(`NumMaterials>0`)는 기존과 동일하게 엄격히 검증하므로 실사용 동작에는 영향이 없다.
+
+#### 13.11.5 테스트
+
+**Editor 자동화(NullRHI, 에셋 불필요, `Tests/CharacterViewerInspectionTests.cpp` 신규)**:
+- `CharacterShowcase.Viewer.PartLookup`: `FindPart`(정확한 Id, 알 수 없는 Id/`NAME_None` → `nullptr`), `FindPartByBone`(정확한 본 매칭, 파츠에 없는 본(가상의 손가락 본 예시)/`NAME_None` → `nullptr`, 부모 걸어 올라가기는 하지 않음 — 그건 Controller 몫).
+- `CharacterShowcase.Viewer.WireframeRestore`: (A) `WireframeMaterial`이 없는 프로필 → `SetWireframeEnabled(true)`가 `false`를 반환하고 크래시 없음. (B) 임시 `UMaterial` 2개(Wireframe용/Variant용)로 Variant 선택 → Wireframe on(슬롯 재질이 Wireframe Material) → Wireframe off(슬롯 재질이 정확히 Variant Material로 복원, override 배열을 그대로 복사한 게 아니라 재조회로 복원됐음을 증명). (C) `ApplyProfile(nullptr)`이 Wireframe과 선택 파츠를 모두 지움.
+
+**`-game` 스모크(`CharacterShowcase.Game.ViewerSmoke` 확장)**: 기존 P0/P1 단계 뒤에 다음을 추가했다 — `ToggleInspection()` on(Widget이 Inspection 활성 보고) → 마네킹 토르소 지점(`Actor 위치 + Z 120`을 `ProjectWorldLocationToScreen`으로 투영)을 클릭해 "Torso" 선택 + Overlay Material 세팅 확인 + 스크린샷(`ViewerSmoke_Inspect`) → 빈 공간(좌상단) 클릭으로 선택 해제 → `ToggleWireframe()` on(모든 슬롯이 `M_Wireframe`) + 스크린샷(`ViewerSmoke_Wireframe`) → Wireframe 켜진 채 `SelectMaterialVariant("Grid")`(슬롯은 여전히 Wireframe, Variant id만 기록) → `ToggleWireframe()` off(슬롯이 Grid Variant로 복원) → `SelectMaterialVariant("Default")` → 토르소 재선택 후 Clean View on(Overlay 제거, 선택 id 유지) → Clean View off(Overlay 복원) → 기존 프로필 교체 테스트(`FSwitchProfileAndVerifyCommand`)에 파츠 선택이 지워지고 Inspection 토글은 유지됨을 검증하는 assertion 추가 → 패널 위 클릭 차단 검증(아래). **리뷰 반영 패스(13.11.9절)에서 순서/검증을 보강했다**: Inspection on 직후 폴백 INSPECTION 섹션 박스가 실제 `Visible`이고 본문이 "Click a part"인지, 토르소 선택 후 본문에 Torso의 `DisplayName`이 들어있는지(테스트 전용 접근자 `GetFallbackInspectionSectionVisibility()`/`GetFallbackInspectionBodyText()`), Clean View 중 클릭 무시/강조 숨김 유지, Clean View 해제 직후 Torso가 선택된 상태에서 Inspection off → 선택·Overlay·Custom Depth 모두 해제 + 섹션 Collapsed, Inspection 재진입 + Torso 선택 + **Wireframe on 상태에서 프로필 교체** → 모든 슬롯이 새 메시의 기본 머티리얼이고 `GetNumOverrideMaterials()==0`, Overlay null, Custom Depth off를 확인한다.
+
+**"패널 위에서 시작한 클릭은 선택하지 않는다" 검증(리뷰 반영 패스에서 자동화로 검증됨)**: 이전 시도(`FSlateApplication::SetCursorPos()`만 호출)는 OS 커서만 옮기고 Slate MouseMove를 만들지 않아 hover가 갱신되지 않았다. 이번에는 `FSlateApplication::ProcessMouseMoveEvent()`/`ProcessMouseButtonDownEvent()`/`ProcessMouseButtonUpEvent()`로 실제 Slate 포인터 이벤트를 합성한다(OS 커서도 같은 위치로 이동). 패널 지점은 위젯 오른쪽 끝에서 8 로컬 단위 안쪽(패널 Border의 16px 패딩 영역, 버튼이 아님), 대조 지점은 화면 10%/10%의 빈 캔버스다. 단계: Torso 선택 → 패널로 이동 → `IsPointerOverPanel()==true` → 좌클릭 press/release → **선택이 Torso 그대로** → Torso 재선택 → 빈 캔버스로 이동 → `IsPointerOverPanel()==false` → 좌클릭 press/release → **선택이 해제됨**(합성 입력이 실제로 Enhanced Input의 Inspection 클릭 경로까지 도달함을 증명 — 따라서 패널 위 "선택 유지"는 입력 유실이 아니라 가드 결과다). **이 검증이 실제 버그를 찾았다**(13.11.9절): 첫 실행에서 hover는 `true`였지만 패널 배경 press가 처리되지 않은 채 게임 뷰포트까지 버블링되어 뷰포트가 마우스를 캡처했고(Slate hover가 패널에서 빠짐), 그 뒤 Enhanced Input이 `HandleOrbitPressStarted()`를 실행할 때는 `IsPointerOverPanel()`이 이미 `false`여서 release가 Inspection 클릭으로 처리돼 선택이 해제됐다. 수정: 폴백 패널 `UBorder::OnMouseButtonDownEvent`에 `HandleFallbackPanelMouseButtonDown()`(Handled 반환)을 바인딩해 패널 배경 press가 뷰포트로 전달되지 않게 했다(버튼은 자체적으로 먼저 처리). 수정 후 재실행에서 위 assertion이 모두 통과했다. 범위: C++ 폴백 패널에 한함 — 디자이너가 만든 WBP 트리를 쓰면 그 WBP의 패널 배경도 클릭을 소비하도록 만들어야 한다(`IsPointerOverPanel()` 가드만으로는 위 타이밍 때문에 부족함).
+
+#### 13.11.6 에셋 (`Scripts/CreatePortfolioAssets.py`)
+
+- `create_or_update_wireframe_material()` / `create_or_update_highlight_material()`: `unreal.MaterialFactoryNew()`로 `/Game/Portfolio/Materials/M_Wireframe`, `M_ViewerHighlight` 생성. `unreal.MaterialEditingLibrary`로 `MaterialExpressionConstant3Vector`(색)와(Highlight만) `MaterialExpressionConstant`(Opacity)를 만들어 `MP_EMISSIVE_COLOR`/`MP_OPACITY`에 연결하고 `recompile_material()`. **함정(실행 중 발견, 이번 세션에 해결)**: 이 표현식 그래프 생성/삭제(`delete_all_material_expressions` 포함)를 **이미 존재하는 에셋에 대해 재실행**하면 `Assertion failed: !IsRooted()`(MaterialEditor 내부, `PythonScriptPlugin` 경유)로 에디터가 즉시 크래시했다 — 이 머티리얼이 `APortfolioCharacterActor`의 CDO 기본값(`HighlightOverlayMaterial`, 생성자의 `ConstructorHelpers::FObjectFinder`)으로 이미 로드되어 있는 상태에서 같은 오브젝트의 Expression을 지우고 새로 만드는 것이 원인으로 보인다. 해결: 표현식 그래프는 **최초 생성 시에만** 만들고(`if created:`), 재실행 시에는 `shading_model`/`blend_mode`/`two_sided`/`wireframe`/`used_with_skeletal_mesh` 같은 스칼라 프로퍼티만 멱등적으로 재설정한다. **(리뷰 반영 패스)** `M_ViewerHighlight`는 재실행 시 표현식을 지우지 않고 `MaterialEditingLibrary.get_material_property_input_node(mat, MP_EMISSIVE_COLOR/MP_OPACITY)`로 이미 연결된 상수 노드를 찾아 값만(`HIGHLIGHT_COLOR`/`HIGHLIGHT_OPACITY`) 갱신한 뒤 `recompile_material()` + 저장한다 — 에셋을 지우지 않고 색/투명도를 바꿀 수 있다(입력 노드가 예상 타입이 아니면 에셋을 지우고 재실행하라는 오류로 중단). 두 머티리얼 모두 `used_with_skeletal_mesh=True`를 명시적으로 설정한다 — 빠뜨리면 `LogMaterial: ... missing bUsedWithSkeletalMesh=True! Default Material will be used in game.`로 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(최초 `-game` 스모크 실행에서 경고로 발견, 13.11.5절의 최종 실행 결과는 이 수정 이후).
+- `DA_Character`: `WireframeMaterial=M_Wireframe`, `Parts`는 13.11.1절 표 그대로(실제 PhysicsAsset 본 이름 사용, 하드코딩 아님 — Python 조사 결과를 그대로 옮김).
+- `DA_Character_Cube`: `WireframeMaterial=M_Wireframe`, `Parts=[{Id=Cube, BoneNames=[Bone01,Bone02]}]`(13.11.1절 한계 참고).
+- `main()`이 두 머티리얼을 프로필보다 먼저 생성하도록 순서를 바꿨다(프로필의 `WireframeMaterial` 참조가 유효해야 하므로).
+
+#### 13.11.7 실행 결과 (2026-09-28, UE 5.6.1, 이 PC)
+
+| 항목 | 결과 |
+| --- | --- |
+| Editor 빌드 (`CharacterShowcaseEditor Win64 Development`) | 성공, 종료 코드 0. 오류 0, 경고 0(3회 재현 — 최초 P2 구현, 테스트 파일 1회 수정, 최종 재확인) |
+| Game 빌드 (`CharacterShowcase Win64 Development`) | 성공, 종료 코드 0. 오류 0, 경고 0(2회 재현) |
+| Editor 자동화(`Automation RunTests CharacterShowcase`) | **실행 6 / 통과 6 / 실패 0** (`Saved/Automation/EditorP2/index.json`) — 기존 4개 + `CharacterShowcase.Viewer.PartLookup` + `CharacterShowcase.Viewer.WireframeRestore` |
+| `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`) | 1차 시도: 1/1 통과이나 패널 hover guard assertion 1건 실패(hover 시뮬레이션 불가로 인한 오검출) + Material usage flag 경고 7건 → 두 문제 모두 수정. **최종: 1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2/index.json`) |
+| Win64 패키지(Development, `RunUAT BuildCookRun`) | **BUILD SUCCESSFUL, 종료 코드 0**, 26.5초 |
+| 패키지 스모크(Development exe) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/PackagedP2/index.json`) |
+| Win64 Shipping 패키지(`RunUAT BuildCookRun -clientconfig=Shipping`) | **BUILD SUCCESSFUL, 종료 코드 0**, 94.0초. 산출물: `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
+| Shipping 실행(자동화 테스트 없음, `-windowed -ResX=1280 -ResY=720`) | 실행 후 30초 뒤 프로세스 생존 확인(`Get-Process` = 살아있음), `Stop-Process`로 정상 종료(2초 뒤 프로세스 없음 확인) |
+
+**스크린샷 육안 확인** (`Saved/Screenshots/WindowsEditor/`, 패키지는 `Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/`에 픽셀 단위로 동일):
+- **`ViewerSmoke_Inspect.png`**: (이 기록은 주황 35% 시절 — 마젠타 55%로 바꾼 뒤의 결과는 13.11.9절) 토르소를 클릭해 선택한 직후. 마네킹은 `ViewerSmoke_UI.png`와 거의 동일하게 보인다 — Overlay Material(`M_ViewerHighlight`, 주황 35% 반투명)이 실제로 적용됐음은 테스트가 `Mesh->GetOverlayMaterial()`이 null이 아님을 확인해 프로그램적으로 증명했지만(값 확인, 크래시/경고 없음), **육안으로는 이 placeholder 마네킹 자체의 기본 색(노란빛이 도는 주황)과 하이라이트 색(주황)이 비슷해 거의 구분되지 않는다** — 실제 아트가 들어오면(피부색/의상색이 주황이 아닐 경우) 뚜렷하게 보일 것으로 예상되나 이 세션에서는 확인 불가. 우측 패널은 720p 스크롤 한계(13.9절 기존 기록과 동일 범주)로 CHARACTER/VIEW까지만 보이고 INSPECTION 섹션은 스크롤 아래에 있어 화면에 잡히지 않았다 — Widget의 `IsInspectionEnabled()`/`GetSelectedPartInfo()` 반환값은 테스트가 프로그램적으로 확인했다.
+- **`ViewerSmoke_Wireframe.png`**: **청록색 와이어프레임 마네킹이 뚜렷하게 보인다** — 배경(검정)과 명확히 대비되는 얇은 선으로 전신 메시 위상이 그대로 드러난다. 의도한 결과와 일치.
+- 나머지(`ViewerSmoke_UI`/`Clean`/`Profile1`/`Profile2`)는 13.7.1/13.7.2절 기록과 육안상 동일(회귀 없음).
+
+#### 13.11.8 남은 문제·위험
+
+- **선택 강조 가시성**: (리뷰 반영 패스에서 해결) `M_ViewerHighlight`를 마젠타 (1.0, 0.0, 0.8) / Opacity 0.55로 바꿔 패키지 스크린샷에서 선택 강조가 뚜렷이 보인다(13.11.9절). 단 강조는 여전히 **메시 전체**에 걸리며(13.11.3절 한계), 파츠 단위 강조는 별도 작업이다.
+- **파츠 단위 삼각형/재질 정확도**: `TutorialTPP`가 단일 Material Slot이라 6개 Part 모두 같은 `TriangleCount`(6118, 메시 전체)/`MaterialName`을 공유한다(13.11.1절). 실제 캐릭터가 파츠별 별도 섹션을 가지면 이 authored 값들을 다시 측정해야 한다.
+- **패널 위 클릭 차단**: (리뷰 반영 패스) 합성 Slate 포인터 이벤트로 자동화 검증 완료(13.11.5/13.11.9절). 남은 한계: 합성 이벤트이지 물리 마우스는 아니며, C++ 폴백 패널에만 적용된다(디자이너 WBP는 패널 배경이 클릭을 소비하도록 별도 구성 필요). Wheel(Zoom)의 패널 위 차단은 여전히 `IsPointerOverPanel()`에만 의존하며 이번 패스에서 검증하지 않았다.
+- **Custom Depth의 Component 단위 한계**: 13.11.3절 기록대로, 단일 SkeletalMeshComponent 구조에서는 Custom Depth가 파츠가 아니라 메시 전체를 플래그한다 — Overlay Material로 우회했지만, 실제 Post Process 기반 외곽선 강조를 원하면 별도 작업이 필요하다.
+- **`Scripts/CreatePortfolioAssets.py`의 레벨 재생성 스텝(`new_level("/Temp/CreatePortfolioAssets_Scratch")`)이 간헐적으로 불안정함을 이번 세션에 처음 관찰**: 매 실행마다 `LevelEditorSubsystem: Error: NewLevel. Failed to validate the destination ... There's alreay an asset at the destination.` 경고가 뜨는 것은 모든 실행(성공/실패 모두)에서 동일했지만, 5회 실행 중 2회는 그 직후 `EXCEPTION_ACCESS_VIOLATION`으로 에디터가 크래시했다(재실행 시 항상 복구됨, 자산 손상 없음 — 실패한 실행은 레벨/프로필 갱신 단계까지 도달하지 못해 디스크 상태가 이전 성공 실행 그대로 유지됨). 근본 원인은 규명하지 못했다(P2 범위 밖, 재현·디버깅에 추가 세션 필요). 이 스크립트를 CI 등에서 무인 재실행할 계획이라면 재시도 로직을 추가하는 것을 권장한다.
+- Shipping 빌드의 실제 시각적 Wireframe/Highlight 결과는 스크린샷으로 검증하지 않았다(Development에서만 확인, 지시사항에 따름) — Shipping 배포 전에는 사람이 직접 확인해야 한다. 리뷰 반영 패스 이후 Shipping 패키지는 다시 만들지 않았다(13.11.9절).
+
+#### 13.11.9 Opus 리뷰 반영 패스 (2026-09-28, P2 주기 2)
+
+Opus 리뷰 지적 9건 중 이전(중단된) 세션이 일부를 반영했고(Actor `SetHighlightVisible`/`IsHighlightVisible`/`ApplyHighlightState`, Clean View 해제 시 `SetHighlightVisible(true)`, `SetInspectionEnabled` 양방향·`ToggleWireframe`의 위젯 갱신, `SetSelectedPart`의 `FindPart` 검증, `InspectAtScreenPosition`의 Inspection off 조기 반환), 이번 패스에서 나머지를 반영했다.
+
+| 항목 | 반영 내용 |
+| --- | --- |
+| Clean View 진입 | Controller가 Mesh를 직접 건드리던 코드를 `ViewerActor->SetHighlightVisible(false)`로 교체, 미사용 `bHighlightHiddenByCleanView` 삭제. Clean View 중 Inspection 클릭은 `InspectAtScreenPosition()`에서 무시(13.11.3절) |
+| 주석 정합 | `CharacterViewerController.h`(ToggleCleanView/SetInspectionEnabled/InspectAtScreenPosition/ToggleWireframe), `CharacterViewerWidget.h`(`GetSelectedPartInfo`는 Inspection 토글을 직접 확인하지 않음, `NotifySelectionChanged` 호출처) |
+| 스모크: Inspection off | Clean View 복원 직후(Torso 선택 상태)로 이동, 선택 해제 + Overlay null + Custom Depth off + INSPECTION 섹션 Collapsed 확인 |
+| 스모크/Editor 테스트: Wireframe 중 프로필 교체 | Wireframe on 상태에서 교체 후 모든 슬롯 = 새 메시 기본 머티리얼, `GetNumOverrideMaterials()==0`, `IsWireframeEnabled()==false`, Overlay null, Custom Depth off. Editor 테스트 C에 `GetNumOverrideMaterials()==0`, `GetOverlayMaterial()==nullptr` 추가 |
+| 스모크: INSPECTION 섹션 | 테스트 전용 접근자 `GetFallbackInspectionSectionVisibility()`/`GetFallbackInspectionBodyText()` 추가, 섹션 `Visible` + "Click a part" + Torso `DisplayName` 포함을 실제 위젯 값으로 확인 |
+| 패널 위 클릭 차단 | 합성 Slate 포인터 이벤트로 검증(13.11.5절). **첫 실행에서 실제 버그 발견**(패널 배경 press가 뷰포트로 버블링 → 뷰포트 캡처로 hover 해제 → 가드 우회 → 선택 해제). `UBorder::OnMouseButtonDownEvent` 바인딩으로 패널 배경 press를 소비하게 수정 후 통과. 대조(빈 캔버스 클릭 → 선택 해제)로 합성 입력이 실제 클릭 경로에 도달함도 확인 |
+| 문서 | 13.11.3(Custom Depth와 Overlay 모두 Component 단위, 선택 파츠는 INSPECTION 텍스트로만 식별), 13.3("6개" → "8개" 2곳), 이 절 |
+| 강조 색 | `M_ViewerHighlight` 마젠타 (1.0, 0.0, 0.8) / Opacity 0.55. 스크립트가 기존 에셋의 상수 노드를 제자리 갱신(13.11.6절). 헤드리스 재실행 1회 만에 `DONE, NO ERRORS`(크래시 없음). 부수 효과: 스크립트가 `WBP_CharacterViewer`/`BP_CharacterViewerGameMode`/`LV_Portfolio`/DA 2개도 다시 저장함 |
+
+**실행 결과(UE 5.6.1, 이 PC)**:
+
+| 항목 | 결과 |
+| --- | --- |
+| Editor 빌드 | 종료 코드 0, 오류 0 / 경고 0 (3회: 1차 반영, 패널 클릭 소비 수정 후, 주석 수정 후) |
+| Editor 자동화(NullRHI) | **6/6 통과**(`Saved/Automation/EditorP2b/index.json`, 패널 수정 후 재실행) |
+| `-game` 스모크 1차 | **실패 1건**: "Press+release over the fallback panel does not change the selection" — Torso 기대, None(`Saved/Automation/GameP2b_run1_fail`). 위 버그 |
+| `-game` 스모크 2차(수정 후) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2b_run2_pass`) |
+| `-game` 스모크 3차(주석만 수정 후 재빌드, 스크린샷 재확인용) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2b/index.json`) |
+| Win64 Development 패키지 | `BUILD SUCCESSFUL`, 종료 코드 0, 50초, Cook `0 error(s), 0 warning(s)` |
+| 패키지 스모크 | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/PackagedP2b/index.json`) |
+
+**스크린샷 육안 확인**:
+- 패키지(`Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/`): `ViewerSmoke_Inspect.png` — 마네킹 전체가 **분홍/마젠타로 뚜렷하게** 덮여 있다(기본 노란색과 확실히 구분됨, 메시 전체 강조). `ViewerSmoke_Wireframe.png` — **청록색 와이어프레임이 온전함**.
+- `-game`(에디터 바이너리, 비쿠킹) 스크린샷(`Saved/Screenshots/WindowsEditor/`)은 2차·3차 실행 **모두** 화면 좌상단에 "Preparing Shaders (1)"이 떠 있고, Inspect는 마네킹 기본 노란색(마젠타 강조 미표시), Wireframe은 회색 기본 셰이딩(청록 와이어프레임 미표시)으로 찍혔다. 테스트의 값 검증(`GetOverlayMaterial()`/슬롯 재질)은 통과했고, 로그에 셰이더 컴파일 오류·머티리얼 경고는 없다. 스크립트가 두 머티리얼을 다시 저장/재컴파일한 뒤 비쿠킹 `-game`에서 해당 셰이더가 테스트의 짧은 촬영 시점(적용 1초 후)까지 준비되지 않은 것으로 보이며, 2회 연속 재현돼 원인(DDC 캐시 미반영 여부 등)은 규명하지 못했다. 셰이더를 쿠킹 시 미리 컴파일하는 **패키지에서는 두 효과 모두 정상 표시**되므로 코드 결함은 아닌 것으로 판단한다. 비쿠킹 `-game` 화면으로 확인하려면 먼저 에디터에서 두 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장한다(미검증).

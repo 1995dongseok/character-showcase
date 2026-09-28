@@ -72,6 +72,42 @@ const FViewerMaterialVariant* UCharacterProfileData::FindMaterialVariant(FName I
 	return nullptr;
 }
 
+const FViewerPartInfo* UCharacterProfileData::FindPart(FName Id) const
+{
+	if (Id == NAME_None)
+	{
+		return nullptr;
+	}
+
+	for (const FViewerPartInfo& Part : Parts)
+	{
+		if (Part.Id == Id)
+		{
+			return &Part;
+		}
+	}
+
+	return nullptr;
+}
+
+const FViewerPartInfo* UCharacterProfileData::FindPartByBone(FName Bone) const
+{
+	if (Bone == NAME_None)
+	{
+		return nullptr;
+	}
+
+	for (const FViewerPartInfo& Part : Parts)
+	{
+		if (Part.BoneNames.Contains(Bone))
+		{
+			return &Part;
+		}
+	}
+
+	return nullptr;
+}
+
 FViewerCameraFraming UCharacterProfileData::GetResetFraming() const
 {
 	if (const FViewerCameraPreset* Preset = FindPreset(DefaultPresetId))

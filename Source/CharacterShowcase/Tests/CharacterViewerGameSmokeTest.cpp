@@ -12,6 +12,7 @@
 #include "Components/SlateWrapperTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
@@ -66,7 +67,14 @@ namespace CharacterViewerGameSmokeTest
 		// instead of hardcoding ESlateVisibility::Visible -- exactly what
 		// ACharacterViewerController::ToggleCleanView() itself does.
 		ESlateVisibility InitialWidgetVisibility = ESlateVisibility::SelfHitTestInvisible;
+
+		// Absolute (desktop) Slate position of the last synthesized pointer
+		// event (FSynthPointerMoveCommand), reused by FSynthLeftButtonCommand.
+		FVector2D SynthPointerPos = FVector2D::ZeroVector;
 	};
+
+	static const FName TorsoPartId(TEXT("Torso"));
+	static const FName HeadPartId(TEXT("Head"));
 
 	static UWorld* FindGameWorld()
 	{
@@ -454,6 +462,561 @@ namespace CharacterViewerGameSmokeTest
 		TSharedRef<FSharedState> State;
 	};
 
+	// --- P2 Inspection / Wireframe (Docs/CHARACTER_VIEWER_SETUP.md section 7/13.11) ---
+
+	// Turns Inspection on (no part selected yet) and checks the fallback
+	// panel's INSPECTION section box is actually Visible and shows the
+	// "Click a part" placeholder (P2-2).
+	class FToggleInspectionOnCommand : public IAutomationLatentCommand
+	{
+	public:
+		FToggleInspectionOnCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			if (!Controller)
+			{
+				Test->AddError(TEXT("FToggleInspectionOnCommand: missing controller from a previous step."));
+				return true;
+			}
+
+			Controller->ToggleInspection();
+			Test->TestTrue(TEXT("ToggleInspection() enables inspection"), Controller->IsInspectionEnabled());
+			if (Test->TestNotNull(TEXT("Widget exists for the INSPECTION section check"), Widget))
+			{
+				Test->TestTrue(TEXT("Widget reports Inspection enabled"), Widget->IsInspectionEnabled());
+				Test->TestEqual(TEXT("Fallback INSPECTION section box is Visible right after Inspection on"),
+					Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Visible);
+				Test->TestEqual(TEXT("Fallback INSPECTION body shows 'Click a part' before any selection"),
+					Widget->GetFallbackInspectionBodyText().ToString(), FString(TEXT("Click a part")));
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Projects (actor location + Z 120, roughly the mannequin's torso) to
+	// screen space and clicks it via InspectAtScreenPosition -- the same
+	// world-space trace helper the real click path (HandleOrbitPressCompleted)
+	// uses, so there is a single inspection code path under test.
+	class FInspectTorsoCommand : public IAutomationLatentCommand
+	{
+	public:
+		FInspectTorsoCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor)
+			{
+				Test->AddError(TEXT("FInspectTorsoCommand: missing controller/actor from a previous step."));
+				return true;
+			}
+
+			const FVector TorsoWorldLocation = Actor->GetActorLocation() + FVector(0.f, 0.f, 120.f);
+			FVector2D ScreenPos;
+			if (!Test->TestTrue(TEXT("ProjectWorldLocationToScreen succeeds for the torso point"), Controller->ProjectWorldLocationToScreen(TorsoWorldLocation, ScreenPos)))
+			{
+				return true;
+			}
+
+			const bool bSelected = Controller->InspectAtScreenPosition(ScreenPos);
+			Test->TestTrue(TEXT("InspectAtScreenPosition(torso) returns true (a part was hit and mapped)"), bSelected);
+			Test->TestEqual(TEXT("Selected part is 'Torso'"), Actor->GetSelectedPartId(), TorsoPartId);
+			if (Actor->Mesh)
+			{
+				Test->TestNotNull(TEXT("Mesh OverlayMaterial is set (selection highlight) after selecting a part"), Actor->Mesh->GetOverlayMaterial());
+				Test->TestTrue(TEXT("Mesh Custom Depth is on after selecting a part"), Actor->Mesh->bRenderCustomDepth != 0);
+			}
+
+			// P2-2: the fallback INSPECTION section body actually shows the
+			// selected part's authored DisplayName (not just the data getter).
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			const FViewerPartInfo* TorsoInfo = Actor->Profile ? Actor->Profile->FindPart(TorsoPartId) : nullptr;
+			if (Test->TestNotNull(TEXT("Widget exists for the INSPECTION body check"), Widget)
+				&& Test->TestNotNull(TEXT("Profile has a 'Torso' part"), TorsoInfo))
+			{
+				const FString Body = Widget->GetFallbackInspectionBodyText().ToString();
+				Test->TestEqual(TEXT("Fallback INSPECTION section box is Visible with a part selected"),
+					Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Visible);
+				Test->TestTrue(FString::Printf(TEXT("Fallback INSPECTION body contains the Torso DisplayName '%s' (body: '%s')"), *TorsoInfo->DisplayName.ToString(), *Body),
+					!TorsoInfo->DisplayName.IsEmpty() && Body.Contains(TorsoInfo->DisplayName.ToString()));
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Clicking empty space (top-left corner, above/beside the mannequin) must clear the selection.
+	class FInspectEmptySpaceCommand : public IAutomationLatentCommand
+	{
+	public:
+		FInspectEmptySpaceCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor)
+			{
+				Test->AddError(TEXT("FInspectEmptySpaceCommand: missing controller/actor from a previous step."));
+				return true;
+			}
+
+			const bool bSelected = Controller->InspectAtScreenPosition(FVector2D(5.f, 5.f));
+			Test->TestFalse(TEXT("InspectAtScreenPosition(empty space) returns false"), bSelected);
+			Test->TestEqual(TEXT("Selection cleared after clicking empty space"), Actor->GetSelectedPartId(), NAME_None);
+			if (Actor->Mesh)
+			{
+				Test->TestNull(TEXT("Mesh OverlayMaterial cleared after clicking empty space"), Actor->Mesh->GetOverlayMaterial());
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Turns Wireframe on and checks every material slot became the profile's WireframeMaterial (M_Wireframe).
+	class FToggleWireframeOnCommand : public IAutomationLatentCommand
+	{
+	public:
+		FToggleWireframeOnCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor || !Actor->Mesh || !Actor->Profile)
+			{
+				Test->AddError(TEXT("FToggleWireframeOnCommand: missing controller/actor/mesh/profile from a previous step."));
+				return true;
+			}
+
+			const bool bToggled = Controller->ToggleWireframe();
+			Test->TestTrue(TEXT("ToggleWireframe() (on) returns true (profile has a WireframeMaterial)"), bToggled);
+			Test->TestTrue(TEXT("Actor reports Wireframe enabled"), Actor->IsWireframeEnabled());
+
+			UMaterialInterface* WireframeMat = Actor->Profile->WireframeMaterial;
+			const int32 NumMaterials = Actor->Mesh->GetNumMaterials();
+			for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
+			{
+				Test->TestEqual(FString::Printf(TEXT("Mesh slot %d material is the WireframeMaterial"), SlotIndex), Actor->Mesh->GetMaterial(SlotIndex), WireframeMat);
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Selecting a MaterialVariant while Wireframe is on must NOT change what is
+	// visually shown (Wireframe wins); the variant selection is only recorded
+	// (Docs/CHARACTER_VIEWER_SETUP.md section 13.11 precedence).
+	class FSelectGridWhileWireframeCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSelectGridWhileWireframeCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor || !Actor->Mesh || !Actor->Profile)
+			{
+				Test->AddError(TEXT("FSelectGridWhileWireframeCommand: missing controller/actor/mesh/profile from a previous step."));
+				return true;
+			}
+
+			Controller->SelectMaterialVariant(FName(TEXT("Grid")));
+			Test->TestEqual(TEXT("Variant id is recorded even though Wireframe is still visually shown"), Actor->GetCurrentVariantId(), FName(TEXT("Grid")));
+			Test->TestTrue(TEXT("Wireframe stays enabled while a variant is selected"), Actor->IsWireframeEnabled());
+
+			UMaterialInterface* WireframeMat = Actor->Profile->WireframeMaterial;
+			Test->TestEqual(TEXT("Mesh slot 0 material is still the WireframeMaterial (precedence: Wireframe over Variant)"), Actor->Mesh->GetMaterial(0), WireframeMat);
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Turning Wireframe off must restore the Grid variant that was selected while it was on.
+	class FToggleWireframeOffCommand : public IAutomationLatentCommand
+	{
+	public:
+		FToggleWireframeOffCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor || !Actor->Mesh)
+			{
+				Test->AddError(TEXT("FToggleWireframeOffCommand: missing controller/actor/mesh from a previous step."));
+				return true;
+			}
+
+			const bool bToggled = Controller->ToggleWireframe();
+			Test->TestTrue(TEXT("ToggleWireframe() (off) returns true"), bToggled);
+			Test->TestFalse(TEXT("Actor reports Wireframe disabled"), Actor->IsWireframeEnabled());
+
+			UMaterialInterface* GridMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
+			Test->TestEqual(TEXT("Mesh slot 0 material equals the Grid variant material after Wireframe off"), Actor->Mesh->GetMaterial(0), GridMaterial);
+
+			Controller->SelectMaterialVariant(FName(TEXT("Default")));
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Selects the torso again, then checks Clean View hides the highlight
+	// (overlay + Custom Depth), ignores inspection clicks while it is on, and
+	// keeps the highlight hidden even if the Actor's selection changes.
+	class FInspectThenCleanViewCommand : public IAutomationLatentCommand
+	{
+	public:
+		FInspectThenCleanViewCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor || !Actor->Mesh)
+			{
+				Test->AddError(TEXT("FInspectThenCleanViewCommand: missing controller/actor/mesh from a previous step."));
+				return true;
+			}
+
+			const FVector TorsoWorldLocation = Actor->GetActorLocation() + FVector(0.f, 0.f, 120.f);
+			FVector2D ScreenPos;
+			Controller->ProjectWorldLocationToScreen(TorsoWorldLocation, ScreenPos);
+			Controller->InspectAtScreenPosition(ScreenPos);
+			Test->TestEqual(TEXT("Torso re-selected before Clean View"), Actor->GetSelectedPartId(), FName(TEXT("Torso")));
+			Test->TestNotNull(TEXT("Overlay material set before Clean View"), Actor->Mesh->GetOverlayMaterial());
+
+			Controller->ToggleCleanView();
+			Test->TestNull(TEXT("Clean View removes the selection highlight overlay"), Actor->Mesh->GetOverlayMaterial());
+			Test->TestFalse(TEXT("Clean View turns Custom Depth off"), Actor->Mesh->bRenderCustomDepth != 0);
+			Test->TestFalse(TEXT("Actor reports highlight hidden during Clean View"), Actor->IsHighlightVisible());
+			// The selection id itself is preserved (only the visual highlight is hidden), so it can be restored exactly.
+			Test->TestEqual(TEXT("Clean View does not clear the selection id"), Actor->GetSelectedPartId(), TorsoPartId);
+
+			// Inspection clicks are ignored during Clean View (section 4 / 13.11.3):
+			// neither a part click nor an empty-space click changes the selection
+			// or brings the highlight back.
+			const bool bTorsoClick = Controller->InspectAtScreenPosition(ScreenPos);
+			Test->TestFalse(TEXT("InspectAtScreenPosition(torso) is ignored (returns false) during Clean View"), bTorsoClick);
+			Controller->InspectAtScreenPosition(FVector2D(5.f, 5.f));
+			Test->TestEqual(TEXT("Empty-space click during Clean View does not clear the selection"), Actor->GetSelectedPartId(), TorsoPartId);
+			Test->TestNull(TEXT("No highlight overlay after clicks during Clean View"), Actor->Mesh->GetOverlayMaterial());
+
+			// Actor-level guarantee: even if the selection changes while the
+			// highlight is hidden, nothing is shown until Clean View is left.
+			Actor->SetSelectedPart(HeadPartId);
+			Test->TestEqual(TEXT("Actor selection can change while the highlight is hidden"), Actor->GetSelectedPartId(), HeadPartId);
+			Test->TestNull(TEXT("SetSelectedPart during Clean View keeps the overlay hidden"), Actor->Mesh->GetOverlayMaterial());
+			Test->TestFalse(TEXT("SetSelectedPart during Clean View keeps Custom Depth off"), Actor->Mesh->bRenderCustomDepth != 0);
+			Actor->SetSelectedPart(TorsoPartId);
+			Test->TestNull(TEXT("Re-selecting Torso during Clean View keeps the overlay hidden"), Actor->Mesh->GetOverlayMaterial());
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	class FLeaveCleanViewRestoresHighlightCommand : public IAutomationLatentCommand
+	{
+	public:
+		FLeaveCleanViewRestoresHighlightCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller || !Actor || !Actor->Mesh)
+			{
+				Test->AddError(TEXT("FLeaveCleanViewRestoresHighlightCommand: missing controller/actor/mesh from a previous step."));
+				return true;
+			}
+
+			Controller->ToggleCleanView();
+			Test->TestNotNull(TEXT("Leaving Clean View restores the selection highlight overlay"), Actor->Mesh->GetOverlayMaterial());
+			Test->TestTrue(TEXT("Leaving Clean View restores Custom Depth"), Actor->Mesh->bRenderCustomDepth != 0);
+			Test->TestEqual(TEXT("Selection id unchanged by the Clean View round-trip"), Actor->GetSelectedPartId(), TorsoPartId);
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Turns Inspection off while Torso is still selected (run right after the
+	// Clean View restore step) and checks the selection AND its visible
+	// highlight are cleared (section 4/7) and the INSPECTION section collapses.
+	class FToggleInspectionOffCommand : public IAutomationLatentCommand
+	{
+	public:
+		FToggleInspectionOffCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerController* Controller = State->Controller.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Controller)
+			{
+				Test->AddError(TEXT("FToggleInspectionOffCommand: missing controller from a previous step."));
+				return true;
+			}
+
+			Controller->ToggleInspection();
+			Test->TestFalse(TEXT("ToggleInspection() (off) disables inspection"), Controller->IsInspectionEnabled());
+			if (Actor)
+			{
+				Test->TestEqual(TEXT("Turning Inspection off clears the selection"), Actor->GetSelectedPartId(), NAME_None);
+				if (Actor->Mesh)
+				{
+					Test->TestNull(TEXT("Turning Inspection off removes the highlight overlay"), Actor->Mesh->GetOverlayMaterial());
+					Test->TestFalse(TEXT("Turning Inspection off turns Custom Depth off"), Actor->Mesh->bRenderCustomDepth != 0);
+				}
+			}
+			if (UCharacterViewerWidget* Widget = State->Widget.Get())
+			{
+				Test->TestEqual(TEXT("Fallback INSPECTION section box collapses when Inspection is turned off"),
+					Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Collapsed);
+			}
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// --- UI-over-panel click guard (P2 evidence "UI 위 선택 차단") ---
+	//
+	// Synthesizes real Slate pointer input (FSlateApplication::Process*Event,
+	// the same entry points the platform message handler uses) instead of only
+	// warping the OS cursor: SetCursorPos() alone never produced a Slate
+	// MouseMove, so UWidget::IsHovered() never updated. The OS cursor is also
+	// warped to the same point so Slate's own synthesized mouse moves (which
+	// read the real cursor) agree with the synthetic event.
+	//
+	// Panel point: 8 local units left of the widget's right edge, vertically
+	// centred -- inside the fallback panel border's 16px padding (section
+	// 13.10), so the press lands on the panel background, not on a button
+	// (a UButton would consume the press itself and never exercise the guard).
+	// Canvas point: 10%/10% of the full-screen widget -- empty viewport area.
+	static bool ComputeSynthPointerPos(UCharacterViewerWidget* Widget, bool bOverPanel, FVector2D& OutAbsolutePos)
+	{
+		if (!Widget)
+		{
+			return false;
+		}
+
+		const FGeometry& Geometry = Widget->GetCachedGeometry();
+		const FVector2D LocalSize = Geometry.GetLocalSize();
+		if (LocalSize.X <= 16.f || LocalSize.Y <= 16.f)
+		{
+			return false;
+		}
+
+		const FVector2D LocalPos = bOverPanel
+			? FVector2D(LocalSize.X - 8.f, LocalSize.Y * 0.5f)
+			: FVector2D(LocalSize.X * 0.1f, LocalSize.Y * 0.1f);
+		OutAbsolutePos = Geometry.LocalToAbsolute(LocalPos);
+		return true;
+	}
+
+	class FSynthPointerMoveCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSynthPointerMoveCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, bool bInOverPanel)
+			: Test(InTest), State(InState), bOverPanel(bInOverPanel)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			FVector2D TargetPos;
+			if (!FSlateApplication::IsInitialized() || !ComputeSynthPointerPos(State->Widget.Get(), bOverPanel, TargetPos))
+			{
+				Test->AddError(TEXT("FSynthPointerMoveCommand: no Slate application / widget geometry to synthesize a pointer move in."));
+				return true;
+			}
+
+			FSlateApplication& SlateApp = FSlateApplication::Get();
+			const FVector2D LastPos = SlateApp.GetCursorPos();
+			SlateApp.SetCursorPos(TargetPos);
+
+			const TSet<FKey> NoButtons;
+			const FPointerEvent MoveEvent(FSlateApplication::CursorPointerIndex, TargetPos, LastPos, NoButtons, EKeys::Invalid, 0.f, SlateApp.GetModifierKeys());
+			SlateApp.ProcessMouseMoveEvent(MoveEvent);
+
+			State->SynthPointerPos = TargetPos;
+			Test->AddInfo(FString::Printf(TEXT("Synthesized pointer move to %s at (%.0f, %.0f)."), bOverPanel ? TEXT("the fallback panel") : TEXT("empty canvas"), TargetPos.X, TargetPos.Y));
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		bool bOverPanel;
+	};
+
+	class FSynthLeftButtonCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSynthLeftButtonCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, bool bInDown)
+			: Test(InTest), State(InState), bDown(bInDown)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			if (!FSlateApplication::IsInitialized())
+			{
+				Test->AddError(TEXT("FSynthLeftButtonCommand: no Slate application."));
+				return true;
+			}
+
+			FSlateApplication& SlateApp = FSlateApplication::Get();
+			TSet<FKey> PressedButtons;
+			if (bDown)
+			{
+				PressedButtons.Add(EKeys::LeftMouseButton);
+			}
+
+			const FPointerEvent ButtonEvent(FSlateApplication::CursorPointerIndex, State->SynthPointerPos, State->SynthPointerPos, PressedButtons, EKeys::LeftMouseButton, 0.f, SlateApp.GetModifierKeys());
+			if (bDown)
+			{
+				SlateApp.ProcessMouseButtonDownEvent(nullptr, ButtonEvent);
+			}
+			else
+			{
+				SlateApp.ProcessMouseButtonUpEvent(ButtonEvent);
+			}
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		bool bDown;
+	};
+
+	class FCheckPointerOverPanelCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckPointerOverPanelCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, bool bInExpectedOverPanel)
+			: Test(InTest), State(InState), bExpectedOverPanel(bInExpectedOverPanel)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			if (!Widget)
+			{
+				Test->AddError(TEXT("FCheckPointerOverPanelCommand: missing widget from a previous step."));
+				return true;
+			}
+
+			Test->TestEqual(bExpectedOverPanel
+					? TEXT("IsPointerOverPanel() is true after a synthesized pointer move over the fallback panel")
+					: TEXT("IsPointerOverPanel() is false after a synthesized pointer move over empty canvas (control)"),
+				Widget->IsPointerOverPanel(), bExpectedOverPanel);
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		bool bExpectedOverPanel;
+	};
+
+	class FCheckSelectedPartCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckSelectedPartCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, FName InExpectedPartId, const TCHAR* InDescription)
+			: Test(InTest), State(InState), ExpectedPartId(InExpectedPartId), Description(InDescription)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Actor)
+			{
+				Test->AddError(TEXT("FCheckSelectedPartCommand: missing actor from a previous step."));
+				return true;
+			}
+
+			Test->TestEqual(Description, Actor->GetSelectedPartId(), ExpectedPartId);
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		FName ExpectedPartId;
+		FString Description;
+	};
+
 	// Step 7/8 (P1 completion evidence, Docs/CHARACTER_VIEWER_SETUP.md section 6,
 	// deliverable A): switch the live viewer to a *different* profile
 	// (DA_Character_Cube, then back to DA_Character) purely via
@@ -467,8 +1030,11 @@ namespace CharacterViewerGameSmokeTest
 	class FSwitchProfileAndVerifyCommand : public IAutomationLatentCommand
 	{
 	public:
-		FSwitchProfileAndVerifyCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, FString InProfilePath)
-			: Test(InTest), State(InState), ProfilePath(MoveTemp(InProfilePath))
+		// bInExpectWireframeOnBefore: asserts Wireframe is ON right before the
+		// switch, so this switch also proves ApplyProfile() drops the old
+		// profile's wireframe material overrides (P2-4 / section 7).
+		FSwitchProfileAndVerifyCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, FString InProfilePath, bool bInExpectWireframeOnBefore = false)
+			: Test(InTest), State(InState), ProfilePath(MoveTemp(InProfilePath)), bExpectWireframeOnBefore(bInExpectWireframeOnBefore)
 		{
 		}
 
@@ -488,6 +1054,11 @@ namespace CharacterViewerGameSmokeTest
 			if (!Test->TestNotNull(FString::Printf(TEXT("Loaded profile asset '%s'"), *ProfilePath), NewProfile))
 			{
 				return true;
+			}
+
+			if (bExpectWireframeOnBefore)
+			{
+				Test->TestTrue(TEXT("Precondition: Wireframe is ON right before this profile switch"), Actor->IsWireframeEnabled());
 			}
 
 			// Exercises the same public entry point the CHARACTER section
@@ -518,6 +1089,36 @@ namespace CharacterViewerGameSmokeTest
 			Test->TestTrue(TEXT("Turntable rotation reset to the actor's placed rotation after the profile switch"),
 				Actor->GetActorRotation().Equals(State->RestRotation, 0.5f));
 
+			// P2 completion evidence (section 7): a profile switch clears the
+			// part selection/highlight (ApplyProfile -> ClearRuntimeState()),
+			// but the Inspection *toggle* itself is a Controller-level UI mode
+			// that intentionally persists across a profile switch (documented
+			// choice, section 13.11) so browsing stays in Inspection mode
+			// after picking a different character.
+			Test->TestEqual(TEXT("Part selection cleared by the profile switch"), Actor->GetSelectedPartId(), NAME_None);
+			Test->TestTrue(TEXT("Inspection toggle state persists across a profile switch"), Controller->IsInspectionEnabled());
+			Test->TestFalse(TEXT("Wireframe cleared by the profile switch"), Actor->IsWireframeEnabled());
+
+			// No material override survives the switch (in particular not the
+			// previous profile's wireframe material): every slot shows the new
+			// mesh's own default material.
+			if (USkeletalMeshComponent* Mesh = Actor->Mesh)
+			{
+				Test->TestEqual(TEXT("No material overrides remain after the profile switch"), Mesh->GetNumOverrideMaterials(), 0);
+				if (ExpectedMesh)
+				{
+					const TArray<FSkeletalMaterial>& DefaultMaterials = ExpectedMesh->GetMaterials();
+					Test->TestEqual(TEXT("Mesh slot count matches the switched-to mesh's material count"), Mesh->GetNumMaterials(), DefaultMaterials.Num());
+					for (int32 SlotIndex = 0; SlotIndex < DefaultMaterials.Num(); ++SlotIndex)
+					{
+						Test->TestEqual(FString::Printf(TEXT("Mesh slot %d material equals the switched-to mesh's default material"), SlotIndex),
+							Mesh->GetMaterial(SlotIndex), DefaultMaterials[SlotIndex].MaterialInterface.Get());
+					}
+				}
+				Test->TestNull(TEXT("No highlight overlay after the profile switch"), Mesh->GetOverlayMaterial());
+				Test->TestFalse(TEXT("Custom Depth off after the profile switch"), Mesh->bRenderCustomDepth != 0);
+			}
+
 			const FViewerCameraFraming ExpectedFraming = NewProfile->GetResetFraming();
 			const float ExpectedDistance = FMath::Clamp(ExpectedFraming.Distance, ExpectedFraming.MinDistance, ExpectedFraming.MaxDistance);
 			Test->TestEqual(TEXT("Camera distance matches the switched-to profile's reset framing"), Pawn->GetDistance(), ExpectedDistance, 1.f);
@@ -541,6 +1142,7 @@ namespace CharacterViewerGameSmokeTest
 		FAutomationTestBase* Test;
 		TSharedRef<FSharedState> State;
 		FString ProfilePath;
+		bool bExpectWireframeOnBefore = false;
 	};
 }
 
@@ -579,17 +1181,86 @@ bool FCharacterViewerGameSmokeTest::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCleanViewOffCommand(this, State));
 
+	// --- P2 Inspection / Wireframe (Docs/CHARACTER_VIEWER_SETUP.md section 7/13.11) ---
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleInspectionOnCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectTorsoCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Inspect")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectEmptySpaceCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleWireframeOnCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Wireframe")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSelectGridWhileWireframeCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleWireframeOffCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectThenCleanViewCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FLeaveCleanViewRestoresHighlightCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	// Inspection off while Torso is still selected: selection + overlay + Custom Depth cleared.
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleInspectionOffCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// Re-enter Inspection, select Torso and turn Wireframe on, so the first
+	// profile switch below starts from "selection + Wireframe on".
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleInspectionOnCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectTorsoCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FToggleWireframeOnCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
 	// 7/8. Profile switch (P1 completion evidence, section 6, deliverable A):
 	// DA_Character -> DA_Character_Cube -> DA_Character, entirely through
 	// ProfileLibrary/SelectCharacterProfile(), no code change between profiles.
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FSwitchProfileAndVerifyCommand(this, State, TEXT("/Game/Portfolio/Data/DA_Character_Cube.DA_Character_Cube")));
+	// Also P2 completion evidence: the first switch happens with Torso selected
+	// and Wireframe ON, and FSwitchProfileAndVerifyCommand checks selection/
+	// highlight/Wireframe/material overrides are cleared while the Inspection
+	// toggle persists (see its P2 assertions).
+	ADD_LATENT_AUTOMATION_COMMAND(FSwitchProfileAndVerifyCommand(this, State, TEXT("/Game/Portfolio/Data/DA_Character_Cube.DA_Character_Cube"), true));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Profile2")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FSwitchProfileAndVerifyCommand(this, State, TEXT("/Game/Portfolio/Data/DA_Character.DA_Character")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCaptureWindowScreenshotCommand(this, TEXT("ViewerSmoke_Profile1")));
+
+	// P2 "UI 위 선택 차단": with Torso selected (Inspection still on), a
+	// synthesized Slate pointer move + left press/release over the fallback
+	// panel must report IsPointerOverPanel()==true and leave the selection
+	// unchanged. Control: the same over empty canvas must report false, and
+	// its press/release must reach the Inspection click path (clearing the
+	// selection) -- proving the synthesized input does reach Enhanced Input,
+	// so the "unchanged" result over the panel is the guard, not lost input.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectTorsoCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckPointerOverPanelCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckSelectedPartCommand(this, State, TorsoPartId, TEXT("Press+release over the fallback panel does not change the selection")));
+	// Re-select Torso (idempotent if the guard held) so the control click below
+	// starts from a real selection and its "cleared" result is not vacuous.
+	ADD_LATENT_AUTOMATION_COMMAND(FInspectTorsoCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckPointerOverPanelCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckSelectedPartCommand(this, State, NAME_None, TEXT("Control: press+release over empty canvas reaches the Inspection click path and clears the selection")));
 
 	return true;
 }

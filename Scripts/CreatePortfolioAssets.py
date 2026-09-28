@@ -61,6 +61,14 @@ MAP_PACKAGE = "/Game/Portfolio/Maps"
 MAP_ASSET_NAME = "LV_Portfolio"
 MAP_ASSET_PATH = f"{MAP_PACKAGE}/{MAP_ASSET_NAME}"
 
+# P2-4/P2-3: wireframe display material and selection-highlight overlay
+# material (Docs/CHARACTER_VIEWER_SETUP.md section 13.11).
+MATERIALS_PACKAGE = "/Game/Portfolio/Materials"
+WIREFRAME_MAT_NAME = "M_Wireframe"
+WIREFRAME_MAT_PATH = f"{MATERIALS_PACKAGE}/{WIREFRAME_MAT_NAME}"
+HIGHLIGHT_MAT_NAME = "M_ViewerHighlight"
+HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{HIGHLIGHT_MAT_NAME}"
+
 TUTORIAL_MESH = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"
 TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Idle.Tutorial_Idle"
 TUTORIAL_WALK = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Walk_Fwd.Tutorial_Walk_Fwd"
@@ -265,6 +273,42 @@ def create_or_update_character_profile():
 
     profile.set_editor_property("turntable_speed_degrees_per_second", 20.0)
 
+    # --- P2-0/P2-1/P2-2 Parts: bone-based, from the physics asset's actual
+    # constraint tree (Docs/CHARACTER_VIEWER_SETUP.md section 13.11 -- 22
+    # bodies across TutorialTPP_PhysicsAsset's 68-bone skeleton). TriangleCount/
+    # MaterialName/TextureResolution are authored data measured once (whole
+    # LOD0/slot 0, since this placeholder mesh is a single render section
+    # under one material -- see the doc's per-part-accuracy limitation note).
+    tri_count = 6118  # LOD0 total (AssetRegistry "Triangles" tag), measured via Python.
+    mat_name = "TutorialTPP_Mat"
+    tex_res = "N/A (no texture; TutorialTPP_Mat BaseColor is a solid Constant3Vector color)"
+
+    def make_part(id_name, display, part_type, description, bone_names):
+        part = unreal.ViewerPartInfo()
+        part.set_editor_property("id", id_name)
+        part.set_editor_property("display_name", unreal.Text(display))
+        part.set_editor_property("part_type", unreal.Text(part_type))
+        part.set_editor_property("description", unreal.Text(description))
+        part.set_editor_property("bone_names", [unreal.Name(b) for b in bone_names])
+        part.set_editor_property("component_tag", unreal.Name())
+        part.set_editor_property("triangle_count", tri_count)
+        part.set_editor_property("material_name", unreal.Text(mat_name))
+        part.set_editor_property("texture_resolution", unreal.Text(tex_res))
+        return part
+
+    parts = [
+        make_part("Head", "Head", "Body Part", "Head and neck.", ["head", "neck_01"]),
+        make_part("Torso", "Torso", "Body Part", "Pelvis and spine.", ["pelvis", "spine_01", "spine_02", "spine_03"]),
+        make_part("LeftArm", "Left Arm", "Body Part", "Left clavicle through hand.", ["clavicle_l", "upperarm_l", "lowerarm_l", "hand_l"]),
+        make_part("RightArm", "Right Arm", "Body Part", "Right clavicle through hand.", ["clavicle_r", "upperarm_r", "lowerarm_r", "hand_r"]),
+        make_part("LeftLeg", "Left Leg", "Body Part", "Left thigh through ball of foot.", ["thigh_l", "calf_l", "foot_l", "ball_l"]),
+        make_part("RightLeg", "Right Leg", "Body Part", "Right thigh through ball of foot.", ["thigh_r", "calf_r", "foot_r", "ball_r"]),
+    ]
+    profile.set_editor_property("parts", parts)
+
+    wireframe_mat = load_or_none(WIREFRAME_MAT_PATH)
+    profile.set_editor_property("wireframe_material", wireframe_mat)
+
     save(DATA_ASSET_PATH)
     return profile
 
@@ -291,6 +335,129 @@ def measure_skeletal_mesh_extent(mesh):
             report_exception(f"measure_skeletal_mesh_extent via {mesh.get_name()}.{method_name}()", exc)
     log_warn(f"[CreatePortfolioAssets] Could not measure bounds for '{mesh.get_name()}', using a 50cm half-extent guess.")
     return unreal.Vector(0.0, 0.0, 0.0), unreal.Vector(50.0, 50.0, 50.0)
+
+
+# ---------------------------------------------------------------------------
+# 1a. M_Wireframe / M_ViewerHighlight (P2-3/P2-4 materials)
+# ---------------------------------------------------------------------------
+
+def _create_or_load_material(asset_name, package_path, asset_path):
+    if EAL.does_asset_exist(asset_path):
+        return EAL.load_asset(asset_path), False
+    ensure_directory(package_path)
+    factory = unreal.MaterialFactoryNew()
+    mat = asset_tools.create_asset(asset_name, package_path, unreal.Material, factory)
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {asset_name}")
+    return mat, True
+
+
+def create_or_update_wireframe_material():
+    """M_Wireframe: unlit, opaque, two-sided, Wireframe=True, constant cyan
+    emissive. Applied to every material slot while Wireframe is on
+    (APortfolioCharacterActor::SetWireframeEnabled); Wireframe=True makes the
+    engine render only the mesh's edges, so the constant color only needs to
+    be visible/bright, not textured (section 7: no viewmode-wireframe dependency)."""
+    mat, created = _create_or_load_material(WIREFRAME_MAT_NAME, MATERIALS_PACKAGE, WIREFRAME_MAT_PATH)
+    log(f"[CreatePortfolioAssets] M_Wireframe {'created' if created else 'already exists, updating'}: {WIREFRAME_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("wireframe", True)
+    # Without this, UE falls back to the default material at runtime for any
+    # skeletal mesh this is applied to (LogMaterial: "missing
+    # bUsedWithSkeletalMesh=True! Default Material will be used in game."),
+    # which is exactly how this material is used (SetMaterial on
+    # USkeletalMeshComponent slots) -- caught by the first -game smoke run
+    # (Docs/CHARACTER_VIEWER_SETUP.md section 13.11).
+    mat.set_editor_property("used_with_skeletal_mesh", True)
+
+    if created:
+        # Only build the expression graph once: on a re-run this material may
+        # already be referenced elsewhere in the loaded editor process (e.g.
+        # APortfolioCharacterActor's CDO default), and deleting/recreating its
+        # expressions then crashed with "Assertion failed: !IsRooted()" inside
+        # MaterialEditor -- see Docs/CHARACTER_VIEWER_SETUP.md section 13.11.
+        # The graph is a fixed constant color, so it never needs to change
+        # after creation; only the scalar properties above are re-applied idempotently.
+        MEL = unreal.MaterialEditingLibrary
+        MEL.delete_all_material_expressions(mat)
+        color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
+        color_node.set_editor_property("constant", unreal.LinearColor(0.0, 1.0, 1.0, 1.0))  # cyan
+        MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+        MEL.recompile_material(mat)
+
+    save(WIREFRAME_MAT_PATH)
+    return mat
+
+
+HIGHLIGHT_COLOR = unreal.LinearColor(1.0, 0.0, 0.8, 1.0)  # magenta (clearly distinct from the orange-ish placeholder mannequin)
+HIGHLIGHT_OPACITY = 0.55
+
+
+def create_or_update_highlight_material():
+    """M_ViewerHighlight: unlit, translucent, two-sided, constant magenta
+    emissive (HIGHLIGHT_COLOR) at HIGHLIGHT_OPACITY. Applied via
+    USkeletalMeshComponent::SetOverlayMaterial() while a part is selected
+    (APortfolioCharacterActor::SetSelectedPart) so the selection is visible
+    without a project post-process material reading CustomStencil.
+
+    On a re-run the existing graph is NOT deleted/recreated (that crashed with
+    !IsRooted(), see below); instead the constant nodes already wired to
+    Emissive/Opacity are found via get_material_property_input_node() and only
+    their values are updated in place, then the material is recompiled."""
+    mat, created = _create_or_load_material(HIGHLIGHT_MAT_NAME, MATERIALS_PACKAGE, HIGHLIGHT_MAT_PATH)
+    log(f"[CreatePortfolioAssets] M_ViewerHighlight {'created' if created else 'already exists, updating'}: {HIGHLIGHT_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("wireframe", False)
+    # See create_or_update_wireframe_material(): required for
+    # SetOverlayMaterial()/SetMaterial() on a USkeletalMeshComponent to
+    # actually use this material at runtime instead of silently falling back
+    # to the default material.
+    mat.set_editor_property("used_with_skeletal_mesh", True)
+
+    if created:
+        # See create_or_update_wireframe_material(): only build the expression
+        # graph once (same !IsRooted() crash risk on a re-run once this
+        # material is in active use, e.g. as APortfolioCharacterActor's
+        # default HighlightOverlayMaterial).
+        MEL = unreal.MaterialEditingLibrary
+        MEL.delete_all_material_expressions(mat)
+        color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, -50)
+        color_node.set_editor_property("constant", HIGHLIGHT_COLOR)
+        MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+        opacity_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 100)
+        opacity_node.set_editor_property("r", HIGHLIGHT_OPACITY)
+        MEL.connect_material_property(opacity_node, "", unreal.MaterialProperty.MP_OPACITY)
+
+        MEL.recompile_material(mat)
+    else:
+        # Update the existing constants in place (no expression deletion).
+        MEL = unreal.MaterialEditingLibrary
+        color_node = MEL.get_material_property_input_node(mat, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+        opacity_node = MEL.get_material_property_input_node(mat, unreal.MaterialProperty.MP_OPACITY)
+        if not isinstance(color_node, unreal.MaterialExpressionConstant3Vector):
+            raise RuntimeError(f"M_ViewerHighlight: Emissive input is not a Constant3Vector ({color_node}); delete the asset and re-run to recreate it")
+        if not isinstance(opacity_node, unreal.MaterialExpressionConstant):
+            raise RuntimeError(f"M_ViewerHighlight: Opacity input is not a Constant ({opacity_node}); delete the asset and re-run to recreate it")
+
+        old_color = color_node.get_editor_property("constant")
+        old_opacity = opacity_node.get_editor_property("r")
+        color_node.set_editor_property("constant", HIGHLIGHT_COLOR)
+        opacity_node.set_editor_property("r", HIGHLIGHT_OPACITY)
+        MEL.recompile_material(mat)
+        log(f"[CreatePortfolioAssets] M_ViewerHighlight constants updated in place: "
+            f"color ({old_color.r:.2f},{old_color.g:.2f},{old_color.b:.2f}) -> "
+            f"({HIGHLIGHT_COLOR.r:.2f},{HIGHLIGHT_COLOR.g:.2f},{HIGHLIGHT_COLOR.b:.2f}), "
+            f"opacity {old_opacity:.2f} -> {HIGHLIGHT_OPACITY:.2f}")
+
+    save(HIGHLIGHT_MAT_PATH)
+    return mat
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +573,26 @@ def create_or_update_character_profile_cube():
     profile.set_editor_property("material_variants", [default_variant, grid_variant])
 
     profile.set_editor_property("turntable_speed_degrees_per_second", 45.0)
+
+    # P2 completion evidence: one Part so a profile switch away from a
+    # selection on DA_Character can be tested against a second profile that
+    # also has Parts data (SkeletalCube has no PhysicsAsset -- see
+    # Docs/CHARACTER_VIEWER_SETUP.md section 13.11 -- so this Part exists for
+    # schema/profile-switch coverage, not for a working click on the cube itself).
+    cube_part = unreal.ViewerPartInfo()
+    cube_part.set_editor_property("id", "Cube")
+    cube_part.set_editor_property("display_name", unreal.Text("Cube"))
+    cube_part.set_editor_property("part_type", unreal.Text("Body Part"))
+    cube_part.set_editor_property("description", unreal.Text("The entire skeletal cube placeholder (no PhysicsAsset, so no per-bone split)."))
+    cube_part.set_editor_property("bone_names", [unreal.Name("Bone01"), unreal.Name("Bone02")])
+    cube_part.set_editor_property("component_tag", unreal.Name())
+    cube_part.set_editor_property("triangle_count", 12)
+    cube_part.set_editor_property("material_name", unreal.Text("Default (engine, unnamed)"))
+    cube_part.set_editor_property("texture_resolution", unreal.Text("N/A (no texture)"))
+    profile.set_editor_property("parts", [cube_part])
+
+    wireframe_mat = load_or_none(WIREFRAME_MAT_PATH)
+    profile.set_editor_property("wireframe_material", wireframe_mat)
 
     save(DATA_ASSET_CUBE_PATH)
     return profile
@@ -660,6 +847,8 @@ def update_default_engine_ini():
 
 def main():
     log("[CreatePortfolioAssets] ==== START ====")
+    create_or_update_wireframe_material()
+    create_or_update_highlight_material()
     profile = create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     wbp = create_or_update_widget_blueprint()

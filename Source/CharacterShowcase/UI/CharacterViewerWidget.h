@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Character/CharacterProfileData.h"
 #include "CharacterViewerWidget.generated.h"
 
 class ACharacterViewerController;
@@ -47,6 +48,8 @@ enum class ECharacterViewerButtonKind : uint8
 	ToggleTurntable,
 	ResetCamera,
 	ToggleCleanView,
+	ToggleInspection,
+	ToggleWireframe,
 	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): CHARACTER section, one button per
 	// ACharacterViewerGameMode::ProfileLibrary entry. Id is the target UCharacterProfileData's own asset FName.
 	CharacterProfile,
@@ -138,6 +141,39 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Viewer")
 	FName GetCurrentCameraPresetId() const { return CurrentCameraPresetId; }
 
+	// --- Inspection / Wireframe (P2-2) ---
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	bool IsInspectionEnabled() const;
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Wireframe")
+	bool IsWireframeEnabled() const;
+
+	// True (and fills OutInfo) when the bound Actor has a selected part that
+	// exists in its Profile->Parts; it does not itself check the Inspection
+	// toggle (the Controller clears the selection when Inspection is turned
+	// off, and the fallback INSPECTION section is only shown while it is on).
+	// All fields come straight from authored Profile data
+	// (Docs/CHARACTER_VIEWER_SETUP.md section 7: never inferred per frame).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	bool GetSelectedPartInfo(FViewerPartInfo& OutInfo) const;
+
+	// Called by the Controller (InspectAtScreenPosition, SetInspectionEnabled
+	// in both directions, ToggleWireframe) so the fallback panel's INSPECTION
+	// section and Inspection/Wireframe button labels refresh without waiting
+	// for the next full BindToViewer().
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	void NotifySelectionChanged();
+
+	// Test-only accessors (Tests/CharacterViewerGameSmokeTest.cpp, P2-2
+	// evidence): the fallback INSPECTION section box's actual visibility and
+	// its body text as rendered. Collapsed / empty if the fallback UI was never built.
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	ESlateVisibility GetFallbackInspectionSectionVisibility() const;
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	FText GetFallbackInspectionBodyText() const;
+
 	// Test-only accessor (Tests/CharacterViewerGameSmokeTest.cpp, P1 profile-switch
 	// evidence): the fallback panel's actually-rendered DisplayName text, so a test
 	// can confirm the panel was rebuilt (RefreshFallbackUI() ran) rather than only
@@ -181,6 +217,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void RequestResetCamera();
 
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	void RequestToggleInspection();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Wireframe")
+	void RequestToggleWireframe();
+
 protected:
 	// Builds the fallback tree (if needed) BEFORE UUserWidget::RebuildWidget()
 	// converts WidgetTree->RootWidget into Slate. NativeConstruct() runs only
@@ -211,6 +253,17 @@ private:
 	void PopulateFallbackSection(UVerticalBox* SectionBox, UTextBlock* HeaderText, const FText& HeaderLabel, const TArray<FViewerListItem>& Items, ECharacterViewerButtonKind Kind);
 
 	UButton* AddFallbackButtonRow(UVerticalBox* Container, const FText& Label, bool bEnabled, FName Id, ECharacterViewerButtonKind Kind, UTextBlock** OutTextBlock = nullptr);
+
+	// Bound to FallbackPanelBorder->OnMouseButtonDownEvent: a press on the
+	// panel background (padding / gaps between buttons) is handled here so it
+	// never bubbles to the game viewport. Without this, the unhandled press
+	// reached the viewport, which captured the mouse (moving Slate's hover off
+	// the panel) before Enhanced Input ran HandleOrbitPressStarted(), so its
+	// IsPointerOverPanel() guard read false and the release became an
+	// Inspection click (found by the -game smoke's synthesized-click step,
+	// Docs/CHARACTER_VIEWER_SETUP.md section 13.11.9). Buttons handle their own clicks first.
+	UFUNCTION()
+	FEventReply HandleFallbackPanelMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
 
 	bool bFallbackUIBuilt = false;
 
@@ -259,6 +312,27 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> FallbackTurntableButtonText;
+
+	// DISPLAY section (P2-2): Inspection (I) / Wireframe (W) buttons live here
+	// alongside Turntable/Reset/Clean View. Wireframe is disabled (not hidden)
+	// when the profile has no WireframeMaterial.
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> FallbackInspectionButtonText;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> FallbackWireframeButton;
+
+	// INSPECTION section (P2-2): shown only while Inspection is on. Shows
+	// "Click a part" until a part is selected, then its DisplayName/PartType/
+	// Description/TriangleCount/MaterialName/TextureResolution.
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> FallbackInspectionSectionBox;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> FallbackInspectionSectionHeader;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> FallbackInspectionBodyText;
 
 	// Keeps every UCharacterViewerButtonBinding created by
 	// PopulateFallbackSection() alive (they are UObjects held only via

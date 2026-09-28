@@ -142,6 +142,55 @@ struct FViewerMaterialVariant
 	TArray<FViewerMaterialSlotOverride> Slots;
 };
 
+// P2-1/P2-2: one selectable/inspectable part. Identified either by one or more
+// bone names (a line-trace hit's BoneName, matched exactly here; the parent-
+// bone walk that maps e.g. a finger bone to "Arm" is done by the Controller,
+// not here -- see Docs/CHARACTER_VIEWER_SETUP.md section 13.11) or, for a
+// structure with separate Components (not this placeholder), a ComponentTag.
+// TriangleCount/TextureResolution are authored data measured once from the
+// LOD0/material at content-creation time, never inferred per frame (section 7).
+USTRUCT(BlueprintType)
+struct FViewerPartInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FName Id;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FText PartType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part", meta = (MultiLine = "true"))
+	FText Description;
+
+	// Bone-based identification (this placeholder's method): a line-trace hit's
+	// BoneName is matched against every part's BoneNames (exact match only;
+	// the Controller walks up parent bones for an unmapped bone).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	TArray<FName> BoneNames;
+
+	// Component-based identification, for a structure with separate Components
+	// per part (e.g. Face/Hair/Jacket as distinct SkeletalMeshComponents). Not
+	// used by this placeholder (a single SkeletalMeshComponent), but supported
+	// by the schema so a future real-asset structure does not need a schema change.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FName ComponentTag;
+
+	// Authored data: LOD0 triangle count for this part's mesh region, measured once.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	int32 TriangleCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FText MaterialName;
+
+	// Authored data, e.g. "2048x2048" or "N/A (no texture)"; measured once from the material's textures.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	FText TextureResolution;
+};
+
 // Character profile data asset. Configuration only: current selection /
 // turntable / playback-time / camera runtime state must never be written
 // back into this asset (see Docs/CHARACTER_VIEWER_SETUP.md section 8).
@@ -197,6 +246,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Turntable")
 	float TurntableSpeedDegreesPerSecond = 20.f;
 
+	// P2-0/P2-1/P2-2: inspectable parts. Empty means Inspection has nothing to select
+	// (still safe: SetInspectionEnabled/clicks simply never resolve a part).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Part")
+	TArray<FViewerPartInfo> Parts;
+
+	// P2-4: material applied to every slot while Wireframe is on. Null means
+	// Wireframe is unavailable for this profile (the Widget disables the button).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Part")
+	TObjectPtr<UMaterialInterface> WireframeMaterial = nullptr;
+
 	// Plain C++ helpers (not UFUNCTION: UHT does not support a raw pointer to a
 	// USTRUCT as a Blueprint-exposed return type). Used from C++ only
 	// (Actor/Controller/Widget/tests).
@@ -204,6 +263,14 @@ public:
 	const FViewerAnimationEntry* FindAnimation(FName Id) const;
 	const FViewerExpression* FindExpression(FName Id) const;
 	const FViewerMaterialVariant* FindMaterialVariant(FName Id) const;
+
+	// P2-2: finds a part by its own Id (exact match, no bone/parent lookup).
+	const FViewerPartInfo* FindPart(FName Id) const;
+
+	// P2-1: finds the part whose BoneNames contains Bone exactly (no parent
+	// walk; that is the Controller's job -- see
+	// Docs/CHARACTER_VIEWER_SETUP.md section 13.11).
+	const FViewerPartInfo* FindPartByBone(FName Bone) const;
 
 	// The framing used by Reset (R): the DefaultPresetId preset's framing if
 	// found, otherwise DefaultFraming.

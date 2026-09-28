@@ -4,7 +4,10 @@
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerGameMode.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SlateWrapperTypes.h"
+#include "Engine/EngineTypes.h"
+#include "Engine/HitResult.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
@@ -114,6 +117,14 @@ void ACharacterViewerController::SetupInputComponent()
 		{
 			EnhancedInputComp->BindAction(ToggleCleanViewAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleCleanView);
 		}
+		if (ToggleInspectionAction)
+		{
+			EnhancedInputComp->BindAction(ToggleInspectionAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleInspection);
+		}
+		if (ToggleWireframeAction)
+		{
+			EnhancedInputComp->BindAction(ToggleWireframeAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleWireframe);
+		}
 	}
 }
 
@@ -170,6 +181,16 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		ToggleCleanViewAction = NewObject<UInputAction>(this, TEXT("IA_ToggleCleanView_Fallback"));
 		ToggleCleanViewAction->ValueType = EInputActionValueType::Boolean;
 	}
+	if (!ToggleInspectionAction)
+	{
+		ToggleInspectionAction = NewObject<UInputAction>(this, TEXT("IA_ToggleInspection_Fallback"));
+		ToggleInspectionAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!ToggleWireframeAction)
+	{
+		ToggleWireframeAction = NewObject<UInputAction>(this, TEXT("IA_ToggleWireframe_Fallback"));
+		ToggleWireframeAction->ValueType = EInputActionValueType::Boolean;
+	}
 
 	if (MappingContext)
 	{
@@ -179,6 +200,8 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		MappingContext->MapKey(ResetCameraAction, EKeys::R);
 		MappingContext->MapKey(ToggleTurntableAction, EKeys::SpaceBar);
 		MappingContext->MapKey(ToggleCleanViewAction, EKeys::H);
+		MappingContext->MapKey(ToggleInspectionAction, EKeys::I);
+		MappingContext->MapKey(ToggleWireframeAction, EKeys::W);
 	}
 }
 
@@ -271,7 +294,12 @@ void ACharacterViewerController::HandleOrbitPressStarted(const FInputActionValue
 		return;
 	}
 
-	// Input that starts over the UMG panel must not drive Orbit/Trace.
+	// Input that starts over the UMG panel must not drive Orbit/Trace. Note:
+	// this hover check alone is not sufficient for a press that bubbles
+	// unhandled to the viewport (viewport mouse capture can clear the panel's
+	// hover before Enhanced Input fires this), so the C++ fallback panel also
+	// consumes presses on its background
+	// (UCharacterViewerWidget::HandleFallbackPanelMouseButtonDown).
 	if (ViewerWidget && ViewerWidget->IsPointerOverPanel())
 	{
 		return;
@@ -290,7 +318,21 @@ void ACharacterViewerController::HandleOrbitPressStarted(const FInputActionValue
 
 void ACharacterViewerController::HandleOrbitPressCompleted(const FInputActionValue& Value)
 {
-	// P2 inspection click (release below the drag threshold) is not implemented yet; only drag state is cleared here.
+	// P2-1: a release below the drag threshold, from a press that did NOT
+	// start over the UMG panel (bIsPressed is only true in that case -- see
+	// HandleOrbitPressStarted()'s IsPointerOverPanel() guard), is an
+	// Inspection click. InspectAtScreenPosition() itself ignores the click
+	// while Inspection is off or Clean View is on.
+	if (bInputEnabled && bInspectionEnabled && bIsPressed && !bIsDragging)
+	{
+		float MouseX = 0.f;
+		float MouseY = 0.f;
+		if (GetMousePosition(MouseX, MouseY))
+		{
+			InspectAtScreenPosition(FVector2D(MouseX, MouseY));
+		}
+	}
+
 	ReleaseDrag();
 }
 
@@ -437,6 +479,15 @@ void ACharacterViewerController::ToggleCleanView()
 			ViewerWidget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 		bShowMouseCursor = false;
+
+		// P2-3 (section 4: Clean View hides "모든 Viewer UI/선택 강조/커서"): hide the
+		// selection highlight (overlay tint + Custom Depth) without forgetting
+		// which part is selected. The Actor keeps it hidden for any later
+		// SetSelectedPart() until SetHighlightVisible(true) on leaving Clean View.
+		if (ViewerActor)
+		{
+			ViewerActor->SetHighlightVisible(false);
+		}
 	}
 	else
 	{
@@ -445,10 +496,125 @@ void ACharacterViewerController::ToggleCleanView()
 			ViewerWidget->SetVisibility(PreCleanViewVisibility);
 		}
 		bShowMouseCursor = bPreCleanViewShowCursor;
+
+		if (ViewerActor)
+		{
+			ViewerActor->SetHighlightVisible(true);
+		}
 	}
 
 	// Orbit, Zoom, Space (turntable) and H itself remain bound and active while clean view is on;
-	// only UI visibility and cursor visibility change here.
+	// only UI/highlight visibility and cursor visibility change here. Inspection
+	// clicks are ignored while Clean View is on (InspectAtScreenPosition()).
+}
+
+void ACharacterViewerController::SetInspectionEnabled(bool bEnabled)
+{
+	bInspectionEnabled = bEnabled;
+
+	if (!bInspectionEnabled && ViewerActor)
+	{
+		// Turning Inspection off clears the current selection (section 4/7).
+		ViewerActor->ClearSelectedPart();
+	}
+
+	// Both directions (I key and panel button): the INSPECTION section and the
+	// Inspection button label must follow the new state immediately.
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+}
+
+void ACharacterViewerController::ToggleInspection()
+{
+	SetInspectionEnabled(!bInspectionEnabled);
+}
+
+bool ACharacterViewerController::InspectAtScreenPosition(FVector2D ScreenPos)
+{
+	// Clean View (section 4) hides UI/selection/cursor and only keeps
+	// Orbit/Zoom/Space/H, so an inspection click is ignored (no selection
+	// change) until Clean View is left.
+	if (!bInputEnabled || !bInspectionEnabled || bCleanViewActive || !ViewerActor || !ViewerActor->Mesh || !ViewerActor->Profile)
+	{
+		return false;
+	}
+
+	FHitResult Hit;
+	const bool bHit = GetHitResultAtScreenPosition(ScreenPos, ECC_Visibility, false, Hit);
+
+	// Only accept hits on the viewer actor's own Mesh; a hit elsewhere (or no hit) clears the selection.
+	if (!bHit || Hit.GetActor() != ViewerActor || Hit.Component.Get() != ViewerActor->Mesh)
+	{
+		ViewerActor->ClearSelectedPart();
+		if (ViewerWidget)
+		{
+			ViewerWidget->NotifySelectionChanged();
+		}
+		return false;
+	}
+
+	const UCharacterProfileData* ActorProfile = ViewerActor->Profile;
+	const FViewerPartInfo* Part = nullptr;
+	FName BoneName = Hit.BoneName;
+	// Walk up parent bones (e.g. a finger bone -> hand_l -> "Left Arm") since a
+	// Bone hit does not necessarily match an artist-defined part exactly
+	// (Docs/CHARACTER_VIEWER_SETUP.md section 7). Capped so a malformed/cyclic
+	// skeleton cannot loop forever.
+	for (int32 Level = 0; Level < 10 && BoneName != NAME_None; ++Level)
+	{
+		Part = ActorProfile->FindPartByBone(BoneName);
+		if (Part)
+		{
+			break;
+		}
+		BoneName = ViewerActor->Mesh->GetParentBone(BoneName);
+	}
+
+	if (!Part)
+	{
+		ViewerActor->ClearSelectedPart();
+		if (ViewerWidget)
+		{
+			ViewerWidget->NotifySelectionChanged();
+		}
+		return false;
+	}
+
+	ViewerActor->SetSelectedPart(Part->Id);
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+	return true;
+}
+
+bool ACharacterViewerController::ToggleWireframe()
+{
+	if (!ViewerActor)
+	{
+		return false;
+	}
+
+	const bool bResult = ViewerActor->SetWireframeEnabled(!ViewerActor->IsWireframeEnabled());
+
+	// W key path too (not only the panel button): keep the Wireframe label current.
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+	return bResult;
+}
+
+void ACharacterViewerController::HandleToggleInspection(const FInputActionValue& Value)
+{
+	ToggleInspection();
+}
+
+void ACharacterViewerController::HandleToggleWireframe(const FInputActionValue& Value)
+{
+	ToggleWireframe();
 }
 
 void ACharacterViewerController::ResetCamera()

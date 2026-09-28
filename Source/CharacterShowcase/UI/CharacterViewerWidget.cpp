@@ -49,6 +49,12 @@ void UCharacterViewerButtonBinding::HandleClicked()
 	case ECharacterViewerButtonKind::CharacterProfile:
 		OwnerWidget->RequestCharacterProfile(Id);
 		break;
+	case ECharacterViewerButtonKind::ToggleInspection:
+		OwnerWidget->RequestToggleInspection();
+		break;
+	case ECharacterViewerButtonKind::ToggleWireframe:
+		OwnerWidget->RequestToggleWireframe();
+		break;
 	}
 }
 
@@ -228,6 +234,41 @@ FName UCharacterViewerWidget::GetCurrentMaterialVariantId() const
 	return Actor ? Actor->GetCurrentVariantId() : NAME_None;
 }
 
+bool UCharacterViewerWidget::IsInspectionEnabled() const
+{
+	const ACharacterViewerController* Controller = WeakController.Get();
+	return Controller && Controller->IsInspectionEnabled();
+}
+
+bool UCharacterViewerWidget::IsWireframeEnabled() const
+{
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	return Actor && Actor->IsWireframeEnabled();
+}
+
+bool UCharacterViewerWidget::GetSelectedPartInfo(FViewerPartInfo& OutInfo) const
+{
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	if (!Actor || !Actor->Profile || Actor->GetSelectedPartId() == NAME_None)
+	{
+		return false;
+	}
+
+	const FViewerPartInfo* Part = Actor->Profile->FindPart(Actor->GetSelectedPartId());
+	if (!Part)
+	{
+		return false;
+	}
+
+	OutInfo = *Part;
+	return true;
+}
+
+void UCharacterViewerWidget::NotifySelectionChanged()
+{
+	RefreshFallbackUI();
+}
+
 bool UCharacterViewerWidget::IsPointerOverPanel() const
 {
 	// The fallback panel's own hover state (not this outer UserWidget's,
@@ -287,6 +328,16 @@ FText UCharacterViewerWidget::GetFallbackDisplayNameText() const
 	return FallbackDisplayNameText ? FallbackDisplayNameText->GetText() : FText::GetEmpty();
 }
 
+ESlateVisibility UCharacterViewerWidget::GetFallbackInspectionSectionVisibility() const
+{
+	return FallbackInspectionSectionBox ? FallbackInspectionSectionBox->GetVisibility() : ESlateVisibility::Collapsed;
+}
+
+FText UCharacterViewerWidget::GetFallbackInspectionBodyText() const
+{
+	return FallbackInspectionBodyText ? FallbackInspectionBodyText->GetText() : FText::GetEmpty();
+}
+
 void UCharacterViewerWidget::RequestToggleTurntable()
 {
 	if (ACharacterViewerController* Controller = WeakController.Get())
@@ -310,6 +361,24 @@ void UCharacterViewerWidget::RequestResetCamera()
 	{
 		Controller->ResetCamera();
 	}
+}
+
+void UCharacterViewerWidget::RequestToggleInspection()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->ToggleInspection();
+	}
+	RefreshFallbackUI();
+}
+
+void UCharacterViewerWidget::RequestToggleWireframe()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->ToggleWireframe();
+	}
+	RefreshFallbackUI();
 }
 
 TSharedRef<SWidget> UCharacterViewerWidget::RebuildWidget()
@@ -372,6 +441,7 @@ void UCharacterViewerWidget::BuildFallbackUI()
 	FallbackPanelBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FallbackPanelBorder"));
 	FallbackPanelBorder->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.65f));
 	FallbackPanelBorder->SetPadding(FMargin(16.f));
+	FallbackPanelBorder->OnMouseButtonDownEvent.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(UCharacterViewerWidget, HandleFallbackPanelMouseButtonDown));
 
 	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(FallbackPanelBorder))
 	{
@@ -441,6 +511,23 @@ void UCharacterViewerWidget::BuildFallbackUI()
 	FallbackAppearanceSectionBox = AppearanceBox;
 	FallbackAppearanceSectionHeader = AppearanceHeader;
 
+	// INSPECTION (P2-2): shown only while Inspection is on (RefreshFallbackUI() collapses it otherwise).
+	UVerticalBox* InspectionBox = nullptr;
+	UTextBlock* InspectionHeader = nullptr;
+	MakeSection(TEXT("FallbackInspectionSectionBox"), TEXT("FallbackInspectionSectionHeader"), InspectionBox, InspectionHeader);
+	FallbackInspectionSectionBox = InspectionBox;
+	FallbackInspectionSectionHeader = InspectionHeader;
+	if (FallbackInspectionSectionHeader)
+	{
+		FallbackInspectionSectionHeader->SetText(FText::FromString(TEXT("INSPECTION")));
+	}
+	FallbackInspectionBodyText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FallbackInspectionBodyText"));
+	FallbackInspectionBodyText->SetAutoWrapText(true);
+	if (FallbackInspectionSectionBox)
+	{
+		FallbackInspectionSectionBox->AddChildToVerticalBox(FallbackInspectionBodyText);
+	}
+
 	// DISPLAY: fixed (non-data-driven) rows, built once here; never hidden.
 	UVerticalBox* DisplayBox = nullptr;
 	UTextBlock* DisplayHeader = nullptr;
@@ -457,6 +544,19 @@ void UCharacterViewerWidget::BuildFallbackUI()
 
 	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Reset Camera (R)")), true, NAME_None, ECharacterViewerButtonKind::ResetCamera);
 	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Clean View (H)")), true, NAME_None, ECharacterViewerButtonKind::ToggleCleanView);
+
+	UTextBlock* InspectionLabel = nullptr;
+	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Inspection (I)")), true, NAME_None, ECharacterViewerButtonKind::ToggleInspection, &InspectionLabel);
+	FallbackInspectionButtonText = InspectionLabel;
+
+	FallbackWireframeButton = AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Wireframe (W)")), true, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
+}
+
+FEventReply UCharacterViewerWidget::HandleFallbackPanelMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
+{
+	// Absorb the press so it never reaches the game viewport / Enhanced Input
+	// (see the header comment): the panel must not drive Orbit/Inspection.
+	return FEventReply(true);
 }
 
 void UCharacterViewerWidget::RefreshFallbackUI()
@@ -484,6 +584,48 @@ void UCharacterViewerWidget::RefreshFallbackUI()
 	if (FallbackTurntableButtonText)
 	{
 		FallbackTurntableButtonText->SetText(FText::FromString(IsTurntableEnabled() ? TEXT("Turntable: On (Space)") : TEXT("Turntable: Off (Space)")));
+	}
+
+	if (FallbackInspectionButtonText)
+	{
+		FallbackInspectionButtonText->SetText(FText::FromString(IsInspectionEnabled() ? TEXT("Inspection: On (I)") : TEXT("Inspection: Off (I)")));
+	}
+
+	if (FallbackWireframeButton)
+	{
+		const APortfolioCharacterActor* Actor = WeakActor.Get();
+		const bool bWireframeAvailable = Actor && Actor->Profile && Actor->Profile->WireframeMaterial != nullptr;
+		FallbackWireframeButton->SetIsEnabled(bWireframeAvailable);
+		if (UTextBlock* Label = Cast<UTextBlock>(FallbackWireframeButton->GetChildAt(0)))
+		{
+			Label->SetText(FText::FromString(IsWireframeEnabled() ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")));
+		}
+	}
+
+	if (FallbackInspectionSectionBox)
+	{
+		const bool bShowInspection = IsInspectionEnabled();
+		FallbackInspectionSectionBox->SetVisibility(bShowInspection ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+		if (bShowInspection && FallbackInspectionBodyText)
+		{
+			FViewerPartInfo Info;
+			if (GetSelectedPartInfo(Info))
+			{
+				FallbackInspectionBodyText->SetText(FText::FromString(FString::Printf(
+					TEXT("%s (%s)\n%s\nTriangles: %d\nMaterial: %s\nTexture: %s"),
+					*Info.DisplayName.ToString(),
+					*Info.PartType.ToString(),
+					*Info.Description.ToString(),
+					Info.TriangleCount,
+					*Info.MaterialName.ToString(),
+					*Info.TextureResolution.ToString())));
+			}
+			else
+			{
+				FallbackInspectionBodyText->SetText(FText::FromString(TEXT("Click a part")));
+			}
+		}
 	}
 }
 

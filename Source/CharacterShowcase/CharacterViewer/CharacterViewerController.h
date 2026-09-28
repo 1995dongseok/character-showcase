@@ -53,6 +53,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> ToggleCleanViewAction;
 
+	// Bool: I (P2-1 Inspection toggle).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> ToggleInspectionAction;
+
+	// Bool: W (P2-4 Wireframe toggle).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> ToggleWireframeAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "UI")
 	TSubclassOf<UCharacterViewerWidget> WidgetClass;
 
@@ -88,11 +96,49 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void ToggleTurntable();
 
+	// Section 4 / P1-6 / P2-3: ON collapses the widget (exact previous
+	// visibility is restored on OFF), hides the cursor and hides the selection
+	// highlight via Actor->SetHighlightVisible(false) (selection id kept);
+	// OFF restores all three. Orbit/Zoom/Space/H stay active; inspection
+	// clicks are ignored while it is on (see InspectAtScreenPosition()).
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void ToggleCleanView();
 
 	UFUNCTION(BlueprintCallable, Category = "Viewer")
 	void ResetCamera();
+
+	// --- Inspection / Wireframe (P2-1/P2-4) ---
+
+	// false also clears the current part selection (section 4/7). Both
+	// directions notify the widget (INSPECTION section / button label).
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	void SetInspectionEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	void ToggleInspection();
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	bool IsInspectionEnabled() const { return bInspectionEnabled; }
+
+	// World-space line trace from ScreenPos against the viewer actor's Mesh
+	// (Visibility channel). Only accepts hits on the viewer actor's Mesh. Maps
+	// Hit.BoneName to a part via Profile->FindPartByBone(), walking up parent
+	// bones (Mesh->GetParentBone(), up to 10 levels) if the exact bone is not
+	// itself mapped (e.g. a finger bone maps to "LeftArm"). A hit with no
+	// mapped part, or no hit at all, clears the selection. Returns true if a
+	// part was selected. No-op returning false (selection unchanged) while
+	// input is disabled, Inspection is off, or Clean View is on. Notifies the
+	// widget after any selection change. Used by both the click path
+	// (HandleOrbitPressCompleted) and tests, so there is a single inspection
+	// code path.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	bool InspectAtScreenPosition(FVector2D ScreenPos);
+
+	// Toggles Actor->SetWireframeEnabled() and notifies the widget (W key and
+	// panel button). Returns false (no-op) if the current profile has no
+	// WireframeMaterial or there is no viewer actor.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Wireframe")
+	bool ToggleWireframe();
 
 	// Applies NewProfile to the viewer actor, reframes the camera to the new
 	// profile's reset framing, and rebinds/notifies the widget.
@@ -149,6 +195,8 @@ private:
 	void HandleResetCamera(const FInputActionValue& Value);
 	void HandleToggleTurntable(const FInputActionValue& Value);
 	void HandleToggleCleanView(const FInputActionValue& Value);
+	void HandleToggleInspection(const FInputActionValue& Value);
+	void HandleToggleWireframe(const FInputActionValue& Value);
 
 	UPROPERTY()
 	TObjectPtr<APortfolioCharacterActor> ViewerActor;
@@ -169,4 +217,6 @@ private:
 	bool bCleanViewActive = false;
 	ESlateVisibility PreCleanViewVisibility = ESlateVisibility::Visible;
 	bool bPreCleanViewShowCursor = true;
+
+	bool bInspectionEnabled = false;
 };
