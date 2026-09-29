@@ -11,9 +11,12 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/ScrollBox.h"
+#include "Components/SizeBox.h"
 #include "Components/SlateWrapperTypes.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Styling/SlateTypes.h"
 
 void UCharacterViewerButtonBinding::HandleClicked()
 {
@@ -58,15 +61,28 @@ void UCharacterViewerButtonBinding::HandleClicked()
 	}
 }
 
+bool UCharacterViewerWidget::IsUsingDesignerLayout() const
+{
+	return PanelRoot != nullptr && !bFallbackUIBuilt;
+}
+
 void UCharacterViewerWidget::BindToViewer(ACharacterViewerController* InController, APortfolioCharacterActor* InActor, ACharacterViewerCameraPawn* InCameraPawn)
 {
 	WeakController = InController;
 	WeakActor = InActor;
 	WeakCameraPawn = InCameraPawn;
-	CurrentCameraPresetId = NAME_None;
+
+	// Seed the VIEW section's current selection from the profile's own
+	// DefaultPresetId (applied by ApplyFramingForCurrentActor()/GetResetFraming()
+	// at bind time), not NAME_None -- otherwise the actually-applied default
+	// preset (e.g. "Full") shows no "▶" until the user explicitly clicks a
+	// preset button (section 13.10 "state display"). Runs on the initial bind
+	// and again on every profile switch (SwitchProfile() calls BindToViewer()).
+	const APortfolioCharacterActor* BoundActor = InActor;
+	CurrentCameraPresetId = (BoundActor && BoundActor->Profile) ? BoundActor->Profile->DefaultPresetId : NAME_None;
 
 	OnViewerDataChanged();
-	RefreshFallbackUI();
+	RefreshUI();
 }
 
 FText UCharacterViewerWidget::GetDisplayName() const
@@ -210,6 +226,12 @@ TArray<FViewerListItem> UCharacterViewerWidget::GetCharacterLibrary() const
 	return Items;
 }
 
+FName UCharacterViewerWidget::GetCurrentCharacterProfileId() const
+{
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	return (Actor && Actor->Profile) ? Actor->Profile->GetFName() : NAME_None;
+}
+
 bool UCharacterViewerWidget::IsTurntableEnabled() const
 {
 	const APortfolioCharacterActor* Actor = WeakActor.Get();
@@ -266,15 +288,16 @@ bool UCharacterViewerWidget::GetSelectedPartInfo(FViewerPartInfo& OutInfo) const
 
 void UCharacterViewerWidget::NotifySelectionChanged()
 {
-	RefreshFallbackUI();
+	RefreshUI();
 }
 
 bool UCharacterViewerWidget::IsPointerOverPanel() const
 {
-	// The fallback panel's own hover state (not this outer UserWidget's,
-	// which would cover the whole, mostly-empty, screen-filling canvas) is
-	// what must block Orbit/Zoom; the empty canvas area must not.
-	if (FallbackPanelBorder && FallbackPanelBorder->IsHovered())
+	// PanelRoot is the same UBorder in both layout paths (designer-bound via
+	// BindWidgetOptional, or built by BuildFallbackUI()); its own hover state
+	// (not this outer UserWidget's, which would cover the whole, mostly-empty,
+	// screen-filling canvas) is what must block Orbit/Zoom/Inspection.
+	if (PanelRoot && PanelRoot->IsHovered())
 	{
 		return true;
 	}
@@ -289,6 +312,7 @@ void UCharacterViewerWidget::RequestCameraPreset(FName Id)
 	{
 		Controller->SelectCameraPreset(Id);
 	}
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestAnimation(FName Id)
@@ -297,6 +321,7 @@ void UCharacterViewerWidget::RequestAnimation(FName Id)
 	{
 		Controller->SelectAnimation(Id);
 	}
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestExpression(FName Id)
@@ -305,6 +330,7 @@ void UCharacterViewerWidget::RequestExpression(FName Id)
 	{
 		Controller->SelectExpression(Id);
 	}
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestMaterialVariant(FName Id)
@@ -313,6 +339,7 @@ void UCharacterViewerWidget::RequestMaterialVariant(FName Id)
 	{
 		Controller->SelectMaterialVariant(Id);
 	}
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestCharacterProfile(FName ProfileAssetName)
@@ -325,17 +352,35 @@ void UCharacterViewerWidget::RequestCharacterProfile(FName ProfileAssetName)
 
 FText UCharacterViewerWidget::GetFallbackDisplayNameText() const
 {
-	return FallbackDisplayNameText ? FallbackDisplayNameText->GetText() : FText::GetEmpty();
+	return NameText ? NameText->GetText() : FText::GetEmpty();
 }
 
 ESlateVisibility UCharacterViewerWidget::GetFallbackInspectionSectionVisibility() const
 {
-	return FallbackInspectionSectionBox ? FallbackInspectionSectionBox->GetVisibility() : ESlateVisibility::Collapsed;
+	return InspectionSectionBox ? InspectionSectionBox->GetVisibility() : ESlateVisibility::Collapsed;
 }
 
 FText UCharacterViewerWidget::GetFallbackInspectionBodyText() const
 {
-	return FallbackInspectionBodyText ? FallbackInspectionBodyText->GetText() : FText::GetEmpty();
+	return InspectionBodyText ? InspectionBodyText->GetText() : FText::GetEmpty();
+}
+
+FText UCharacterViewerWidget::GetGeneratedButtonText(ECharacterViewerButtonKind Kind, FName Id) const
+{
+	for (const TObjectPtr<UCharacterViewerButtonBinding>& Binding : ButtonBindings)
+	{
+		if (Binding && Binding->Kind == Kind && Binding->Id == Id)
+		{
+			if (UButton* Button = Binding->ButtonWidget.Get())
+			{
+				if (UTextBlock* Label = Cast<UTextBlock>(Button->GetChildAt(0)))
+				{
+					return Label->GetText();
+				}
+			}
+		}
+	}
+	return FText::GetEmpty();
 }
 
 void UCharacterViewerWidget::RequestToggleTurntable()
@@ -344,7 +389,7 @@ void UCharacterViewerWidget::RequestToggleTurntable()
 	{
 		Controller->ToggleTurntable();
 	}
-	RefreshFallbackUI();
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestToggleCleanView()
@@ -369,7 +414,7 @@ void UCharacterViewerWidget::RequestToggleInspection()
 	{
 		Controller->ToggleInspection();
 	}
-	RefreshFallbackUI();
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::RequestToggleWireframe()
@@ -378,7 +423,7 @@ void UCharacterViewerWidget::RequestToggleWireframe()
 	{
 		Controller->ToggleWireframe();
 	}
-	RefreshFallbackUI();
+	RefreshUI();
 }
 
 TSharedRef<SWidget> UCharacterViewerWidget::RebuildWidget()
@@ -402,10 +447,40 @@ void UCharacterViewerWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	if (bFallbackUIBuilt)
+	// PanelRoot is populated by now on both paths: BuildFallbackUI() (called
+	// from RebuildWidget(), before Super::RebuildWidget() converts the tree to
+	// Slate) for the fallback, or UUserWidget's own BindWidgetOptional
+	// resolution (which also runs before NativeConstruct) for a designer WBP.
+	if (PanelRoot)
 	{
-		RefreshFallbackUI();
+		PanelRoot->OnMouseButtonDownEvent.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(UCharacterViewerWidget, HandleFallbackPanelMouseButtonDown));
 	}
+
+	// A designer WBP tree that exists (so BuildFallbackUI() never ran) but is
+	// missing, mis-typed, or not-a-variable on one of the 7 BindWidgetOptional
+	// names leaves this UI silently empty by design (RefreshUI() below is a
+	// no-op past whichever containers did not resolve) -- but "silently" is
+	// exactly the problem an artist/CI run needs to know about, so name
+	// what did not resolve, once, instead of leaving no trace at all.
+	if (!bFallbackUIBuilt && WidgetTree && WidgetTree->RootWidget != nullptr)
+	{
+		TArray<FString> MissingOrWrongType;
+		if (!PanelRoot) { MissingOrWrongType.Add(TEXT("PanelRoot")); }
+		if (!NameText) { MissingOrWrongType.Add(TEXT("NameText")); }
+		if (!ControlsBox) { MissingOrWrongType.Add(TEXT("ControlsBox")); }
+		if (!DescriptionScroll) { MissingOrWrongType.Add(TEXT("DescriptionScroll")); }
+		if (!DescriptionText) { MissingOrWrongType.Add(TEXT("DescriptionText")); }
+		if (!ListsScroll) { MissingOrWrongType.Add(TEXT("ListsScroll")); }
+		if (!ListsBox) { MissingOrWrongType.Add(TEXT("ListsBox")); }
+
+		if (MissingOrWrongType.Num() > 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[CharacterViewerWidget] '%s' has a designer tree but %d of the 7 required BindWidgetOptional widgets did not resolve (missing, wrong type, or not marked 'Is Variable'): %s. The panel will stay empty for these until the WBP is fixed (see Docs/CHARACTER_VIEWER_SETUP.md section 13.10)."),
+				*GetName(), MissingOrWrongType.Num(), *FString::Join(MissingOrWrongType, TEXT(", ")));
+		}
+	}
+
+	RefreshUI();
 }
 
 void UCharacterViewerWidget::NativeDestruct()
@@ -417,7 +492,7 @@ void UCharacterViewerWidget::NativeDestruct()
 	Super::NativeDestruct();
 }
 
-// --- Fallback UI (section 13.10) --------------------------------------------
+// --- Layout (section 13.10) --------------------------------------------
 
 void UCharacterViewerWidget::BuildFallbackUI()
 {
@@ -438,118 +513,93 @@ void UCharacterViewerWidget::BuildFallbackUI()
 	// horizontally to the right edge (Offsets.Left = X position from the anchor,
 	// Offsets.Right = width); Alignment.X = 1 keeps the panel's right edge flush
 	// with the screen's right edge instead of overflowing past it.
-	FallbackPanelBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FallbackPanelBorder"));
-	FallbackPanelBorder->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.65f));
-	FallbackPanelBorder->SetPadding(FMargin(16.f));
-	FallbackPanelBorder->OnMouseButtonDownEvent.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(UCharacterViewerWidget, HandleFallbackPanelMouseButtonDown));
+	PanelRoot = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelRoot"));
+	if (!PanelRoot)
+	{
+		return;
+	}
+	PanelRoot->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.65f));
+	PanelRoot->SetPadding(FMargin(16.f));
 
-	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(FallbackPanelBorder))
+	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(PanelRoot))
 	{
 		BorderSlot->SetAnchors(FAnchors(1.f, 0.f, 1.f, 1.f));
 		BorderSlot->SetAlignment(FVector2D(1.f, 0.f));
 		BorderSlot->SetOffsets(FMargin(0.f, 0.f, 320.f, 0.f));
 	}
 
-	UScrollBox* ScrollBox = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("FallbackScrollBox"));
-	FallbackPanelBorder->SetContent(ScrollBox);
-	if (!ScrollBox)
+	// Structural root inside the panel (not itself designer-bindable): holds
+	// the fixed priority order name -> CHARACTER/VIEW/DISPLAY -> description
+	// (limited-height scroll) -> lists (scroll), top to bottom (section 13.10).
+	UVerticalBox* PanelContent = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelContent"));
+	if (!PanelContent)
 	{
 		return;
 	}
+	PanelRoot->SetContent(PanelContent);
 
-	FallbackDisplayNameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FallbackDisplayNameText"));
+	NameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
+	if (NameText)
 	{
-		FSlateFontInfo NameFont = FallbackDisplayNameText->GetFont();
+		FSlateFontInfo NameFont = NameText->GetFont();
 		NameFont.Size = 22;
-		FallbackDisplayNameText->SetFont(NameFont);
-	}
-	FallbackDisplayNameText->SetAutoWrapText(true);
-	ScrollBox->AddChild(FallbackDisplayNameText);
-
-	FallbackDescriptionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FallbackDescriptionText"));
-	FallbackDescriptionText->SetAutoWrapText(true);
-	ScrollBox->AddChild(FallbackDescriptionText);
-
-	auto MakeSection = [this, ScrollBox](const TCHAR* BoxName, const TCHAR* HeaderName, UVerticalBox*& OutBox, UTextBlock*& OutHeader)
-	{
-		OutBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), BoxName);
-		OutHeader = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), HeaderName);
-		OutHeader->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
-		OutBox->AddChildToVerticalBox(OutHeader);
-		ScrollBox->AddChild(OutBox);
-	};
-
-	// CHARACTER: top section (P1 completion evidence, section 6/13.6/13.10), one
-	// button per ACharacterViewerGameMode::ProfileLibrary entry.
-	UVerticalBox* CharacterBox = nullptr;
-	UTextBlock* CharacterHeader = nullptr;
-	MakeSection(TEXT("FallbackCharacterSectionBox"), TEXT("FallbackCharacterSectionHeader"), CharacterBox, CharacterHeader);
-	FallbackCharacterSectionBox = CharacterBox;
-	FallbackCharacterSectionHeader = CharacterHeader;
-
-	UVerticalBox* ViewBox = nullptr;
-	UTextBlock* ViewHeader = nullptr;
-	MakeSection(TEXT("FallbackViewSectionBox"), TEXT("FallbackViewSectionHeader"), ViewBox, ViewHeader);
-	FallbackViewSectionBox = ViewBox;
-	FallbackViewSectionHeader = ViewHeader;
-
-	UVerticalBox* AnimBox = nullptr;
-	UTextBlock* AnimHeader = nullptr;
-	MakeSection(TEXT("FallbackAnimationSectionBox"), TEXT("FallbackAnimationSectionHeader"), AnimBox, AnimHeader);
-	FallbackAnimationSectionBox = AnimBox;
-	FallbackAnimationSectionHeader = AnimHeader;
-
-	UVerticalBox* ExprBox = nullptr;
-	UTextBlock* ExprHeader = nullptr;
-	MakeSection(TEXT("FallbackExpressionSectionBox"), TEXT("FallbackExpressionSectionHeader"), ExprBox, ExprHeader);
-	FallbackExpressionSectionBox = ExprBox;
-	FallbackExpressionSectionHeader = ExprHeader;
-
-	UVerticalBox* AppearanceBox = nullptr;
-	UTextBlock* AppearanceHeader = nullptr;
-	MakeSection(TEXT("FallbackAppearanceSectionBox"), TEXT("FallbackAppearanceSectionHeader"), AppearanceBox, AppearanceHeader);
-	FallbackAppearanceSectionBox = AppearanceBox;
-	FallbackAppearanceSectionHeader = AppearanceHeader;
-
-	// INSPECTION (P2-2): shown only while Inspection is on (RefreshFallbackUI() collapses it otherwise).
-	UVerticalBox* InspectionBox = nullptr;
-	UTextBlock* InspectionHeader = nullptr;
-	MakeSection(TEXT("FallbackInspectionSectionBox"), TEXT("FallbackInspectionSectionHeader"), InspectionBox, InspectionHeader);
-	FallbackInspectionSectionBox = InspectionBox;
-	FallbackInspectionSectionHeader = InspectionHeader;
-	if (FallbackInspectionSectionHeader)
-	{
-		FallbackInspectionSectionHeader->SetText(FText::FromString(TEXT("INSPECTION")));
-	}
-	FallbackInspectionBodyText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FallbackInspectionBodyText"));
-	FallbackInspectionBodyText->SetAutoWrapText(true);
-	if (FallbackInspectionSectionBox)
-	{
-		FallbackInspectionSectionBox->AddChildToVerticalBox(FallbackInspectionBodyText);
+		NameText->SetFont(NameFont);
+		NameText->SetAutoWrapText(true);
+		PanelContent->AddChildToVerticalBox(NameText);
 	}
 
-	// DISPLAY: fixed (non-data-driven) rows, built once here; never hidden.
-	UVerticalBox* DisplayBox = nullptr;
-	UTextBlock* DisplayHeader = nullptr;
-	MakeSection(TEXT("FallbackDisplaySectionBox"), TEXT("FallbackDisplaySectionHeader"), DisplayBox, DisplayHeader);
-	FallbackDisplaySectionBox = DisplayBox;
-	if (DisplayHeader)
+	// CHARACTER/VIEW/DISPLAY: primary controls, always visible, never scrolled away.
+	ControlsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ControlsBox"));
+	if (ControlsBox)
 	{
-		DisplayHeader->SetText(FText::FromString(TEXT("DISPLAY")));
+		PanelContent->AddChildToVerticalBox(ControlsBox);
 	}
 
-	UTextBlock* TurntableLabel = nullptr;
-	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Turntable (Space)")), true, NAME_None, ECharacterViewerButtonKind::ToggleTurntable, &TurntableLabel);
-	FallbackTurntableButtonText = TurntableLabel;
+	// Description: the one long-text field, confined to a small fixed-height
+	// scroll area instead of pushing the CHARACTER/VIEW/DISPLAY controls or
+	// the ANIMATION/EXPRESSION/APPEARANCE lists off screen.
+	DescriptionScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("DescriptionScroll"));
+	if (DescriptionScroll)
+	{
+		if (USizeBox* DescriptionSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("DescriptionSizeBox")))
+		{
+			DescriptionSize->SetMaxDesiredHeight(110.f);
+			DescriptionSize->SetContent(DescriptionScroll);
+			PanelContent->AddChildToVerticalBox(DescriptionSize);
+		}
+		else
+		{
+			PanelContent->AddChildToVerticalBox(DescriptionScroll);
+		}
 
-	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Reset Camera (R)")), true, NAME_None, ECharacterViewerButtonKind::ResetCamera);
-	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Clean View (H)")), true, NAME_None, ECharacterViewerButtonKind::ToggleCleanView);
+		DescriptionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DescriptionText"));
+		if (DescriptionText)
+		{
+			DescriptionText->SetAutoWrapText(true);
+			DescriptionScroll->AddChild(DescriptionText);
+		}
+	}
 
-	UTextBlock* InspectionLabel = nullptr;
-	AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Inspection (I)")), true, NAME_None, ECharacterViewerButtonKind::ToggleInspection, &InspectionLabel);
-	FallbackInspectionButtonText = InspectionLabel;
+	// ANIMATION/EXPRESSION/APPEARANCE/INSPECTION: the long, data-driven lists,
+	// in their own scroll area separate from the description.
+	ListsScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ListsScroll"));
+	if (ListsScroll)
+	{
+		// Without an explicit Fill slot size, a VerticalBox only gives a child
+		// its own desired (content) height, so ListsScroll never had a bounded
+		// height to scroll within and just overflowed the screen instead of
+		// scrolling. Fill makes it take the remaining space in PanelContent.
+		if (UVerticalBoxSlot* ListsScrollSlot = Cast<UVerticalBoxSlot>(PanelContent->AddChildToVerticalBox(ListsScroll)))
+		{
+			ListsScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		}
 
-	FallbackWireframeButton = AddFallbackButtonRow(FallbackDisplaySectionBox, FText::FromString(TEXT("Wireframe (W)")), true, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
+		ListsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ListsBox"));
+		if (ListsBox)
+		{
+			ListsScroll->AddChild(ListsBox);
+		}
+	}
 }
 
 FEventReply UCharacterViewerWidget::HandleFallbackPanelMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
@@ -559,108 +609,179 @@ FEventReply UCharacterViewerWidget::HandleFallbackPanelMouseButtonDown(FGeometry
 	return FEventReply(true);
 }
 
-void UCharacterViewerWidget::RefreshFallbackUI()
+void UCharacterViewerWidget::RefreshUI()
 {
-	if (!bFallbackUIBuilt)
+	// Path-independent: PanelRoot/NameText/ControlsBox/... are the same
+	// members whether they came from a designer WBP (BindWidgetOptional) or
+	// BuildFallbackUI(). No-op until one of those has actually run.
+	if (!PanelRoot)
 	{
 		return;
 	}
 
-	if (FallbackDisplayNameText)
+	if (NameText)
 	{
-		FallbackDisplayNameText->SetText(GetDisplayName());
+		NameText->SetText(GetDisplayName());
 	}
-	if (FallbackDescriptionText)
+	if (DescriptionText)
 	{
-		FallbackDescriptionText->SetText(GetDescription());
-	}
-
-	PopulateFallbackSection(FallbackCharacterSectionBox, FallbackCharacterSectionHeader, FText::FromString(TEXT("CHARACTER")), GetCharacterLibrary(), ECharacterViewerButtonKind::CharacterProfile);
-	PopulateFallbackSection(FallbackViewSectionBox, FallbackViewSectionHeader, FText::FromString(TEXT("VIEW")), GetCameraPresets(), ECharacterViewerButtonKind::CameraPreset);
-	PopulateFallbackSection(FallbackAnimationSectionBox, FallbackAnimationSectionHeader, FText::FromString(TEXT("ANIMATION")), GetAnimations(), ECharacterViewerButtonKind::Animation);
-	PopulateFallbackSection(FallbackExpressionSectionBox, FallbackExpressionSectionHeader, FText::FromString(TEXT("EXPRESSION")), GetExpressions(), ECharacterViewerButtonKind::Expression);
-	PopulateFallbackSection(FallbackAppearanceSectionBox, FallbackAppearanceSectionHeader, FText::FromString(TEXT("APPEARANCE")), GetMaterialVariants(), ECharacterViewerButtonKind::MaterialVariant);
-
-	if (FallbackTurntableButtonText)
-	{
-		FallbackTurntableButtonText->SetText(FText::FromString(IsTurntableEnabled() ? TEXT("Turntable: On (Space)") : TEXT("Turntable: Off (Space)")));
+		DescriptionText->SetText(GetDescription());
 	}
 
-	if (FallbackInspectionButtonText)
+	// Input boundary (section 4/13.11.5): wheel over either scroll area must
+	// always scroll the panel, even when content currently fits, so it never
+	// leaks through to the Controller's Zoom handler.
+	if (DescriptionScroll)
 	{
-		FallbackInspectionButtonText->SetText(FText::FromString(IsInspectionEnabled() ? TEXT("Inspection: On (I)") : TEXT("Inspection: Off (I)")));
+		DescriptionScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
+	}
+	if (ListsScroll)
+	{
+		ListsScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
 	}
 
-	if (FallbackWireframeButton)
+	// Every section below is rebuilt from scratch this call; drop the
+	// previous call's button bindings up front instead of per-section.
+	ButtonBindings.Reset();
+	TurntableButtonText = nullptr;
+	InspectionButtonText = nullptr;
+	WireframeButton = nullptr;
+	InspectionSectionBox = nullptr;
+	InspectionBodyText = nullptr;
+
+	if (ControlsBox)
 	{
-		const APortfolioCharacterActor* Actor = WeakActor.Get();
-		const bool bWireframeAvailable = Actor && Actor->Profile && Actor->Profile->WireframeMaterial != nullptr;
-		FallbackWireframeButton->SetIsEnabled(bWireframeAvailable);
-		if (UTextBlock* Label = Cast<UTextBlock>(FallbackWireframeButton->GetChildAt(0)))
-		{
-			Label->SetText(FText::FromString(IsWireframeEnabled() ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")));
-		}
+		ControlsBox->ClearChildren();
+		AddListSection(ControlsBox, FText::FromString(TEXT("CHARACTER")), GetCharacterLibrary(), ECharacterViewerButtonKind::CharacterProfile, GetCurrentCharacterProfileId());
+		AddListSection(ControlsBox, FText::FromString(TEXT("VIEW")), GetCameraPresets(), ECharacterViewerButtonKind::CameraPreset, CurrentCameraPresetId);
+		BuildDisplaySection(ControlsBox);
 	}
 
-	if (FallbackInspectionSectionBox)
+	if (ListsBox)
 	{
-		const bool bShowInspection = IsInspectionEnabled();
-		FallbackInspectionSectionBox->SetVisibility(bShowInspection ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-
-		if (bShowInspection && FallbackInspectionBodyText)
-		{
-			FViewerPartInfo Info;
-			if (GetSelectedPartInfo(Info))
-			{
-				FallbackInspectionBodyText->SetText(FText::FromString(FString::Printf(
-					TEXT("%s (%s)\n%s\nTriangles: %d\nMaterial: %s\nTexture: %s"),
-					*Info.DisplayName.ToString(),
-					*Info.PartType.ToString(),
-					*Info.Description.ToString(),
-					Info.TriangleCount,
-					*Info.MaterialName.ToString(),
-					*Info.TextureResolution.ToString())));
-			}
-			else
-			{
-				FallbackInspectionBodyText->SetText(FText::FromString(TEXT("Click a part")));
-			}
-		}
+		ListsBox->ClearChildren();
+		AddListSection(ListsBox, FText::FromString(TEXT("ANIMATION")), GetAnimations(), ECharacterViewerButtonKind::Animation, GetCurrentAnimationId());
+		AddListSection(ListsBox, FText::FromString(TEXT("EXPRESSION")), GetExpressions(), ECharacterViewerButtonKind::Expression, GetCurrentExpressionId());
+		AddListSection(ListsBox, FText::FromString(TEXT("APPEARANCE")), GetMaterialVariants(), ECharacterViewerButtonKind::MaterialVariant, GetCurrentMaterialVariantId());
+		BuildInspectionSection(ListsBox);
 	}
 }
 
-void UCharacterViewerWidget::PopulateFallbackSection(UVerticalBox* SectionBox, UTextBlock* HeaderText, const FText& HeaderLabel, const TArray<FViewerListItem>& Items, ECharacterViewerButtonKind Kind)
+void UCharacterViewerWidget::AddListSection(UVerticalBox* Container, const FText& HeaderLabel, const TArray<FViewerListItem>& Items, ECharacterViewerButtonKind Kind, FName CurrentSelectedId)
 {
-	if (!SectionBox)
+	// Empty data-driven sections (including their header) are omitted entirely.
+	if (!Container || !WidgetTree || Items.Num() == 0)
 	{
 		return;
 	}
 
-	// ClearChildren() detaches (does not destroy) the header widget too;
-	// re-add it below. Also drop this section's old button bindings so they
-	// do not accumulate across every RefreshFallbackUI() call.
-	SectionBox->ClearChildren();
-	FallbackButtonBindings.RemoveAll([Kind](const TObjectPtr<UCharacterViewerButtonBinding>& Binding)
+	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	if (!SectionBox || !Header)
 	{
-		return !Binding || Binding->Kind == Kind;
-	});
-
-	if (HeaderText)
-	{
-		HeaderText->SetText(HeaderLabel);
-		SectionBox->AddChildToVerticalBox(HeaderText);
+		return;
 	}
+	Header->SetText(HeaderLabel);
+	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
+	SectionBox->AddChildToVerticalBox(Header);
 
 	for (const FViewerListItem& Item : Items)
 	{
-		AddFallbackButtonRow(SectionBox, Item.DisplayName, Item.bEnabled, Item.Id, Kind);
+		const bool bSelected = Item.Id != NAME_None && Item.Id == CurrentSelectedId;
+		AddButtonRow(SectionBox, Item.DisplayName, Item.bEnabled, bSelected, Item.Id, Kind);
 	}
 
-	// Empty data-driven sections (including their header) are hidden entirely.
-	SectionBox->SetVisibility(Items.Num() > 0 ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	Container->AddChildToVerticalBox(SectionBox);
 }
 
-UButton* UCharacterViewerWidget::AddFallbackButtonRow(UVerticalBox* Container, const FText& Label, bool bEnabled, FName Id, ECharacterViewerButtonKind Kind, UTextBlock** OutTextBlock)
+void UCharacterViewerWidget::BuildDisplaySection(UVerticalBox* Container)
+{
+	if (!Container || !WidgetTree)
+	{
+		return;
+	}
+
+	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	if (!SectionBox || !Header)
+	{
+		return;
+	}
+	Header->SetText(FText::FromString(TEXT("DISPLAY")));
+	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
+	SectionBox->AddChildToVerticalBox(Header);
+
+	const bool bTurntableOn = IsTurntableEnabled();
+	UTextBlock* TurntableLabel = nullptr;
+	AddButtonRow(SectionBox, FText::FromString(bTurntableOn ? TEXT("Turntable: On (Space)") : TEXT("Turntable: Off (Space)")), true, bTurntableOn, NAME_None, ECharacterViewerButtonKind::ToggleTurntable, &TurntableLabel);
+	TurntableButtonText = TurntableLabel;
+
+	AddButtonRow(SectionBox, FText::FromString(TEXT("Reset Camera (R)")), true, false, NAME_None, ECharacterViewerButtonKind::ResetCamera);
+	AddButtonRow(SectionBox, FText::FromString(TEXT("Clean View (H)")), true, false, NAME_None, ECharacterViewerButtonKind::ToggleCleanView);
+
+	const bool bInspectionOn = IsInspectionEnabled();
+	UTextBlock* InspectionLabel = nullptr;
+	AddButtonRow(SectionBox, FText::FromString(bInspectionOn ? TEXT("Inspection: On (I)") : TEXT("Inspection: Off (I)")), true, bInspectionOn, NAME_None, ECharacterViewerButtonKind::ToggleInspection, &InspectionLabel);
+	InspectionButtonText = InspectionLabel;
+
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	const bool bWireframeAvailable = Actor && Actor->Profile && Actor->Profile->WireframeMaterial != nullptr;
+	const bool bWireframeOn = IsWireframeEnabled();
+	WireframeButton = AddButtonRow(SectionBox, FText::FromString(bWireframeOn ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")), bWireframeAvailable, bWireframeOn, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
+
+	Container->AddChildToVerticalBox(SectionBox);
+}
+
+void UCharacterViewerWidget::BuildInspectionSection(UVerticalBox* Container)
+{
+	if (!Container || !WidgetTree)
+	{
+		return;
+	}
+
+	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	UTextBlock* BodyText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	if (!SectionBox || !Header || !BodyText)
+	{
+		return;
+	}
+	Header->SetText(FText::FromString(TEXT("INSPECTION")));
+	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
+	SectionBox->AddChildToVerticalBox(Header);
+
+	BodyText->SetAutoWrapText(true);
+
+	const bool bShowInspection = IsInspectionEnabled();
+	if (bShowInspection)
+	{
+		FViewerPartInfo Info;
+		if (GetSelectedPartInfo(Info))
+		{
+			BodyText->SetText(FText::FromString(FString::Printf(
+				TEXT("%s (%s)\n%s\nTriangles: %d\nMaterial: %s\nTexture: %s"),
+				*Info.DisplayName.ToString(),
+				*Info.PartType.ToString(),
+				*Info.Description.ToString(),
+				Info.TriangleCount,
+				*Info.MaterialName.ToString(),
+				*Info.TextureResolution.ToString())));
+		}
+		else
+		{
+			BodyText->SetText(FText::FromString(TEXT("Click a part")));
+		}
+	}
+	SectionBox->AddChildToVerticalBox(BodyText);
+	SectionBox->SetVisibility(bShowInspection ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+	InspectionSectionBox = SectionBox;
+	InspectionBodyText = BodyText;
+
+	Container->AddChildToVerticalBox(SectionBox);
+}
+
+UButton* UCharacterViewerWidget::AddButtonRow(UVerticalBox* Container, const FText& Label, bool bEnabled, bool bSelected, FName Id, ECharacterViewerButtonKind Kind, UTextBlock** OutTextBlock)
 {
 	if (!Container || !WidgetTree)
 	{
@@ -669,15 +790,37 @@ UButton* UCharacterViewerWidget::AddFallbackButtonRow(UVerticalBox* Container, c
 
 	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
 	UTextBlock* ButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-	ButtonText->SetText(Label);
+	if (!Button || !ButtonText)
+	{
+		return nullptr;
+	}
+
+	// A "▶ " (▶) prefix on top of any state text already in Label (e.g.
+	// "Turntable: On (Space)") makes the current selection/toggle unmistakable
+	// (section 13.10 "state display").
+	ButtonText->SetText(bSelected ? FText::FromString(FString::Printf(TEXT("▶ %s"), *Label.ToString())) : Label);
 	Button->AddChild(ButtonText);
 	Button->SetIsEnabled(bEnabled);
+	// A focusable UButton keeps keyboard focus after being clicked, so a
+	// later Space press (ToggleTurntableAction) re-triggers THIS button
+	// (UButton's own Space/Enter-activates-focused-widget behavior) instead
+	// of reaching the Controller's Space binding -- e.g. clicking "Reset
+	// Camera" then pressing Space re-clicked Reset instead of toggling the
+	// turntable. UButton::InitIsFocusable() (the non-deprecated setter) is
+	// `protected`, and this runs right after ConstructWidget() before this
+	// Button's SWidget exists (same window InitIsFocusable() itself
+	// documents as safe), so the direct field write below is equivalent and
+	// deliberate, not an oversight.
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+	Button->IsFocusable = false;
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 	UCharacterViewerButtonBinding* Binding = NewObject<UCharacterViewerButtonBinding>(this);
 	Binding->Widget = this;
 	Binding->Id = Id;
 	Binding->Kind = Kind;
-	FallbackButtonBindings.Add(Binding);
+	Binding->ButtonWidget = Button;
+	ButtonBindings.Add(Binding);
 
 	Button->OnClicked.AddDynamic(Binding, &UCharacterViewerButtonBinding::HandleClicked);
 

@@ -1,284 +1,239 @@
-# Character Portfolio Viewer — 실행 및 Claude Code 작업 계획
+# Character Portfolio Viewer — 아티스트 인계 문서
 
-이 프로젝트는 UE5 기반 3D 캐릭터 포트폴리오 뷰어다. 캐릭터가 중심이며 개발 기능은 관찰과 촬영을 돕는다.
-이 문서는 현재 최소 구현과 이후 구현 계획을 구분한다. 아래 미완료 항목은 구현된 기능이 아니다.
+이 프로젝트는 UE 5.6.1 기반 3D 캐릭터 포트폴리오 뷰어다. 캐릭터가 중심이며 C++/Blueprint 기능은 관찰과 촬영을 돕는다.
+이 문서는 **현재 상태를 앞에, 과거 기록을 뒤에** 둔다. 0~5절만 읽으면 아티스트 작업에 충분하다. 6절은 참고용 개발 이력이다.
 
-## 1. 현재 인계 상태
+## 0. 현재 상태 요약 (2026-09-29)
 
-- 현재 구현: C++ 프로젝트/모듈, Character Profile Data Asset, 프로필의 Skeletal Mesh를 적용하는 Actor, null 전환 테스트 소스.
-- `UCharacterProfileData`의 현재 필드: `DisplayName`, `Description`, `SkeletalMesh`뿐이다.
-- `APortfolioCharacterActor`: `Mesh` 컴포넌트, 편집 가능한 `Profile`, `ApplyProfile(NewProfile)`, BeginPlay 시 프로필 적용. Tick은 사용하지 않는다.
-- 프로필이 없거나 프로필의 Mesh가 비어 있으면 기존 Mesh를 제거한다. 이름과 설명은 데이터로만 보관하며 UI는 아직 없다.
-- 미구현: 카메라, 입력, GameMode, UMG, Turntable, 표정, 애니메이션 선택, 재질 선택, Inspection, Wireframe, Clean View.
-- `.uasset`, `.umap`, 캐릭터/애니메이션/재질 에셋은 포함하지 않는다. P0는 기반 일부만 작성된 상태다.
-- UE/Visual Studio의 설치·버전·빌드 가능 여부는 미확정이다. 정규 경로에서 찾지 못한 사실만으로 미설치를 단정하지 않는다.
-- 현재 인계에는 UE 컴파일, Automation 실행, 화면 표시 검증 결과가 없다. 소스 작성과 실행 성공을 구분한다.
-- 프로젝트 JSON, 모듈/타깃 이름, generated header include 순서, UTF-8 정적 검사는 통과했다. 소스 검토에서 큰 문제는 발견하지 못했으나 컴파일 검증을 대신하지 않는다.
-- 최초 작업 폴더는 Git 저장소가 아니었다. **2026-09-28 P0/P1 세션 기준으로 이는 더 이상 사실이 아니다**: 저장소가 초기화되어 있고 `origin` 리모트(`https://github.com/1995dongseok/character-showcase.git`)도 연결되어 있으며 `main` 브랜치에 커밋 1개(`28a9557 Initial commit: UE5 character portfolio viewer base`)가 있다. 자세한 내용은 13절을 참고한다. 다음 작업 시작 시에도 현재 Git 상태(branch/remote/변경 파일)는 다시 확인한다.
+- **구현 완료(코드)**: P0(카메라/입력/GameMode/기본 UI), P1(카메라 프리셋, Turntable, Animation/Pose, Morph 표정, Slot 재질, Clean View), P2(Inspection 파츠 선택, 선택 강조, Wireframe) 전부 C++로 구현되어 있다. 아티스트는 **C++를 수정하지 않고** 새 캐릭터를 등록할 수 있다(2절).
+- **에셋 자동 생성**: `Scripts/CreatePortfolioAssets.py`가 없는 에셋만 만들고, 이미 있는 에셋은 절대 덮어쓰지 않는다(읽기 전용 검증만 함, `[keep] ... OK/DIFFERS`). `Scripts/CreateViewerWidgetLayout.py`는 `WBP_CharacterViewer`에 디자이너 트리가 없을 때만 최소 트리를 만든다. **일상적인 캐릭터 등록(2절)에는 두 스크립트 모두 다시 실행할 필요가 없다** — Editor GUI에서 Data Asset/Blueprint/Level을 직접 편집하면 된다(1절 "언제 스크립트를 실행하지 않는가" 참고).
+- **검증된 것(숫자 있음, 4절 표)**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation 6/6 통과(2026-09-29), Win64 Development 패키지 빌드/실행 스모크 통과, Win64 Shipping 패키지 빌드 성공 + 프로세스 정상 기동/종료 확인(자동화 테스트 미포함), 두 Python 스크립트의 "기존 자산 보존" 동작을 해시 비교로 검증.
+- **미검증/대기(4.1절)**: 실제 마우스/키보드로 사람이 직접 조작한 확인(모든 버튼 클릭 경로는 지금까지 합성 Slate 입력 또는 API 직접 호출로만 검증됨), Shipping 패키지의 실제 화면(강조/Wireframe 색상) 육안 확인, `-game` 합성 포인터 경계 테스트의 자유 데스크톱 재실행(게임 창이 비활성이거나 다른 창에 가려진 상태에서 실행되어 실패, 원인 확정은 6.10절), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위(부분) 강조 표시.
+- **현재 파츠 강조는 메시 전체에 적용된다.** Custom Depth와 Overlay Material은 둘 다 Component 단위로 적용되므로, 어느 파츠를 클릭해도 SkeletalMeshComponent 전체가 강조된다. 선택된 파츠 자체는 INSPECTION 패널의 텍스트로만 구분된다(2절 ⑦, 6.9절).
+- **placeholder 데이터 주의**: 현재 `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개)와 `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진이 기본 제공하는 튜토리얼/기본 도형 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
+- 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
-### 1.1 2026-09-28 상태 재확인 결과 (분석만 수행, 파일 변경 없음)
+## 1. 실행 방법
 
-- 파일 구성은 위 표와 정확히 일치한다. 소스 12개 파일 외에 추가된 것은 없다.
-- `Content/`, `Config/`, `Plugins/` 폴더가 없다. `.uasset`/`.umap`/아트 에셋은 0개이며, 보존 대상은 소스 파일뿐이다.
-- `Config/DefaultEngine.ini`, `DefaultGame.ini`, `DefaultInput.ini`가 없다. P0-6의 GameMode/Default Map과 Enhanced Input 기본 클래스 설정은 이 파일들을 새로 만들어야 한다. (2026-09-28 P0/P1 세션에서 세 파일을 모두 생성함. 13절 참고.)
-- 이 폴더와 상위 폴더 모두 Git 저장소가 아니다. `C:\Users\WINCARD1\.git`가 빈 폴더로 존재하여 일부 도구가 홈 디렉터리를 저장소로 오인하지만(branch가 `HEAD`로 표시됨), git 자체는 저장소로 인식하지 않는다. 이 빈 폴더는 이 프로젝트와 무관하며 건드리지 않는다. **(2026-09-28 P0/P1 세션 기준 갱신: 이 문단은 더 이상 사실이 아니다. 이 폴더는 이제 Git 저장소이며 `origin` 리모트가 `https://github.com/1995dongseok/character-showcase.git`로 연결되어 있고 `main` 브랜치에 커밋 1개가 있다. 13절 참고.)**
-- (2026-09-28 갱신) 같은 날 오후에 Epic Games Launcher, UE 5.6.1, Visual Studio 2022(C++ 게임 개발 워크로드)를 설치했고 빌드·테스트를 실행했다. 결과는 13.7절. 아래 굵은 글씨의 재확인 요구는 해소되었다. 원래 기록: 이 PC에는 UE, Epic Games Launcher, Visual Studio, MSVC, Windows SDK, .NET SDK가 모두 없었다. 자세한 확인 범위는 2.1절, Git/도구 상태는 11.1절에 있다. **2026-09-28 P0/P1 세션 시작 시점에는 엔진/VS 설치가 조정자(coordinator)에 의해 병렬로 진행 중이라고 전달받았으나, 이 세션에서 직접 재확인하지는 않았다. 실제 설치 완료 여부는 다음 세션에서 2.1절 절차로 다시 확인해야 한다.**
-- 따라서 P0-0(Editor 타깃 빌드 + NullSafety 테스트 통과)은 미달성이며, 빌드/테스트/화면 표시는 여전히 실행 미검증이다.
-- 소스 정적 검토 추가 사항: 테스트의 `GetSkeletalMeshAsset()`와 `TObjectPtr` 사용으로 코드는 UE 5.1 이상을 전제한다. 5.5 이후 `EAutomationTestFlags`가 enum class로 바뀌었으나 현재 `EditorContext | EngineFilter` 조합은 실제 버전에서 컴파일 확인이 필요하다. `Build.cs` 의존 모듈은 Core/CoreUObject/Engine뿐이므로 P0 구현 시 `EnhancedInput`, `InputCore`, `UMG`, `Slate`, `SlateCore` 추가가 필요하다.
+### 1.1 Editor에서 열기
 
-| 현재 파일 | 역할 |
-| --- | --- |
-| `CharacterShowcase.uproject` | Runtime 모듈 등록. `EngineAssociation`은 버전 미확정으로 빈 값 |
-| `Source/CharacterShowcase.Target.cs`, `Source/CharacterShowcaseEditor.Target.cs` | Game/Editor 빌드 타깃 |
-| `Source/CharacterShowcase/CharacterShowcase.Build.cs`, `CharacterShowcase.cpp` | 모듈 의존성과 시작점 |
-| `Source/CharacterShowcase/Character/CharacterProfileData.h` | 현재 3개 필드의 Data Asset |
-| `Source/CharacterShowcase/Character/PortfolioCharacterActor.h/.cpp` | 프로필 적용/해제 |
-| `Source/CharacterShowcase/Tests/CharacterProfileTests.cpp` | `CharacterShowcase.Profile.NullSafety` 테스트 |
-| `.gitignore`, `.gitattributes` | 생성물 제외와 바이너리 LFS 정책 |
-
-## 2. 설치된 엔진으로 먼저 빌드하기
-
-1. 작업 폴더의 파일, `.uproject`, 모듈, Git status/branch/remote, 기존 Content를 다시 확인한다. 기존 변경을 덮어쓰지 않는다.
-2. 실제 UE5 설치 경로와 정확한 버전을 확인한다. Visual Studio C++ 게임 개발 도구와 해당 UE 버전이 요구하는 MSVC/Windows SDK도 확인한다.
-3. 엔진·도구가 없다면 설치 필요 사항을 보고한다. 에이전트가 엔진/개발 도구를 임의 설치하지 않는다.
-4. `.uproject` 우클릭 → **Switch Unreal Engine version**으로 설치된 버전을 연결한다. 소스 빌드 엔진이면 해당 등록 식별자를 사용한다.
-5. 두 Target의 `BuildSettingsVersion.Latest`는 임시 선택이다. 엔진 확정 후 그 버전의 C++ 프로젝트 템플릿 설정과 맞추고 재빌드한다.
-6. `.uproject` 우클릭 → **Generate Visual Studio project files**. 메뉴가 없으면 아래 UBT 명령을 사용한다.
-7. Editor를 닫고 `CharacterShowcaseEditor / Development / Win64`를 빌드한다. 실패 시 해당 오류만 수정한다.
-
-### 2.1 2026-09-28 엔진/도구 확인 결과 (오전 기준. 오후에 설치 완료, 13.7절 참고)
-
-확인 범위: 레지스트리(`HKLM\SOFTWARE\EpicGames\Unreal Engine`, `HKCU\SOFTWARE\Epic Games\Unreal Engine\Builds`), 설치 프로그램 목록(Uninstall 키), `C:\ProgramData\Epic`, `Program Files`/`Program Files (x86)`, `AppData\Local`, PATH, 그리고 C: 드라이브 전체의 `UE_*`/`UnrealEngine`/`Epic Games` 폴더 및 `UnrealEditor.exe` 검색. 고정 드라이브는 C: 하나뿐이다.
-
-| 항목 | 결과 |
-| --- | --- |
-| Unreal Engine (Launcher 또는 소스 빌드) | 없음 |
-| Epic Games Launcher | 없음 |
-| Visual Studio 2019/2022, MSVC, vswhere | 없음 |
-| Windows 10/11 SDK | 없음 |
-| .NET SDK/Runtime | 없음 |
-| 엔진/VS 설치 파일(Downloads) | 없음 |
-| 다른 `.uproject` | 이 프로젝트 외 없음 |
-
-- 하드웨어: Intel i5-9600K 6코어, RAM 24GB, GPU Intel UHD 630(내장), C: 여유 175GB. UE5 Editor 실행은 가능하나 내장 GPU라 느리며 Lumen/Nanite는 현실적이지 않다. UE 5.x 약 60GB + VS 2022 게임 개발 워크로드 약 30GB + DDC를 고려하면 디스크는 감당 가능하다.
-- 설치는 사용자가 직접 수행한다. 설치 시 권장: UE 5.4~5.6 중 하나(코드가 5.1 이상 API를 전제), VS 2022의 "C++를 사용한 게임 개발" 워크로드(해당 UE 버전이 요구하는 MSVC/Windows SDK 포함), .NET SDK는 UE 설치본에 동봉된 것을 사용.
-- 설치 전까지는 아래 UBT/Build.bat 명령과 10절의 Automation 명령을 실행할 수 없다. 이 상태에서 C++를 작성하면 컴파일 미검증으로 기록한다.
-
-프로젝트 루트에서 PowerShell을 실행하고 `$ueRoot`를 실제 설치 경로로 바꾼다. 다음 명령은 아직 실행 검증되지 않았다.
+`CharacterShowcase.uproject`를 더블클릭하거나 `UnrealEditor.exe`에 직접 넘긴다(설치 경로: `C:\Program Files\Epic Games\UE_5.6`).
 
 ```powershell
-$ueRoot = 'C:\Path\To\UE_5_x'
-$viewerRoot = (Resolve-Path '.').Path
-$viewerProject = Join-Path $viewerRoot 'CharacterShowcase.uproject'
-& "$ueRoot\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.exe" -projectfiles "-project=$viewerProject" -game -engine
-& "$ueRoot\Engine\Build\BatchFiles\Build.bat" CharacterShowcaseEditor Win64 Development "-Project=$viewerProject" -WaitMutex
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
+    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject"
 ```
 
-각 명령의 성공을 확인한 뒤 다음 명령을 실행한다. UBT 실행 파일 위치가 다른 엔진 버전이면 그 엔진의 실제 경로를 사용한다.
-생성된 `.sln`을 사용할 때는 `Development Editor / Win64` 구성을 선택한다. `.sln`, Intermediate 등 생성물은 commit하지 않는다.
+`EditorStartupMap`이 `LV_Portfolio`로 설정되어 있어 Editor가 이 레벨을 자동으로 연다.
 
-## 3. 현재 최소 구현을 Editor에서 확인하기
+### 1.2 PIE (Play In Editor)
 
-> (2026-09-28 후속 세션 포인터) 이 절은 DisplayName/Description/SkeletalMesh 3필드뿐이던 최초 상태 기준이다. 지금은 `DA_Character`/`LV_Portfolio`/`BP_CharacterViewerGameMode`/`WBP_CharacterViewer`가 13.6절 `Scripts/CreatePortfolioAssets.py`로 이미 만들어져 있으므로, 아래 수동 절차 대신 13.6절을 따른다.
+Editor 툴바의 **Play** 버튼으로 사람이 직접 확인한 기록은 아직 없다(4.1절 — 지금까지의 실행 검증은 전부 `-game`/패키지 프로세스와 Editor Automation으로 이루어졌다). 아티스트는 캐릭터를 등록한 뒤 Play로 직접 눌러 확인하는 것을 권장한다.
 
-1. 빌드 성공 후 `CharacterShowcase.uproject`를 연다.
-2. Content Browser에 `Portfolio/Characters`, `Portfolio/Data`, `Portfolio/Maps` 폴더를 만든다.
-3. 사용 가능한 Skeletal Mesh를 Import하거나 이미 보유한 mannequin/placeholder를 추가한다. 원본 에셋은 수정하지 않는다.
-4. `Portfolio/Data`에서 **Miscellaneous → Data Asset → CharacterProfileData**를 선택해 `DA_Character`를 만든다.
-5. `Display Name`, `Description`, `Skeletal Mesh`를 지정하고 저장한다.
-6. `Portfolio/Maps/LV_Portfolio` 레벨을 만들고 `PortfolioCharacterActor`를 배치한다. Details의 `Profile`에 `DA_Character`를 지정한다.
-7. Mesh가 보이도록 Editor에서 조명과 카메라 위치를 조정한다. 조명은 Level에서 편집하며 코드에 고정하지 않는다.
-8. **Simulate**로 BeginPlay를 실행하여 Mesh 표시를 확인한다. 현재 프로필 적용은 BeginPlay에서 이루어지므로 편집 뷰포트의 즉시 갱신을 기대하지 않는다.
-9. 실행을 종료하고 Profile을 비운 뒤 다시 Simulate하여 Mesh가 없어지는지 확인한다. Mesh가 비어 있는 별도 프로필도 같은 방식으로 확인한다.
+### 1.3 `-game` 커맨드 (렌더링 실확인, NullRHI 아님)
 
-현재는 대화형 Viewer 입력과 UI가 없다. 위 절차는 Actor 연결 확인용이다. Blueprint 파생 Actor는 추가 표현 설정이 필요할 때만 만든다.
-실제 캐릭터가 없으면 placeholder 사용 사실을 기록하고, 실제 리깅/Morph/재질/Animation 호환성은 미검증으로 남긴다.
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
+    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
+    /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1280 -ResY=720 -log -unattended -nosplash
+```
 
-## 4. 다음 구현의 책임과 상태 정책
+**주의**: 자동화 테스트가 포함된 스모크(`CharacterShowcase.Game.ViewerSmoke`)의 합성 마우스/키보드 단계는 **게임 창이 활성·비가려짐 포그라운드 창일 때만** 정확히 동작한다. 엔진 동작상 앱이 비활성 상태면 Slate 자체 커서가 hover를 지우고, 창이 배경으로 밀려 있으면 Win32가 마우스 캡처를 거부한다. 최소화/숨김 창으로 실행하지 말 것 — 6.7/6.8절에 기록된 원인으로 스크린샷/합성 입력이 모두 실패한다.
 
-| 책임 | 소유 클래스/위치 | 원칙 |
+### 1.4 빌드/테스트 명령
+
+```powershell
+$ueRoot = 'C:\Program Files\Epic Games\UE_5.6'
+$proj = 'C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject'
+
+# 프로젝트 파일 생성
+& "$ueRoot\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.exe" -projectfiles "-project=$proj" -game -engine
+
+# Editor 빌드
+& "$ueRoot\Engine\Build\BatchFiles\Build.bat" CharacterShowcaseEditor Win64 Development "-Project=$proj" -WaitMutex
+
+# Game(-game/패키지용) 빌드
+& "$ueRoot\Engine\Build\BatchFiles\Build.bat" CharacterShowcase Win64 Development "-Project=$proj" -WaitMutex
+```
+
+Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.Viewer.*`):
+
+```powershell
+& "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" $proj -unattended -nop4 -nosound -NullRHI `
+    '-ExecCmds=Automation RunTests CharacterShowcase' '-TestExit=Automation Test Queue Empty' `
+    "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation"
+```
+
+### 1.5 패키지 명령 (Development / Shipping)
+
+```powershell
+& "$ueRoot\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="$proj" `
+    -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive `
+    -archivedirectory="C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Packaged" `
+    -unattended -noP4 -utf8output
+```
+
+Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping 빌드는 `WITH_DEV_AUTOMATION_TESTS`가 꺼져 있어 자동화 테스트로 검증할 수 없다 — 배포 전 사람이 직접 화면을 확인해야 한다(4.1절).
+
+### 1.6 두 Python 스크립트 — 언제 실행하고, 언제 실행하지 않는가
+
+```powershell
+& "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$proj" `
+    "-ExecutePythonScript=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Scripts\CreatePortfolioAssets.py" `
+    -unattended -nosplash -nop4 -log
+```
+
+```powershell
+& "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$proj" `
+    "-ExecutePythonScript=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Scripts\CreateViewerWidgetLayout.py" `
+    -unattended -nosplash -nop4 -log
+```
+
+- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight` **7개가 존재하지 않을 때만** 새로 만든다. 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
+- **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 5~7개 중 일부가 삭제되어 없어졌을 때"에만 쓴다.
+- 스크립트가 만든 에셋을 최신 생성 로직으로 다시 만들고 싶을 때만, 그 에셋을 Editor에서 직접 삭제한 뒤 재실행한다(스크립트가 "없는 에셋"으로 인식해 새로 만든다). 기존 값을 스크립트로 되돌리는 용도로 쓰지 않는다.
+- **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 최소 7위젯 트리를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
+
+## 2. 아티스트 작업 절차
+
+아래 절차는 전부 Editor GUI로 수행하며 C++/Blueprint 코드 수정이 필요 없다. Data Asset의 필드명은 Editor Details 패널에 보이는 표시 이름(예: `TargetOffset` → **Target Offset**) 그대로 적었다.
+
+### ① Mesh/Texture/Material Import
+
+Content Browser에서 `Portfolio/Characters/<캐릭터 이름>` 폴더(없으면 새로 만든다)에 최종 Skeletal Mesh와 필요한 Texture/Material을 Import한다. 원본 제작 파일(.ztl/.ma/.mb/PSD 등)은 이 프로젝트에 들여오지 않는다.
+
+### ② CharacterProfileData 생성
+
+Content Browser 우클릭 → **Miscellaneous → Data Asset** → Pick Data Asset Class에서 **CharacterProfileData** 선택 → `Portfolio/Data`에 저장(예: `DA_<캐릭터>`).
+
+`Character` 카테고리에서 지정:
+- **Display Name**, **Description** (멀티라인)
+- **Skeletal Mesh** — Import한 캐릭터 메시
+
+### ③ Animation/Pose 등록
+
+`Animation` 카테고리의 **Animations** 배열(항목 타입 `FViewerAnimationEntry`)에 행을 추가한다. 각 행:
+- **Id**(안정적인 키, 예: `Idle`), **Display Name**, **Sequence**(같은 Skeleton의 Animation Sequence), **Loop**(체크 시 반복), **Is Pose**(체크 시 재생하지 않고 **Pose Time** 초 지점에 고정)
+
+캐릭터의 기본 재생 상태는 **Default Anim Class**(AnimBP를 쓸 경우) 또는 **Default Animation Id**(위 Animations의 Id 하나, AnimBP를 안 쓸 경우)로 지정한다.
+
+### ④ Morph 이름·가중치로 Expression 등록
+
+`Expression` 카테고리의 **Expressions** 배열(`FViewerExpression`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Morphs**(`FViewerMorphWeight` 배열 — **Morph Name**, **Weight**).
+
+Neutral 표정은 **Morphs를 빈 배열로 둔 행**으로 등록한다. 메시에 없는 Morph 이름을 넣지 않는다(런타임에 무시됨). **Mesh에 실제 Morph Target이 없으면 이 섹션의 시각적 결과는 검증할 수 없다** — 지금 등록된 두 placeholder 프로필 모두 Morph가 없는 메시라 Expression은 스키마/무충돌만 확인됐고 화면상 표정 변화는 미검증으로 남긴다(0절, 6.9절).
+
+### ⑤ 슬롯별 Material Variant 등록
+
+`Appearance` 카테고리의 **Material Variants** 배열(`FViewerMaterialVariant`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Slots**(`FViewerMaterialSlotOverride` 배열 — **Slot Name** 또는 **Slot Index**, **Material**).
+
+바꾸지 않을 Slot은 그 Variant의 Slots에서 비워 두면 원래(기본) 재질이 유지된다(부분 override). "Default"라는 Id로 override가 전혀 없는 행을 하나 두면 원래 재질로 되돌리는 버튼이 된다.
+
+### ⑥ Face/Upper/Full 구도 조정
+
+`Camera` 카테고리:
+- **Default Framing**(`FViewerCameraFraming`) — CameraPresets가 비어 있을 때의 기본 전신 구도. 필드: **Target Offset**, **Distance**, **FOV**, **Min Distance**, **Max Distance**, **Min Pitch**, **Max Pitch**
+- **Camera Presets** 배열(`FViewerCameraPreset`) — 각 행 **Id**, **Display Name**, **Framing**(위와 같은 필드). Face/Upper Body/Full Body 등 원하는 만큼 등록한다.
+- **Default Preset Id** — Reset(R)이 복귀할 프리셋의 Id. 비어 있거나 못 찾으면 Default Framing으로 대체된다.
+
+### ⑦ 본·충돌 기반 파츠 매핑과 기술정보 등록
+
+`Part` 카테고리의 **Parts** 배열(`FViewerPartInfo`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Part Type**, **Description**, **Bone Names**(배열), **Component Tag**, **Triangle Count**, **Material Name**, **Texture Resolution**.
+
+- 현재 구조(단일 `SkeletalMeshComponent`)에서는 **Bone Names**로 파츠를 식별한다. 클릭 지점의 `BoneName`이 어느 Part의 Bone Names와도 정확히 일치하지 않으면 부모 본을 최대 10단계까지 걸어 올라가며 다시 찾는다(예: 손가락 본 → `hand_l` → "왼팔"). 여기 적는 본 이름은 **메시의 Physics Asset에 실제로 존재하는 본 이름과 정확히 같아야** 하며, 파츠 클릭이 되려면 **메시에 Physics Asset이 할당되어 있어야 한다**(Physics Asset이 없으면 그 캐릭터의 파츠는 클릭되지 않는다 — 지금의 `DA_Character_Cube`가 이 경우다).
+- 파츠가 별도 Component(예: Face/Hair/Jacket이 각각 다른 SkeletalMeshComponent)로 구성된 캐릭터라면 **Component Tag**로 식별 방식을 바꿀 수 있다(스키마는 이미 지원, 현재 placeholder는 미사용).
+- **Triangle Count / Material Name / Texture Resolution은 매 프레임 계산하는 값이 아니라 아티스트가 한 번 측정해서 적어 넣는 authored 데이터다.** 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 파츠마다 다른 값을 적어야 한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 그대로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.**
+- **파츠 강조(선택 시 색이 덮이는 효과)는 현재 메시 전체에 적용된다.** 어느 파츠를 클릭해도 Custom Depth와 Overlay Material이 전체 메시에 걸리므로, 실제로 어느 파츠가 선택됐는지는 INSPECTION 패널의 텍스트(Display Name 등)로만 알 수 있다. 파츠 단위로만 강조하려면 별도 Component 구조이거나 Stencil 기반 Post Process 작업이 추가로 필요하다(5절).
+
+### ⑧ Default Profile / Profile Library 등록
+
+Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterViewerGameMode`)를 연다 → **Class Defaults** → `Viewer` 카테고리:
+- **Default Profile** — 시작 시 적용할 `CharacterProfileData`
+- **Profile Library** — 런타임 CHARACTER 섹션에 노출할 프로필 목록(배열). 여기에 에셋을 추가/교체하는 것만으로 새 캐릭터가 코드 수정 없이 선택 목록에 나타난다.
+- **Viewer Widget Class** — 보통 `WBP_CharacterViewer`
+
+### ⑨ 조명·배경·UI 조정과 실행 확인
+
+- 레벨 `LV_Portfolio`에서 `PortfolioCharacterActor`를 배치하고 `Character` 카테고리의 **Profile**에 새 `CharacterProfileData`를 지정한다. 씬에는 이 Actor가 정확히 1개 있어야 한다(0개/2개 이상이면 Controller가 입력을 안전하게 비활성화한다).
+- World Settings의 **GameMode Override**(또는 `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`)가 `BP_CharacterViewerGameMode`를 가리키는지 확인한다.
+- 조명은 레벨의 KeyLight/FillLight/SkyLight(전부 Movable, 라이트매스 빌드 불필요)를 직접 조정한다. 배경/플랫폼도 레벨/Blueprint에서 조정한다.
+- `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 더 이상 찾지 못해 자동으로 내장 폴백 패널로 전환된다(안전하지만 디자이너가 만든 스타일은 사라진다). **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
+- 1.2~1.3절의 방법으로 실행해 캐릭터가 보이는지, 우측 패널에 새 캐릭터 이름/목록이 뜨는지 확인한다.
+
+## 3. 설계 규칙
+
+| 책임 | 소유 클래스 | 원칙 |
 | --- | --- | --- |
-| 시작 설정 | `CharacterViewerGameMode` | Default Profile, 대상 Actor, Pawn/Controller/Widget 연결 |
+| 시작 설정 | `CharacterViewerGameMode` | Default Profile/Profile Library, Pawn/Controller/Widget 연결 |
 | 입력·UI 연결 | `CharacterViewerController` | 입력 상태, UI 표시, 드래그/클릭 판정, 기능 호출 |
 | 카메라 | `CharacterViewerCameraPawn` | Orbit 중심/각도, Zoom clamp, 프리셋 보간/Reset |
 | 캐릭터 상태 | `PortfolioCharacterActor` | Turntable, 표정, Animation, Variant, 선택 파츠 적용/복원 |
-| 화면 표현 | `CharacterViewerWidget` + UMG Blueprint | 데이터 목록 표시, 이벤트 전달, 상태 표시 |
+| 화면 표현 | `CharacterViewerWidget` + `WBP_CharacterViewer` | 데이터 목록 표시, 이벤트 전달, 상태 표시 |
 | 아트 표현 | Level/Blueprint/Material Instance | 조명, 배경, 플랫폼, 스타일 |
 
-- 별도 Manager/Subsystem은 만들지 않는다. 중복 상태를 UI와 Actor에 각각 저장하지 않는다.
-- 처음에는 레벨에 배치한 Viewer Actor 하나를 사용한다. 전용 레벨에 0개/2개 이상이면 명확히 알리고 안전하게 입력을 비활성화한다.
-- 시작 GameMode의 Default Profile을 Actor에 적용한다. 캐릭터를 교체하면 이전 선택·Morph·재질 override·Animation 상태를 먼저 정리한다.
-- Left press 시 위치를 저장한다. 이동이 설정 임계값을 넘으면 Orbit, 임계값 이하 release만 Inspection 클릭으로 판정한다.
-- UMG 위에서 시작한 입력은 Orbit/Trace로 전달하지 않는다. 드래그 종료·포커스 상실 시 캡처/버튼 상태를 해제한다.
-- 수동 Orbit 시작 시 Turntable을 정지한다. UI 클릭은 상태를 유지하며 버튼/Space로 다시 켠다.
-- 프리셋 보간 중 수동 Orbit/Zoom은 보간을 중단한다. R은 현재 프로필의 Full Body 카메라 구도로 복귀한다.
-- H로 Clean View 전환. 모든 Viewer UI/선택 강조/커서를 숨기되 Orbit, Zoom, Space, H는 유지한다. H 재입력으로 이전 UI·커서·선택 표시를 복원한다.
-- Widget은 Actor/Pawn 상태를 읽어 표시한다. 레벨 종료 시 바인딩을 해제하고 UObject 참조는 UPROPERTY/적절한 weak 참조로 관리한다.
-- Tick은 보간·Turntable 등 실제 갱신이 필요한 동안만 사용한다. 기능 구현 시 필요한 모듈만 Build.cs에 추가한다.
+- 별도 Manager/Subsystem은 두지 않는다. 상태를 UI와 Actor에 중복 저장하지 않는다.
+- `CharacterProfileData`는 설정(구성) 데이터다. 현재 선택/Turntable 회전/재생 시간/카메라 값 같은 실행 상태를 Asset에 저장하지 않는다.
+- 캐릭터 교체 시 이전 선택·Morph·재질 override·Animation·Wireframe·선택 파츠를 먼저 정리한 뒤 새 프로필을 적용한다(`ClearRuntimeState()`).
+- UMG 위에서 시작한 입력은 Orbit/Zoom/Inspection으로 전달하지 않는다(`IsPointerOverPanel()`). 드래그 종료·앱 포커스 상실 시 캡처/버튼 상태를 해제한다.
+- Clean View(H)는 UI/선택 강조/커서를 숨기되 Orbit/Zoom/Space/H는 유지한다. Wireframe은 Variant보다 화면에서 우선한다(끄면 현재 Variant로 정확히 복원).
 
-## 5. P0 — 먼저 실행 가능한 기본 Viewer 완성
+## 4. 개발 검증 결과
 
-아래 경로는 `Source/CharacterShowcase/` 기준이다. C++ 파일은 필요 시 `.h/.cpp` 쌍으로 작성한다.
+| 항목 | 날짜 | 결과 | 근거 경로 |
+| --- | --- | --- | --- |
+| Editor 빌드 (`CharacterShowcaseEditor Win64 Development`) | 2026-09-29(최종, 이전 여러 차례 반복) | 성공, 종료 코드 0, 오류 0 / 경고 0 | 빌드 로그(6.5~6.9절 각 회차) |
+| Game 빌드 (`CharacterShowcase Win64 Development`) | 2026-09-28 | 성공, 종료 코드 0, 오류 0 / 경고 0(2~3회 재현) | 6.7/6.8절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-09-29 | **6/6 통과** | `Saved/Automation/EditorC1/index.json` |
+| Win64 Development 패키지 빌드 (`RunUAT BuildCookRun`) | 2026-09-28 | BUILD SUCCESSFUL, 종료 코드 0 | 6.9절 |
+| Win64 Development 패키지 스모크(`CharacterShowcase.exe -ExecCmds=...`) | 2026-09-28 | **1/1 통과, 오류 0, 경고 0** | `Saved/Automation/PackagedP2b/index.json` |
+| Win64 Shipping 패키지 빌드 (`RunUAT BuildCookRun -clientconfig=Shipping`) | 2026-09-28 | BUILD SUCCESSFUL, 종료 코드 0, 94.0초 | `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
+| Shipping 프로세스 기동/종료 확인 (자동화 테스트 없음) | 2026-09-28 | 실행 30초 후 프로세스 생존 확인, 정상 종료 확인 | 6.9절 |
+| 스크린샷 육안 확인(패키지, Development) | 2026-09-28 | UI/Clean/Inspect/Wireframe/Profile1/Profile2 전부 의도대로 렌더링(마젠타 강조·청록 Wireframe·CHARACTER 섹션 2버튼 포함) | `Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/` |
+| `CreatePortfolioAssets.py` 기존 자산 보존 재검증 | 2026-09-29 | 임시 복사본에서 2회 재실행 후 자산 7개 SHA-256 전부 동일(수동 편집 마커 유지), 누락 자산만 재생성됨. 실제 프로젝트에서 1회 실행해 `[keep] ... OK` ×7, `git status` 무변경 확인 | 6.6절 |
+| `CreateViewerWidgetLayout.py` idempotent 확인 | 2026-09-29 | 1차: 트리 생성(해시 변경). 2차(즉시 재실행): `[keep] ... not modified.`, 해시 1차와 완전 동일 | 6.8절 |
+| `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`), P0~P2 핵심 assertion | 2026-09-28 | 1/1 통과, 오류 0, 경고 0 | `Saved/Automation/GameP2b/index.json` |
+| `-game` 스모크, 패널 위/밖 휠·드래그 경계 테스트(신규) | 2026-09-29 | **실패(3건)** — 게임 창이 비활성/가려진 상태였음. 원인은 엔진 동작으로 확정(6.10절). 테스트에 전제 조건 검사 추가(빌드 0/0). 자유 데스크톱에서 재실행 대기 | 4.1절, 6.10절 |
+| Win64 Development 패키지 재빌드 (현재 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 30초 | `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe` |
+| Win64 Shipping 패키지 재빌드 (현재 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 35초. 실행 검증은 대기 | `Saved/PackagedShipping/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
 
-| 순서 | 작업/파일 | 확인 및 완료 조건 |
-| --- | --- | --- |
-| P0-0 | 엔진 연결, 두 Target/Build.cs 호환성 확인 | Editor 타깃 빌드와 기존 NullSafety 테스트 통과 |
-| P0-1 | `CharacterViewer/CharacterViewerGameMode`, `CharacterViewerController` | 기본 Profile을 배치 Actor에 적용하고 누락 시 무충돌 |
-| P0-2 | `CharacterViewer/CharacterViewerCameraPawn` | 캐릭터 중심 Orbit, pitch clamp, 거리 clamp, Wheel Zoom, R Reset |
-| P0-3 | Profile에 기본 Full Body 구도 설정 추가 | Mesh 크기가 다른 두 프로필로 전신 구도 설정 가능. 중심/거리/FOV 데이터화 |
-| P0-4 | Controller에 Enhanced Input 연결 | Left Drag/Wheel/R 동작. UI 위 입력 차단, 포커스 복귀 시 드래그 잔류 없음 |
-| P0-5 | `UI/CharacterViewerWidget`, `WBP_CharacterViewer` | 오른쪽 어두운 최소 패널에 Profile 이름/설명 표시, 잘못된 데이터 항목 비활성화 |
-| P0-6 | `LV_Portfolio`, `BP_CharacterViewerGameMode`, 입력 에셋 | GameMode와 Default Map 설정 후 Editor 재시작/PIE에서 동일하게 동작 |
+### 4.1 미검증·대기 항목
 
-Editor에서 `IA_Orbit`, `IA_Zoom`, `IA_ResetCamera`, `IMC_CharacterViewer`를 만든다. 필요한 Input Action의 값 형식과 바인딩을 구현 후 이 문서에 기록한다.
-Enhanced Input 플러그인/모듈은 실제 연결 단계에서 추가한다. 이전에 생긴 입력 구조가 있다면 우선 재사용한다.
-UMG는 기본 Widget 클래스를 상속하고 캐릭터 이름을 고정 문자열로 쓰지 않는다. 카메라와 데이터 로직을 Blueprint 그래프에 중복 구현하지 않는다.
-P0 완료 증거: 빌드 로그, NullSafety 결과, 표시/Orbit/Zoom 양 끝 clamp/Reset/UI 입력 차단의 직접 실행 확인.
-P0가 통과하기 전에는 P1/P2 완료를 주장하지 않는다.
+- **실제 마우스/키보드 입력**: 모든 버튼/드래그/휠 동작은 지금까지 합성 Slate 이벤트(`ProcessMouseMoveEvent` 등) 또는 Controller API 직접 호출로만 검증했다. 사람이 실제 마우스/키보드로 조작한 확인 기록은 없다. **대기**.
+- **Shipping 패키지 시각 확인**: 강조 색(마젠타)/Wireframe(청록) 등 실제 화면 결과는 Development에서만 육안 확인했다. Shipping은 프로세스 기동/종료만 확인했다. **미검증**.
+- **`-game` 합성 포인터 경계 테스트 재실행**: 2026-09-29 실행 3회 모두 게임 창이 활성·전면 상태가 아니어서 3건 실패(4절 표, 원인은 6.10절). 게임 창을 전면에 두고 아무 창도 덮지 않은 데스크톱에서의 재실행이 **대기** 상태다. 이 테스트는 `FSlateApplication::SetCursorPos`로 실제 OS 커서를 움직이므로 실행 중 PC를 조작하면 안 된다.
+- **패키지(Development/Shipping) 실행 검증**: 2026-09-29 재빌드본은 아직 실행하지 않았다. **대기**.
+- **Expression(표정)의 실제 시각 검증**: `TutorialTPP`/`SkeletalCube` 모두 Morph Target이 없다. Expression 스키마/무충돌만 확인됐고, 실제 Morph 적용 후 얼굴이 바뀌는 모습은 **미검증**이며 Morph가 있는 메시가 들어오기 전까지는 검증할 수 없다.
+- **사람이 만든 디자이너 WBP 레이아웃의 hover 동작**: 지금 존재하는 `WBP_CharacterViewer` 트리는 C++ 에디터 툴이 자동 생성한 것이다. 아티스트가 디자이너에서 직접 커스터마이즈한 레이아웃에서 `IsPointerOverPanel()`/패널 클릭 소비가 그대로 동작하는지는 **미검증**.
+- **파츠 단위(개별) 강조 표시**: 현재 메시 전체 강조만 구현되어 있다(0절/2절 ⑦). 파츠별 강조는 구현되어 있지 않다.
+- **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
 
-## 6. P1 — 포트폴리오 핵심 기능
+## 5. 남은 작업·위험
 
-| 순서 | 변경 대상 | 작업/완료 조건 |
-| --- | --- | --- |
-| P1-1 | Profile + CameraPawn + Widget | Face/Upper/Full 프리셋 목록과 짧은 보간. 모든 버튼이 데이터에서 생성되고 수동 입력으로 보간 중단 |
-| P1-2 | Actor + Controller + Widget | 속도 설정 가능한 Turntable, UI/Space 토글, 수동 드래그 시 정지. 프레임 속도와 무관한 회전 |
-| P1-3 | Profile + Actor + Widget | Animation Sequence/정지 Pose 선택. 없는 항목은 숨김/비활성화, 호환 Skeleton 확인, 기본 모드 복원 |
-| P1-4 | Profile + Actor + Widget | Morph Target 기반 표정 선택. 이전 표정 제거, Neutral 복원, 없는 Morph 이름 무시/진단 |
-| P1-5 | Profile + Actor + Widget | Slot 기반 Material Instance 교체. 부분 override 전 이전 Variant 흔적 제거, Default 복원 |
-| P1-6 | Controller + Widget | H/버튼 Clean View, 숨긴 상태에서도 카메라/Turntable 동작, H 복원 |
+- `ApplyProfile` 순서(`PostLogin`이 `BeginPlay`보다 먼저 실행됨)에 맞춘 방어 코드는 정적으로만 점검했고, 이 UE 버전의 PIE로 최종 확인하지 않았다.
+- `SetAnimation`의 스켈레톤 호환성 검사는 포인터 비교(`Sequence->GetSkeleton() == Mesh->GetSkeletalMeshAsset()->GetSkeleton()`)만 사용한다. 리타겟/호환 스켈레톤 조합에서 지나치게 엄격할 수 있다.
+- 파츠별 Triangle Count/Material Name은 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 섹션을 가지면 재측정이 필요하다.
+- `Config/DefaultGame.ini`의 `ProjectID`는 실제 GUID가 아닌 placeholder 문자열이다.
+- `-game` 스모크의 합성 포인터 단계는 게임 창이 활성·비가려짐 전면 창일 때만 유효하다(원인 확정, 6.10절). 무인 실행 환경에서는 이 조건을 보장할 수 없으므로 실패 시 전제 조건 오류 메시지를 먼저 확인한다.
+- 파츠 단위 강조가 필요하면 별도 Component 구조 또는 Custom Stencil 기반 Post Process Material 작업이 추가로 필요하다.
+- `Scripts/CreatePortfolioAssets.py`의 예전 "레벨 재생성" 로직이 유발하던 간헐적 크래시는 원인을 특정해 제거했지만(6.10절), 대규모 반복 재현 테스트는 하지 않았다.
 
-P1 UI 섹션: VIEW, EXPRESSION, ANIMATION, APPEARANCE, DISPLAY. 데이터가 없는 선택 목록은 숨긴다.
-Idle/Walk/Combat/Pose, Neutral/Smile/Angry/Surprised는 예시 이름이며 필수 에셋/고정 버튼이 아니다.
-표정의 다른 실행 방식(Montage/Control Rig/Blueprint Event)은 현재 범위에서 구현하지 않는다.
-P1 완료 증거: 프로필 2개로 코드 수정 없는 교체, 기능별 실행 확인, 모든 선택 데이터가 빈 경우의 무충돌, Win64 패키지 기본 실행.
-실제 에셋이 없어 검증할 수 없는 기능은 명시적으로 미검증 처리한다. P0/P1 안정화 전 P2 개발을 시작하지 않는다.
-**(2026-09-28 후속 세션) P1 완료 증거 4개 항목 전부 실행 확인 완료 — 13.7.2절 참고.**
+## 6. 과거 기록 (참고)
 
-## 7. P2 — Inspection과 Wireframe
+이 절은 현재 상태(0~5절)와 혼동되지 않도록 뒤에 모아 둔 개발 이력이다. 숫자/원인 분석은 원문을 보존하되 서술은 압축했다.
 
-| 순서 | 변경 대상 | 작업/완료 조건 |
-| --- | --- | --- |
-| P2-0 | 실제 Mesh/Physics Asset 구조 조사 | 분리 Component/Bone/명시적 선택 충돌 영역 중 파츠 구분 방법을 확정 |
-| P2-1 | Profile + Controller + Actor | Inspection 토글, 클릭 시 Line Trace, 유효 대상만 선택, 빈 공간 클릭으로 해제 |
-| P2-2 | Widget | 파츠 이름/종류/설명/삼각형 수/재질/텍스처 해상도를 데이터에서 표시 |
-| P2-3 | Actor + Material/Level 설정 | Custom Depth/Stencil 강조, 선택 해제/Inspection 종료/프로필 교체 시 원상 복구 |
-| P2-4 | Actor + Profile/전용 Material | Wireframe 표시, 해제 시 현재 Variant 복원, 대상 Shipping 패키지에서 확인 |
+### 6.1 최초 인계 상태 (더 이상 사실 아님)
 
-단일 Skeletal Mesh의 Face/Hair/Jacket이 별도 Component인 것처럼 구현하지 않는다. Bone hit도 아티스트가 정한 파츠와 반드시 일치하지 않는다.
-추가 선택 충돌은 Viewer용 Blueprint/컴포넌트에 두고 원본 Mesh/Physics Asset을 임의 수정하지 않는다.
-`CharacterPartComponent`는 이 구조에서 필요할 때만 추가한다. Component Tag/Bone 매핑만으로 충분하면 새 클래스를 만들지 않는다.
-Custom Depth는 컴포넌트 단위이므로 통합 Mesh에 적용하면 전체가 강조될 수 있다. 파츠 단위 표현 가능 여부를 먼저 확인한다.
-Wireframe은 `viewmode wireframe` 같은 Editor 전용 동작에 의존하지 않는다. Runtime Material/Overlay를 우선 시험한다.
-대상 플랫폼에서 불가능하면 아티스트가 제공하는 topology presentation mesh 등 대안을 검토하고 제한을 기록한다.
-삼각형 수/텍스처 해상도를 매 프레임 추론하지 않는다. 해당 LOD/에셋 기준을 포함한 작성 데이터를 표시한다.
-P2 완료 증거: 클릭/드래그 충돌 없음, UI 위 선택 차단, 선택/해제 복원, Variant→Wireframe→Variant 정확한 복원, Shipping 실행.
-**(2026-09-28 P2 구현 세션) P2-0~P2-4 전체 구현·실행 증거는 13.11절 참고.**
+최초 인계 시점에는 `UCharacterProfileData`가 `DisplayName`/`Description`/`SkeletalMesh` 3필드뿐이었고, 카메라/입력/GameMode/UMG/Turntable/표정/애니메이션 선택/재질 선택/Inspection/Wireframe이 전부 미구현이었다. `.uasset`/`.umap`도 없었고 Git 저장소도 아니었다(빈 홈 디렉터리 `.git`을 일부 도구가 오인했을 뿐). 2026-09-28 세션부터 이 상태는 순차적으로 해소됐다(아래 절들).
 
-## 8. 향후 Profile 스키마와 에셋 연결
+### 6.2 엔진/도구 설치 확인 (2026-09-28)
 
-아래 필드는 계획이며 현재 `CharacterProfileData.h`에 아직 없다. 필요한 단계에서 USTRUCT/UPROPERTY로 추가한다.
+세션 시작 시점에는 UE/Epic Games Launcher/Visual Studio/MSVC/Windows SDK/.NET SDK가 이 PC에 전혀 없었다(레지스트리, 설치 프로그램 목록, 폴더 검색으로 확인). 같은 날 오후 사용자가 UE 5.6.1, VS 2022 Community(C++ 게임 개발 워크로드, MSVC 14.38.33130, Windows SDK 10.0.22621)를 설치했고, 이후 모든 빌드/테스트는 이 환경에서 실행했다. 하드웨어: Intel i5-9600K, RAM 24GB, 내장 GPU(UHD 630) — Lumen/Nanite는 비현실적이나 이 프로젝트 규모에는 충분했다.
 
-| 단계/데이터 | 최소 필드 | Editor에서 아티스트가 연결할 것 |
-| --- | --- | --- |
-| P0 기본 구도 | TargetOffset, Distance, FOV, 거리/각도 제한 | 현재 Mesh의 전신 구도와 줌 범위 |
-| P1 CameraPresets | 안정적인 ID, 표시 이름, TargetOffset, Distance, FOV | Face/Upper/Full 설정. Full을 기본/Reset 대상으로 지정 |
-| P1 Animations | ID, 표시 이름, Animation Sequence, Loop, 필요 시 Pose 재생 위치 | 같은 Skeleton용 Idle/Walk/Combat/Pose. 정지 Pose는 선택 위치에서 정지 |
-| P1 기본 재생 | Default Animation 또는 AnimBP class, 명시적 기본 모드 | 초기 실행/선택 해제 시 돌아갈 재생 상태 |
-| P1 Expressions | ID, 표시 이름, Morph 이름/Weight 쌍 목록 | Neutral은 빈 목록, Smile 등은 실제 Morph 이름과 가중치 |
-| P1 MaterialVariants | ID, 표시 이름, Slot 이름/Index, Material 쌍 목록 | 유효한 Slot에 맞는 Material Instance. Default는 원래 Mesh 재질 |
-| P2 Parts | ID, 표시 이름, Component Tag/Bone/선택 영역 식별자, 기술정보 | 실제 선택 방식과 일치하는 파츠 ID, 설명/삼각형/재질/해상도 |
-| P2 Wireframe | 구현 방식에 필요한 Material 또는 presentation mesh | 확정한 Runtime 표시 방식의 에셋 |
+### 6.3 Git/도구 상태
 
-현재의 직접 UObject 에셋 참조를 기본으로 유지한다. 비동기 로딩이 실제로 필요할 때만 Soft Reference로 전환한다.
-Data Asset, Data Table, Config에 같은 캐릭터 설정을 중복 저장하지 않는다. Blueprint에는 레이아웃과 아트 표현 설정만 둔다.
-Profile은 설정 데이터다. 현재 선택/Turntable/재생 시간/카메라 값 같은 실행 상태를 Asset에 기록하지 않는다.
+`git init -b main` + `git lfs install --local` 완료. `origin` = `https://github.com/1995dongseok/character-showcase`, `main` → `origin/main`. Git 2.55.0, Git LFS 3.7.1. `.uasset`/`.umap`은 LFS로 추적된다(`git check-attr filter`로 확인 이력 있음). `gh` CLI 로그인 상태였으나 저장소 자동 생성에는 쓰지 않았다.
 
-## 9. 구현 후 아티스트 사용 절차
-
-> (2026-09-28 후속 세션 포인터) `BP_CharacterViewerGameMode`/`DA_Character`/`LV_Portfolio`/`WBP_CharacterViewer`는 이제 존재한다(13.6절, 현재는 엔진 튜토리얼 placeholder를 가리킴). 아래 8번의 "P0 GameMode 구현 후 사용 가능" 전제는 충족되었고, 아래 절차는 이제 placeholder를 실제 캐릭터로 교체하는 절차로 읽으면 된다. WBP 디자이너 트리를 만들지 않아도 13.10절의 C++ 폴백 패널이 최소 UI를 대신 그린다.
-
-1. 최종 Skeletal Mesh와 필요한 Texture/Material을 `Portfolio/Characters/<캐릭터>`에 Import한다. 원본 제작 파일은 별도 관리한다.
-2. `Portfolio/Data`에 CharacterProfileData를 만들고 표시 이름, 설명, Mesh를 지정한다.
-3. P1 구현 후 Expressions에 실제 Morph 이름/Weight를 등록한다. Mesh에 없는 Morph는 추가하지 않고 Neutral은 빈 목록으로 둔다.
-4. Animations에 호환되는 Sequence를 추가하고 Loop/Pose 위치를 정한다. AnimBP를 쓰면 기본 모드 복원까지 확인한다.
-5. MaterialVariants에 표시 이름과 Slot별 Material Instance를 지정한다. 변경하지 않을 Slot은 기본 재질을 유지한다.
-6. CameraPresets의 Face/Upper/Full 구도를 해당 캐릭터 키와 중심에 맞춘다.
-7. P2 구현 후 Parts의 선택 식별자와 기술정보를 연결하고 각 파츠가 실제 클릭되는지 확인한다.
-8. `BP_CharacterViewerGameMode`의 Default Profile을 새 데이터로 변경한다. **이 연결은 P0 GameMode 구현 후 사용 가능하다.**
-9. 기본 레벨의 GameMode/Default Map, 카메라, Widget Class, Input Mapping Context를 연결하고 저장한다.
-10. PIE와 패키지에서 캐릭터 교체 결과를 확인한다. 새 캐릭터마다 C++를 수정해야 한다면 완료 조건을 충족하지 못한다.
-
-추가 Content 폴더는 필요한 시점에 `Portfolio/UI`, `Materials`, `Animations`, `Input`을 만든다. 빈 구조를 미리 양산하지 않는다.
-Neutral Background/Platform/Key·Fill·Rim Light는 Level 또는 Blueprint에서 조절한다. Stability Matrix는 제작 도구이며 Runtime 연동은 하지 않는다.
-
-## 10. 테스트와 구현 함정
-
-기존 테스트는 transient game world에 Actor를 생성하여 null Profile 및 Mesh 없는 Profile 전환을 확인한다.
-실제 Skeletal Mesh 렌더링/교체, 리깅, 카메라, UI, 패키지 로딩을 보장하는 테스트가 아니다.
-빌드 후 Editor의 Automation/Session Frontend에서 `CharacterShowcase.Profile.NullSafety`를 선택해 실행하거나 다음 명령을 사용한다.
-
-```powershell
-& "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" $viewerProject -unattended -nop4 -nosound -NullRHI '-ExecCmds=Automation RunTests CharacterShowcase.Profile.NullSafety' '-TestExit=Automation Test Queue Empty' "-ReportExportPath=$viewerRoot\Saved\Automation"
-```
-
-Automation 보고서에서 실제로 해당 테스트가 실행되어 통과했는지 확인한다. 프로세스 종료 코드만으로 통과 판정하지 않는다.
-위 명령은 그래픽 출력을 검증하지 않는다. 기능 추가마다 관련 빌드/수동 검증만 수행하며 전체 테스트 프레임워크를 새로 만들지 않는다.
-
-- AnimBP ↔ Animation Sequence: 재생 모드, Anim Class, Loop/Pose 위치를 명시적으로 관리하고 기본 상태로 복원한다.
-- Walk/Root Motion: 제자리 재생을 기본 정책으로 삼아 플랫폼 밖으로 이동하거나 카메라 중심에서 벗어나지 않는지 확인한다. 원본 Animation 수정 없이 Viewer 재생 설정으로 처리한다.
-- Morph: 선택한 표정이 관리하는 Morph만 초기화한다. AnimBP의 Animation Curve가 같은 Morph를 덮어쓰는지 실제 에셋으로 확인한다.
-- Material: Mesh 기본 재질과 현재 선택 Variant를 구분한다. Wireframe을 끌 때 이전 override 배열을 잘못 복사해 Variant를 잃지 않는다.
-- Profile 교체: 오래된 선택/하이라이트/표정/재질/재생 상태를 제거하고 카메라를 새 기본 구도로 초기화한다.
-- Null: Profile, Mesh, Animation, Morph, Variant, Part가 각각 없어도 crash 없이 해당 기능만 비활성화한다.
-- Cook: 기본 Map과 Profile이 저장·참조되어야 한다. Soft Reference를 도입하면 Asset Manager/Packaging 설정으로 포함 여부를 검증한다.
-- Editor에서 보였다는 사실만으로 패키지 포함을 보장하지 않는다. UI/입력/셰이더/Asset 누락은 Win64 패키지로 확인한다.
-- Engine가 없으면 빌드·실행 미검증으로 기록한다. 실행 증거 없이 완료 체크를 하지 않는다.
-
-## 11. Git과 완료 보고
-
-Git 저장소/remote가 없으면 그 상태를 보고한다. remote URL을 추측하거나 원격 저장소를 자동 생성하지 않는다.
-현재 Git LFS 3.7.1 실행 파일은 확인했으나 Git 저장소는 없다. `.gitattributes` 작성만으로 저장소의 LFS 연결이 완료되지는 않는다.
-실제 구현 시 기존 Git 정책을 먼저 확인한다. 저장소를 초기화한 후 `git lfs install --local`을 실행한다.
-최초 바이너리 stage 전 `git check-attr filter -- Content/Portfolio/Maps/LV_Portfolio.umap` 등 실제 경로로 LFS 속성을 확인한다.
-stage 후 `git lfs ls-files`로 추적을 확인한 뒤 commit한다. 기존 history rewrite/LFS migration은 별도 허가 없이 하지 않는다.
-`Binaries`, `DerivedDataCache`, `Intermediate`, `Saved`, IDE 임시 파일, 빌드 산출물은 제외한다.
-`.ztl`, `.ma`, `.mb`, Substance 프로젝트, 원본 PSD/고해상도 소스는 임의 반입하지 않는다.
-원래 요청의 최종 commit/push는 변경 검토와 검증 후, 실제 branch/remote/upstream을 확인할 수 있을 때 적용한다. push 실패나 미설정 상태를 성공으로 보고하지 않는다.
-최종 보고는 구현 파일/기능, Editor 수동 연결, 빌드/실행 결과와 미검증 사유, branch/commit/push, 남은 에셋 작업만 간결하게 작성한다.
-
-### 11.1 2026-09-28 Git/도구 상태 확인 결과
-
-| 항목 | 결과 |
-| --- | --- |
-| 프로젝트 Git 저장소 | 있음 (같은 날 오후 `git init -b main`, `git lfs install --local` 완료) |
-| remote / upstream | `origin` = https://github.com/1995dongseok/character-showcase (사용자 제공), `main` → `origin/main` |
-| Git / Git LFS | Git 2.55.0, Git LFS 3.7.1 설치됨 |
-| LFS 필터 | system config에 `filter.lfs.*` 등록됨. 저장소 생성 후 `git lfs install --local`은 여전히 실행한다 |
-| 전역 `user.name` / `user.email` | 미설정. commit 전에 사용자가 신원을 지정해야 한다 |
-| `gh` CLI | 2.98.0, github.com 계정에 로그인됨. 저장소 자동 생성에는 사용하지 않는다 |
-| 홈 디렉터리 `C:\Users\WINCARD1\.git` | 빈 폴더. 유효한 저장소가 아니며 이 프로젝트와 무관 |
-
-다음 세션에서 commit/push를 진행하려면 사용자로부터 (1) commit 신원, (2) remote URL을 받아야 한다. remote가 없으면 `git init` → `git lfs install --local` → 로컬 commit까지만 수행하고 push 미수행으로 보고한다.
-
-### 11.2 2026-09-28 기준 다음 세션 진행 가능 범위 (P0/P1 C++ 세션 시작 시점 기준. 결과는 13절 참고)
-
-| 요청 | 가능 여부 | 사유 |
-| --- | --- | --- |
-| 빌드 + NullSafety 테스트 확인 (P0-0) | 완료 (13.7절) | 사용자 지시로 UE 5.6.1/VS 2022를 설치한 뒤 실행. 빌드 오류 0, 테스트 4/4 통과 |
-| P0 C++ (GameMode, Controller, CameraPawn, Profile 구도 필드, Widget C++ 기반) + `Config/*.ini` | 완료, 컴파일 미검증 | 순수 소스/설정 파일. 13절 참고 |
-| P0 Editor 에셋 (IA/IMC, WBP, LV_Portfolio, BP_GameMode, DA_Character) | 불가 | `.uasset`/`.umap` 임의 생성 금지, Editor 없음. 13절에 수동 절차로 기록 |
-| P1 C++ (프리셋, Turntable, Sequence/Pose, Morph 표정, Slot 재질, Clean View) | 완료, 컴파일 미검증 | 12절 지시가 "가능한 C++ 구현을 남겨라"를 허용. 13절 참고 |
-| P2 | 진행 안 함 | P0/P1 컴파일·실행 검증 불가 상태에서 범위 확장 금지 |
-| 로컬 commit | 가능 (이 세션에서는 수행하지 않음) | 저장소는 이미 존재(11.1은 과거 기록). 이 세션은 커밋/푸시를 조정자(coordinator)에게 위임받은 구현 세션이라 commit/push를 직접 실행하지 않았다 |
-| push | 가능 (이 세션에서는 수행하지 않음) | remote(`origin`)가 이미 연결되어 있다. 위와 동일한 이유로 이 세션에서는 실행하지 않았다 |
-
-이번 P0/P1 C++ 구현 세션 착수 전 결정된 사항 (이번 세션에 적용된 선택):
-1. 엔진/VS를 이번 세션에서 직접 설치하지 않고 "C++ 작성 + 수동 절차 + 실행 미검증"으로 진행했다.
-2. P0+P1 C++까지 모두 작성했다(13절). 완료 주장은 하지 않는다 — 빌드/Automation/PIE 실행 증거가 없다.
-3. commit 신원과 remote URL은 이미 저장소에 설정되어 있었다(11.1은 그 이전 세션의 기록이며 이후 갱신되지 않았다). 이 세션은 commit/push를 실행하지 않는다(조정자가 수행).
-4. IA/IMC Editor 에셋을 만들 수 없으므로, Controller가 런타임에 `UInputAction`/`UInputMappingContext`를 생성하는 폴백을 기본값(`bCreateFallbackInputAssets = true`)으로 채택했다. Editor 에셋이 준비되면 인스턴스에 할당해 폴백을 대체할 수 있다.
-
-## 12. Claude Code에 전달할 작업 지시
+### 6.4 원래 작업 지시 (원문)
 
 ```text
 Docs/CHARACTER_VIEWER_SETUP.md를 읽고 현재 소스/Content/Git 상태와 실제 UE 버전을 먼저 확인해라.
@@ -293,387 +248,64 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 엔진/도구/remote를 자동 설치·생성하지 마라. Git/LFS 정책 확인 후 원래 요청대로 commit/push하고 결과를 보고해라.
 ```
 
-설치 도구의 호환 버전은 [Epic의 Visual Studio 설정 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine)에서 선택한 UE 버전 기준으로 확인한다.
-Automation UI/명령 옵션은 [Epic의 Automation 실행 문서](https://dev.epicgames.com/documentation/en-us/unreal-engine/run-automation-tests-in-unreal-engine)를 따른다.
+### 6.5 P0/P1 C++ 구현 (2026-09-28)
 
-## 13. 2026-09-28 P0/P1 C++ 구현 결과 (빌드·자동화 테스트 통과, PIE 미검증)
+엔진 설치 전, C++만 먼저 작성한 세션에서 `CharacterProfileData.h`에 8절(구 문서) 계획대로 스키마(카메라 프레이밍/프리셋, Animation 엔트리, Expression/Morph, Material Variant, Turntable 속도)를 추가하고, `CharacterViewerCameraPawn`(Orbit/Zoom/Reset/프리셋 보간), `CharacterViewerController`(Enhanced Input 바인딩 + 런타임 폴백, 드래그 판정, Turntable/Clean View), `CharacterViewerGameMode`(DefaultProfile 적용), `CharacterViewerWidget`(목록 Getter/Request 전달)를 새로 작성했다. `Config/DefaultEngine.ini`/`DefaultGame.ini`/`DefaultInput.ini`를 신규 작성했고, `CharacterShowcase.Build.cs`에 `InputCore`/`EnhancedInput`/`UMG`/`Slate`/`SlateCore`를 추가했다.
 
-> (2026-09-28 후속 세션 포인터) 아래 도입부는 이 절을 처음 쓴 세션(엔진 미설치, C++만 작성) 기준이라 이제는 낡았다. 같은 날 오후 세션에서 엔진 설치 후 빌드/Automation을 실제로 실행했고(13.7절), 또 다른 후속 세션에서 13.6절의 `.uasset`/`.umap`을 Python으로 생성한 뒤 `-game` 프로세스로 실제 GameMode/레벨/BeginPlay를 검증했다(13.7.1절). "사람이 Editor GUI에서 PIE 버튼을 클릭해 확인"이라는 의미의 PIE만 여전히 미실행이다.
+**런타임 입력 폴백**: `ACharacterViewerController::bCreateFallbackInputAssets=true`(기본값)이면 `MappingContext`가 비어 있을 때만 폴백 `UInputAction`/`UInputMappingContext`를 런타임에 생성해 매핑한다. Editor 자산(`IMC_CharacterViewer` + `IA_OrbitPress`/`IA_Orbit`/`IA_Zoom`/`IA_ResetCamera`/`IA_ToggleTurntable`/`IA_ToggleCleanView`/`IA_ToggleInspection`/`IA_ToggleWireframe`)을 만들어 할당하면 그것을 우선 사용한다. 폴백 키 매핑은 실제 사용 중인 값과 동일하다: LeftMouseButton(Orbit Press), Mouse2D(Orbit), MouseWheelAxis(Zoom), R(Reset), Space(Turntable), H(Clean View), I(Inspection), W(Wireframe).
 
-이 절은 엔진/Visual Studio가 설치되지 않은 상태에서 P0(5절) + P1(6절) 범위의 C++와 `Config/*.ini`를 작성한 세션의 결과다.
-**빌드/Automation/PIE 실행 증거는 없다.** 모든 항목은 "정적 검토 통과, 실행 미검증"으로 취급한다. `.uasset`/`.umap`은 만들지 않았다.
+엔진 설치 후(같은 날 오후) 빌드 0오류/0경고(16개 액션), `CharacterShowcase.Profile.NullSafety` 통과, 신규 테스트 3개(`CharacterShowcase.Viewer.ActorFeatureNullSafety`/`CameraClamp`/`ProfileLookup`) 통과 — 합계 4/4. 1차 테스트 실패(`InitializeActorsForPlay` 누락으로 `PostInitializeComponents` 미실행) 원인 확인 후 테스트 코드만 수정해 통과시켰다(액터 코드는 변경 없음).
 
-### 13.1 변경/추가 파일 목록
+### 6.6 Editor 자산 자동 생성 스크립트 이력
 
-| 파일 | 상태 | 내용 |
-| --- | --- | --- |
-| `CharacterShowcase.uproject` | 수정 | `Plugins` 배열에 `EnhancedInput` 추가(Enabled=true). `EngineAssociation`은 계속 빈 값 |
-| `Source/CharacterShowcase/CharacterShowcase.Build.cs` | 수정 | Public 의존성에 `InputCore`, `EnhancedInput`, `UMG` 추가. Private 의존성에 `Slate`, `SlateCore` 추가 |
-| `Config/DefaultEngine.ini` | 신규 | GameDefaultMap/EditorStartupMap = `/Game/Portfolio/Maps/LV_Portfolio`, GlobalDefaultGameMode = `CharacterViewerGameMode`, Enhanced Input 기본 클래스(`DefaultPlayerInputClass`, `DefaultInputComponentClass`) |
-| `Config/DefaultGame.ini` | 신규 | `ProjectID`, `ProjectName=CharacterShowcase` |
-| `Config/DefaultInput.ini` | 신규 | 주석 전용. Enhanced Input 기본 클래스는 DefaultEngine.ini에 있다는 점과 런타임 폴백 입력 자산을 문서화 |
-| `Source/CharacterShowcase/Character/CharacterProfileData.h` | 수정 | 8절 계획 스키마 구현(아래 13.2) |
-| `Source/CharacterShowcase/Character/CharacterProfileData.cpp` | 신규 | `Find*`/`GetResetFraming()` 구현 (헤더에 선언만 있던 기존 3필드 전용 데이터 애셋에는 `.cpp`가 없었음) |
-| `Source/CharacterShowcase/Character/PortfolioCharacterActor.h/.cpp` | 수정 | Turntable, Animation(Sequence/Pose), Expression(Morph), MaterialVariant, `ClearRuntimeState()`, `AdvanceTurntable()` 공개 테스트 훅 추가. 기존 `ApplyProfile` null-safety 계약은 그대로 유지 |
-| `Source/CharacterShowcase/CharacterViewer/CharacterViewerCameraPawn.h/.cpp` | 신규 | Orbit/Zoom/Reset/프리셋 보간 카메라 Pawn (P0-2, P1-1) |
-| `Source/CharacterShowcase/CharacterViewer/CharacterViewerController.h/.cpp` | 신규 | Enhanced Input 바인딩(+런타임 폴백), 드래그 판정, Turntable/Clean View 토글, Widget 연결 (P0-1, P0-4, P1-2, P1-6) |
-| `Source/CharacterShowcase/CharacterViewer/CharacterViewerGameMode.h/.cpp` | 신규 | DefaultPawnClass/PlayerControllerClass 지정, `PostLogin`에서 DefaultProfile 적용 및 Controller에 Viewer Actor 전달 (P0-1) |
-| `Source/CharacterShowcase/UI/CharacterViewerWidget.h/.cpp` | 신규 | WBP_CharacterViewer의 C++ 베이스. 목록 Getter, `OnViewerDataChanged` 이벤트, Request* 전달 함수 (P0-5, P1) |
-| `Source/CharacterShowcase/Tests/CharacterProfileTests.cpp` | 변경 없음 | 기존 `CharacterShowcase.Profile.NullSafety` 유지 |
-| `Source/CharacterShowcase/Tests/CharacterViewerTests.cpp` | 신규 | `CharacterShowcase.Viewer.ActorFeatureNullSafety`, `CharacterShowcase.Viewer.CameraClamp`, `CharacterShowcase.Viewer.ProfileLookup` (아래 13.5) |
+`Scripts/CreatePortfolioAssets.py`가 Unreal Editor Python API로 `DA_Character`/`DA_Character_Cube`/`BP_CharacterViewerGameMode`/`WBP_CharacterViewer`/`LV_Portfolio`/`M_Wireframe`/`M_ViewerHighlight` 7개를 생성한다(전부 엔진 튜토리얼/기본 도형 placeholder만 참조, 프로젝트 아트 없음).
 
-### 13.2 구현된 Profile 스키마 (`CharacterProfileData.h`)
+- `DA_Character`: SkeletalMesh=`TutorialTPP`, CameraPresets(Face/Upper/Full, DefaultPresetId=Full), Animations(Idle/Walk 루프, Pose=Tutorial_Idle 0.5s), Expressions(Neutral 하나, 빈 Morphs — 이 메시는 Morph가 없음), MaterialVariants(Default/Grid), TurntableSpeed=20, Parts 6개(6.9절), WireframeMaterial=`M_Wireframe`.
+- `DA_Character_Cube`: SkeletalMesh=`SkeletalCube`, DefaultFraming을 측정된 half-extent(12.598cm) × 6(경험적 배율, 최초 2.3배는 너무 가까워 재조정) 기준으로 계산, Animations/Expressions 빈 배열, TurntableSpeed=45(DA_Character와 구분), Parts 1개(PhysicsAsset이 없어 실제 클릭 대상 아님).
+- `BP_CharacterViewerGameMode`: `DefaultProfile=DA_Character`, `ViewerWidgetClass=WBP_CharacterViewer`, `ProfileLibrary=[DA_Character, DA_Character_Cube]`.
+- `LV_Portfolio`: `PortfolioCharacterActor`(yaw 90, Profile=DA_Character) 1개, KeyLight(pitch -40/yaw 30, 7 lux, ForwardShadingPriority 1)/FillLight(pitch -15/yaw -50, 2 lux, 그림자 없음)/SkyLight(DaylightAmbientCubemap) 각 1개, Cylinder 플랫폼 1개. World Settings `DefaultGameMode`=BP_CharacterViewerGameMode.
 
-기존 3필드(`DisplayName`, `Description`, `SkeletalMesh`)는 그대로 유지하고 아래를 추가했다:
+**"존재하면 보존" 동작으로 전환(2026-09-29)**: 원래는 기존 자산을 삭제 후 재생성했으나, 이제는 없을 때만 만들고 있으면 최소 형태만 읽기 전용 검증한다(`[keep] ... OK/DIFFERS`). 임시 복사본에서 2회 재실행 검증: 7개 자산 SHA-256이 재실행 전후로 완전히 동일(수동 편집 마커 `DA_Character.Description="MANUAL EDIT MARKER"`, `KeyLight` yaw +10 회전 모두 유지), 자산을 지우고 재실행하면 그것만 재생성되고 나머지 해시는 그대로. 실제 프로젝트에서도 1회 실행해 7개 전부 `[keep] ... OK` 확인.
 
-- `FViewerCameraFraming` (TargetOffset, Distance, FOV, MinDistance, MaxDistance, MinPitch, MaxPitch) + `DefaultFraming`(P0 전신 구도).
-- `FViewerCameraPreset`(Id, DisplayName, Framing) + `TArray<FViewerCameraPreset> CameraPresets` + `FName DefaultPresetId`(Reset 대상, 없거나 못 찾으면 `DefaultFraming` 사용).
-- `FViewerAnimationEntry`(Id, DisplayName, Sequence, bLoop, bIsPose, PoseTime) + `TArray Animations` + `TSubclassOf<UAnimInstance> DefaultAnimClass` + `FName DefaultAnimationId`.
-- `FViewerMorphWeight`(MorphName, Weight), `FViewerExpression`(Id, DisplayName, Morphs) + `TArray Expressions` (Neutral = 빈 `Morphs`).
-- `FViewerMaterialSlotOverride`(SlotName, SlotIndex, Material), `FViewerMaterialVariant`(Id, DisplayName, Slots) + `TArray MaterialVariants`.
-- `float TurntableSpeedDegreesPerSecond = 20`.
-- C++ 전용 헬퍼(⚠ Blueprint에 노출하지 않음 — UHT가 USTRUCT 포인터 반환을 지원하지 않음): `FindPreset/FindAnimation/FindExpression/FindMaterialVariant(FName) const` → `nullptr` 또는 포인터. `GetResetFraming() const`(BlueprintPure, 값 반환)는 `DefaultPresetId` 프리셋을 우선 사용하고 없으면 `DefaultFraming`을 반환한다.
+**Python이 WBP 디자이너 트리를 만들 수 없었던 이유**: `WidgetBlueprint.get_editor_property('widget_tree')`가 `UBaseWidgetBlueprint::WidgetTree`에 CPF_Edit 지정자가 없어 실패하고, `unreal.WidgetTree` 자체도 이 엔진 빌드의 Python 모듈에 노출되지 않는다(엔진 소스로 확인). 한 번의 정직한 시도 후 중단하고, 대신 신규 Editor 전용 C++ 헬퍼 `UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout()`(`Source/CharacterShowcase/Editor/CharacterViewerEditorTools.h/.cpp`, `#if WITH_EDITOR`, `Target.bBuildEditor`로만 `UMGEditor`/`Kismet` 의존)를 추가해 C++에서 `WidgetTree->ConstructWidget<T>()`로 7위젯을 만들고 컴파일/저장한다. 최초 시도는 파라미터를 `UWidgetBlueprint*`로 선언해 Game 타깃 UHT 파싱이 실패했고(`UMGEditor`가 없는 타깃에서도 UHT가 모든 UFUNCTION 파라미터 타입을 해석하려 함), `UObject*`로 바꾸고 `.cpp`에서 `Cast<UWidgetBlueprint>()`하도록 수정해 해결(Editor/Game 둘 다 0오류/0경고).
 
-Data Asset에는 여전히 구성 데이터만 있다. 현재 선택/Turntable 회전/재생 위치/카메라 상태는 Actor·Pawn 쪽 런타임 멤버에만 있다(8절 원칙 유지).
+### 6.7 검증 실행 로그 (날짜별 요약)
 
-### 13.3 런타임 입력 폴백과 Editor 에셋 스펙
+- **2026-09-28 (13.6절 자산 생성 후 `-game` 스모크, 최초)**: 여러 차례 시도 끝에(커맨드라인 따옴표 문제 → 레벨 재생성 중복 액터 문제 → 조명/카메라 프레이밍 문제 → 스크린샷 캡처 경로 문제 → 폴백 패널이 `NativeConstruct()`가 아니라 `RebuildWidget()`에서 만들어져야 화면에 나온다는 문제, 총 5개 원인) 순차 해결. 최종 1/1 통과, 오류 0/경고 0, 스크린샷(UI/Clean) 육안 확인 정상.
+- **2026-09-28 (P1 완료 증거 보강)**: `ProfileLibrary` 2개(DA_Character↔DA_Character_Cube)로 코드 수정 없는 런타임 프로필 교체를 `-game` 스모크로 검증(1/1 통과). Win64 Development 패키지 빌드(BUILD SUCCESSFUL, 42.97초) + 패키지 exe 스모크(1/1 통과) — 쿡된 에셋에 두 프로필/GameMode/Widget/Level이 모두 포함됨을 확인.
+- **2026-09-28 (P2 구현, 6.9절)**: Editor Automation 6/6(기존 4 + PartLookup/WireframeRestore 2개), `-game` 스모크 1/1(1차 시도 hover 가드 실패 1건 발견·수정 후), Win64 Development 패키지 빌드/스모크 1/1, Win64 **Shipping** 패키지 빌드 성공(94.0초) + 프로세스 기동/종료 확인(자동화 테스트 미포함).
+- **2026-09-28 (Opus 리뷰 반영 패스)**: 패널 위 클릭이 실제로는 뷰포트로 새어나가 선택이 풀리던 버그를 합성 Slate 입력 테스트로 발견·수정(`UBorder::OnMouseButtonDownEvent` 바인딩 추가). 강조 색을 주황 35%→마젠타 55%로 변경(가시성 개선). Editor 6/6, `-game` 스모크 재실행 1/1(1차 실패 → 수정 후 통과), 패키지 스모크 1/1.
+- **2026-09-29 (WBP 디자이너 트리 생성 후속)**: Editor 빌드 0/0(3회), Game 빌드 0/0(2회), Editor Automation 6/6, `CreateViewerWidgetLayout.py` idempotent 확인(6.8절). `-game` 스모크는 기존 P0~P2 assertion 전부 통과했으나 이번에 새로 추가한 패널 위/밖 휠·드래그 경계 테스트 3건이 이 PC의 창 최소화→복원 부작용으로 실패(6.8절에 원인 분석). 스크린샷 6장은 전부 성공.
 
-`ACharacterViewerController::bCreateFallbackInputAssets = true`(기본값)이면 `SetupInputComponent()`에서 `MappingContext`가 null일 때만 폴백 `IMC_CharacterViewer_Fallback`과 8개의 폴백 IA를 `NewObject`로 만들고 매핑한다(리뷰 반영: `MappingContext`가 이미 Editor 에셋으로 할당돼 있으면 그 에셋은 완전히 사용자 관리로 간주하고 절대 건드리지 않는다 — 그렇지 않으면 PIE를 반복 실행할 때마다 같은 공유 에셋 객체에 `MapKey`가 누적 호출될 수 있다). 즉 `MappingContext`만 Editor 에셋으로 할당하고 개별 `OrbitAction` 등 IA 프로퍼티를 비워두면, 그 IA들은 폴백 생성 대상이 아니므로 계속 null로 남고 해당 기능은 바인딩되지 않는다 — IMC와 8개 IA는 항상 함께 할당하거나 함께 폴백에 맡겨야 한다.
+### 6.8 폴백 UI / 디자이너 WBP 패스
 
-| Editor 에셋(만들어야 함, 이번 세션에서 생성하지 않음) | 값 형식 | 매핑 | 대응 Controller 프로퍼티 |
-| --- | --- | --- | --- |
-| `IA_OrbitPress` | Bool | LeftMouseButton | `OrbitPressAction` |
-| `IA_Orbit` | Axis2D | Mouse2D | `OrbitAction` |
-| `IA_Zoom` | Axis1D | MouseWheelAxis | `ZoomAction` |
-| `IA_ResetCamera` | Bool | R | `ResetCameraAction` |
-| `IA_ToggleTurntable` | Bool | SpaceBar | `ToggleTurntableAction` |
-| `IA_ToggleCleanView` | Bool | H | `ToggleCleanViewAction` |
-| `IA_ToggleInspection` | Bool | I | `ToggleInspectionAction` (2026-09-28 P2 세션 추가, 13.11절) |
-| `IA_ToggleWireframe` | Bool | W | `ToggleWireframeAction` (2026-09-28 P2 세션 추가, 13.11절) |
-| `IMC_CharacterViewer` | Input Mapping Context | 위 8개 IA를 우선순위 0으로 매핑 | `MappingContext` |
+`UCharacterViewerWidget`은 두 레이아웃 경로를 자동 선택한다: `WBP_CharacterViewer`(또는 그 자식)의 디자이너 트리가 있으면 그것을 `BindWidgetOptional`로 채우고, 없으면 `RebuildWidget()`에서 C++가 같은 7개 이름(`PanelRoot`/`NameText`/`ControlsBox`/`DescriptionScroll`/`DescriptionText`/`ListsScroll`/`ListsBox`)으로 최소 트리를 직접 만든다(`BuildFallbackUI()`). 두 경로 모두 이후 로직(`RefreshUI()`, `AddListSection()`, `BuildDisplaySection()`, `BuildInspectionSection()`)을 공유한다.
 
-런타임 폴백은 위 표와 정확히 같은 키/값 형식으로 생성된다(`EnsureFallbackInputAssets()` 참고). 즉 Editor 에셋 없이도 Left-drag Orbit(드래그 임계값 `DragThresholdPixels`, 기본 6px), Wheel Zoom, R Reset, Space Turntable, H Clean View, **I Inspection 토글, W Wireframe 토글**(2026-09-28 P2 세션 추가)이 모두 동작한다(`-game`/패키지 스모크로 실행 확인, 13.11절).
+`NativeConstruct()`가 아니라 `RebuildWidget()`(Super 호출 전)에서 트리를 만들어야 하는 이유: `NativeConstruct()` 시점에는 Slate 변환이 이미 끝나 있어 그 뒤에 트리를 채워도 화면에 반영되지 않았다(2026-09-28 Opus 에스컬레이션에서 발견·수정).
 
-### 13.4 `Config/*.ini` 요약과 근거
+**2026-09-29 창 최소화→복원 부작용 상세**: `-game` 실행 창이 최소화된 채 시작되어 `FSlateApplication::TakeScreenshot`이 6개 스크린샷 전부 실패한 문제를, `ShowWindow(SW_RESTORE)` + `AttachThreadInput` 기반 `SetForegroundWindow` 강제 복원 루프로 해결(스크린샷 6장 전부 성공, 연속 2회 재현). 그런데 이 복원을 겪은 실행에서는 위젯의 절대 좌표(`GetCachedGeometry().LocalToAbsolute()`)가 실제 창 위치와 어긋나는 부작용이 나타나 합성 포인터 좌표 기반 경계 테스트 3건이 실패했다. `-WinX/-WinY`로 창을 (0,0)에 고정하는 레시피(`UnrealEditor.exe`를 직접 `Start-Process`, `ShowWindow`/`SetForegroundWindow`/`SetWindowPos` 조작 전부 금지)로도 동일하게 재현되어, 창 상태/실행 방식이 원인이 아님을 확인했다(원인 미확정, 추가 세션 필요).
 
-- `DefaultEngine.ini`의 `[/Script/EngineSettings.GameMapsSettings]`: `GameDefaultMap`/`EditorStartupMap` = `/Game/Portfolio/Maps/LV_Portfolio.LV_Portfolio`, `GlobalDefaultGameMode` = `/Script/CharacterShowcase.CharacterViewerGameMode`. **`LV_Portfolio.umap`은 존재하지 않으므로 이 설정은 그 레벨을 Editor에서 만들기 전까지 효과가 없다.** (2026-09-28 리뷰 반영으로 정정) Editor/PIE는 존재하지 않는 기본 맵을 빈 레벨로 폴백 처리하지만, **`-game` 실행이나 패키지 빌드는 다르다**: 찾을 수 없는 `GameDefaultMap`을 UE가 "Failed to enter" Fatal 오류로 처리하고 즉시 종료하는 것으로 알려져 있다. **`LV_Portfolio`를 실제로 만들기 전에는 `-game`/패키지 실행을 하지 말 것.** Editor/PIE 범위에서도 이 프로젝트로 직접 확인한 적은 없다.
-- **(2026-09-28 리뷰 반영으로 정정) Enhanced Input 기본 클래스(`DefaultPlayerInputClass`, `DefaultInputComponentClass`)는 `DefaultEngine.ini`가 아니라 `DefaultInput.ini`의 `[/Script/Engine.InputSettings]`에 있다.** `UInputSettings`는 `config=Input` 클래스라 `DefaultEngine.ini`의 같은 섹션은 애초에 읽지 않으므로, 이전 버전처럼 `DefaultEngine.ini`에 이 키들을 둔 것은 조용히 무시되는 잘못된 설정이었다.
-- `DefaultGame.ini`: `ProjectID`(임의 32자리 16진수 placeholder, 실제 프로젝트 GUID로 교체 가능), `ProjectName=CharacterShowcase`.
-- `DefaultInput.ini`: 위에서 옮긴 `[/Script/Engine.InputSettings]`의 두 키(Enhanced Input 기본 클래스)를 실제로 설정하고, Editor IA/IMC 에셋 스펙과 런타임 입력 폴백을 설명하는 주석을 함께 둔다.
+### 6.9 P2 구현 (Inspection/Wireframe, 2026-09-28)
 
-### 13.5 추가한 테스트 (모두 애셋 불필요, `WITH_DEV_AUTOMATION_TESTS`)
+**P2-0 조사**: `TutorialTPP`는 본 68개, PhysicsAsset(`TutorialTPP_PhysicsAsset`)의 Constraint 트리로 역산한 Physics Body 22개, Material Slot 1개(`TutorialTPP_Mat`, 텍스처 0개), LOD0 3,924 verts / **6,118 triangles**. `SkeletalCube`는 PhysicsAsset 없음, 본 2개, 12 triangles — Physics Asset이 없어 파츠 클릭 대상이 아니다.
 
-- `CharacterShowcase.Viewer.ActorFeatureNullSafety` (`Tests/CharacterViewerTests.cpp`): 프로필 없음/빈 배열 프로필에서 `SetAnimation`/`SetExpression`/`SetMaterialVariant`가 알 수 없는 id에 대해 false를 반환하고 크래시하지 않는지, `AdvanceTurntable(float)`(Tick 없이 직접 호출 가능한 공개 함수)로 켜짐/꺼짐 상태에서 yaw가 `speed * dt`만큼만 움직이는지, `ApplyProfile(nullptr)`이 회전과 선택 id들을 초기화하는지 확인한다.
-- `CharacterShowcase.Viewer.CameraClamp`: `SetFraming(..., true)`로 즉시 구도 적용 후 큰 값의 `Orbit()`이 Min/MaxPitch로, `Zoom()`이 Min/MaxDistance로 clamp되는지, `ResetToFraming()` 후 큰 DeltaSeconds로 `Tick()`을 한 번 호출하면 보간이 끝나고 Distance/Pitch/Yaw가 기본값으로 돌아오는지 확인한다.
-- `CharacterShowcase.Viewer.ProfileLookup`: 프리셋/애니메이션/표정/재질 Variant 배열을 채운 `UCharacterProfileData`에서 `Find*`가 올바른 항목/`nullptr`을 반환하는지, `GetResetFraming()`이 `DefaultPresetId`를 우선 사용하고 못 찾으면 `DefaultFraming`으로 폴백하는지 확인한다.
+**파츠 식별 방식**: Bone 기반(Line Trace hit의 `BoneName`을 `FViewerPartInfo::BoneNames`와 매칭, 실패 시 부모 본 최대 10단계 탐색). 단일 Component 구조라 Component Tag 기반은 이번에 사용하지 않았다(스키마는 지원).
 
-기존 `CharacterShowcase.Profile.NullSafety`(`Tests/CharacterProfileTests.cpp`)는 수정하지 않았다.
+**Part 매핑 6개** (물리 바디 22개를 정확히 분배): Head(head, neck_01), Torso(pelvis, spine_01~03), LeftArm/RightArm(clavicle/upperarm/lowerarm/hand _l/_r), LeftLeg/RightLeg(thigh/calf/foot/ball _l/_r) — 6개 모두 Material Slot이 1개뿐이라 TriangleCount=6,118(메시 전체)을 공유한다(6.6절 표와 동일 한계).
 
-### 13.6 Editor 수동 절차의 자동화 (2026-09-28 후속 세션: Python으로 수행, 사람이 Editor를 클릭하지 않음)
+**강조/선택 구현**: `Mesh->SetCollisionEnabled(QueryOnly)` + Visibility 채널만 Block. `InspectAtScreenPosition()`이 트레이스 → `FindPartByBone()` → 부모 탐색 → `SetSelectedPart()`가 `Mesh->SetRenderCustomDepth(true)` + `SetOverlayMaterial(M_ViewerHighlight, 마젠타 1.0/0.0/0.8, Opacity 0.55)`를 적용한다. **Custom Depth/Overlay 모두 Component 단위이므로 메시 전체가 강조되고, 선택된 파츠 자체는 INSPECTION 패널 텍스트로만 구분된다**(0절/2절 ⑦에 동일 내용). Clean View 진입 시 강조는 숨겨지고(선택 id는 유지) 해제 시 복원된다. Clean View 중 Inspection 클릭은 무시한다(설계 결정).
 
-13.6의 5개 항목(WBP_CharacterViewer, BP_CharacterViewerGameMode, DA_Character, LV_Portfolio, GlobalDefaultGameMode)은 더 이상 "남은 Editor 수동 절차"가 아니다. `Scripts/CreatePortfolioAssets.py`가 Unreal Editor Python API(`unreal.AssetToolsHelpers`, `unreal.DataAssetFactory`, `unreal.BlueprintFactory`, `unreal.WidgetBlueprintFactory`, `unreal.LevelEditorSubsystem`, `unreal.EditorActorSubsystem`)로 이 5개를 전부 생성·저장한다. 아래는 그 실행 방법과 무엇을 만드는지, 그리고 각 항목의 수동(Editor GUI) 대안이다.
+**Wireframe**: `Profile->WireframeMaterial`(`M_Wireframe`, unlit/opaque/two-sided/Wireframe=true, 청록)을 모든 슬롯에 적용. 끌 때는 override 배열을 복사하지 않고 `ApplyMaterialsForCurrentVariant()`로 현재 Variant를 재조회해 복원한다(override 유실 방지). Wireframe이 켜진 동안 Variant를 선택하면 id만 갱신되고 화면은 계속 Wireframe(Wireframe이 시각적으로 우선). `WireframeMaterial`이 없는 프로필은 `SetWireframeEnabled()`가 안전하게 `false`를 반환한다(버튼도 비활성화).
 
-**재실행 방법** (idempotent — 몇 번을 실행해도 안전, 기존 에셋을 결정적으로 덮어씀):
+**테스트**: Editor Automation 신규 2개(`CharacterShowcase.Viewer.PartLookup`, `CharacterShowcase.Viewer.WireframeRestore`), `-game` 스모크에 Inspection on→토르소 클릭→선택 확인→빈 공간 클릭 해제→Wireframe on/off→Clean View 중 클릭 무시→프로필 교체 시 선택 해제/Inspection 유지 단계를 추가. 합성 Slate 포인터(`ProcessMouseMoveEvent`/`ProcessMouseButtonDownEvent`/`ProcessMouseButtonUpEvent`)로 "패널 위 클릭은 선택하지 않는다"를 검증하는 과정에서 실제 버그(패널 배경 press가 뷰포트로 새어 나가 선택이 풀림)를 발견해 `UBorder::OnMouseButtonDownEvent` 바인딩으로 수정했다.
 
-```powershell
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
-    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
-    "-ExecutePythonScript=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Scripts\CreatePortfolioAssets.py" `
-    -unattended -nosplash -nop4 -log
-```
+### 6.10 알려진 문제와 원인 분석 기록
 
-`CharacterShowcase.uproject`의 `Plugins` 배열에 `PythonScriptPlugin`(Editor 전용, 패키징에는 영향 없음)을 추가해 두었다. 실행 로그는 `Saved/Logs/CharacterShowcase.log`의 `LogPython` 줄, 특히 `[CreatePortfolioAssets] ==== START/DONE ====`을 확인한다.
+**2026-09-29 `-game` 합성 포인터 테스트 실패 원인 확정(엔진 소스 근거)**: 실패 3회는 각각 창 최소화, 왼쪽 모니터에 뜬 비활성 창, 주 모니터 (0,0)에 떴지만 다른 응용 프로그램 창에 가려진 상태였다. 엔진 `FSlateUser::SynthesizeCursorMoveIfNeeded()`는 매 틱 실제 OS 커서 위치로 `FSlateApplication::ProcessMouseMoveEvent(..., bIsSynthetic=true)`를 호출하고, 이때 `bOverSlateWindow = !bIsSynthetic || IsActive() || IsCursorDirectlyOverSlateWindow() || ...` 조건이 거짓이면 빈 위젯 경로로 라우팅되어 패널 hover가 지워진다(`SlateApplication.cpp`, `WindowsApplication.cpp`의 `WindowFromPoint` 검사). 또 Win32는 배경 창의 마우스 캡처를 허용하지 않아 `FSceneViewport::OnMouseMove`의 축 입력(`HasMouseCapture()` 조건)이 끊긴다. 따라서 hover 가드가 풀려 패널 위 휠이 Zoom으로 새고, 캔버스 드래그가 Orbit되지 않았다. 9/28 통과 2회는 게임 창이 활성 전면 창이었다. 코드 결함이 아니므로 제품 코드는 바꾸지 않았고, 테스트의 첫 합성 포인터 단계에 `IsActive()`/`IsCursorDirectlyOverSlateWindow()` 전제 조건 검사를 넣어 이 상태를 명확한 오류로 보고하게 했다(6.8절의 "좌표 어긋남" 추정은 이 분석으로 대체한다).
 
-**만들어지는 것** (모두 엔진 튜토리얼 placeholder 에셋만 참조하며, 프로젝트 아트는 아직 없음 — 9절 참고):
 
-1. `Content/Portfolio/Data/DA_Character.uasset` — `CharacterProfileData`. DisplayName/Description(placeholder임을 명시), SkeletalMesh = `/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP`, DefaultFraming + CameraPresets(Face/Upper/Full, DefaultPresetId=Full), Animations(Idle/Walk 루프, Pose=Tutorial_Idle 정지 0.5s, DefaultAnimationId=Idle), Expressions(Neutral 하나, 빈 Morphs — **이 메시는 Morph Target이 없어 표정 기능 자체는 검증 불가**), MaterialVariants(Default=오버라이드 없음, Grid=슬롯0→`/Engine/EngineMaterials/WorldGridMaterial`), TurntableSpeedDegreesPerSecond=20.
-2. `Content/Portfolio/Blueprints/BP_CharacterViewerGameMode.uasset` — 부모 `ACharacterViewerGameMode`, `DefaultProfile=DA_Character`, `ViewerWidgetClass=WBP_CharacterViewer`.
-3. `Content/Portfolio/UI/WBP_CharacterViewer.uasset` — 부모 `UCharacterViewerWidget`, 디자이너 트리는 의도적으로 비움(13.10절의 C++ 폴백 패널이 채움).
-4. `Content/Portfolio/Maps/LV_Portfolio.umap` — `APortfolioCharacterActor`(원점, yaw 90 = 정면이 기본 카메라(-X) 쪽, Profile=DA_Character) 1개, KeyLight DirectionalLight(Movable, pitch -40/yaw 30, 7 lux, ForwardShadingPriority 1) 1개, FillLight DirectionalLight(Movable, pitch -15/yaw -50, 2 lux, 그림자 없음) 1개, SkyLight(Movable, Intensity 1, Specified Cubemap = `/Engine/MapTemplates/Sky/DaylightAmbientCubemap`) 1개, Cylinder 플랫폼 1개. World Settings의 `DefaultGameMode` = BP_CharacterViewerGameMode. 라이트매스 빌드 불필요(전부 Movable). (2026-09-28 Opus 에스컬레이션에서 값 변경, 근거는 13.7.1절)
-5. `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`를 C++ 클래스 경로에서 `/Game/Portfolio/Blueprints/BP_CharacterViewerGameMode.BP_CharacterViewerGameMode_C`로 갱신.
-
-`.uasset`/`.umap`은 손으로 만들지 않았고 전부 위 스크립트의 Editor API 호출로 생성·저장되었다(실행 증거는 13.7절).
-
-**(2026-09-28 후속 세션, P1 완료 증거 — 코드 수정 없는 프로필 교체) `Content/Portfolio/Data/DA_Character_Cube.uasset`** — 두 번째 `CharacterProfileData`. SkeletalMesh = `/Engine/EngineMeshes/SkeletalCube`(존재 확인함; TutorialTPP와 달리 애니메이션/Morph가 없는 완전히 다른 엔진 placeholder). Python에서 `skeletal_mesh.get_bounds()`로 측정한 half-extent(12.598cm 균등)를 기준으로 `DefaultFraming`(Distance = half-extent×6, TargetOffset = 측정된 origin, FOV 50)과 이를 그대로 복사한 단일 "Full" `CameraPreset`(`DefaultPresetId=Full`)을 계산해 설정한다(하드코딩 값 아님). 처음에는 배율 2.3×로 계산했으나 `-game` 스모크 스크린샷(`ViewerSmoke_Profile2`)에서 큐브가 화면을 완전히 뒤덮어 형태를 알아볼 수 없었고(13.7.2절), 배율을 6×로 올려 재확인했다. Animations/Expressions는 의도적으로 빈 배열(이 메시는 둘 다 없음). MaterialVariants는 DA_Character와 동일한 패턴(Default=오버라이드 없음, Grid=슬롯0→WorldGridMaterial). DisplayName="Skeletal Cube (placeholder)", TurntableSpeedDegreesPerSecond=45(DA_Character의 20과 다르게 하여 두 프로필이 명확히 구분되게 함). `create_or_update_character_profile_cube()`가 담당하며 idempotent(재실행 시 기존 에셋 갱신)하다.
-
-**`ACharacterViewerGameMode.ProfileLibrary`** — `create_or_update_gamemode_blueprint()`가 `BP_CharacterViewerGameMode`의 CDO에 `profile_library = [DA_Character, DA_Character_Cube]`(기본 프로필이 0번)를 설정한다. C++ 스키마 변경 없이(요청대로 `UCharacterProfileData`는 손대지 않았다) `ACharacterViewerGameMode`에 `TArray<TObjectPtr<UCharacterProfileData>> ProfileLibrary` + `BlueprintPure GetProfileLibrary()`만 추가했다. 런타임에서 이 배열을 실제로 쓰는 것은 `ACharacterViewerController::SelectCharacterProfile(FName ProfileAssetName)`(자산 FName으로 `ProfileLibrary`를 찾아 기존 `SwitchProfile()`을 호출)와 `UCharacterViewerWidget::GetCharacterLibrary()`/`RequestCharacterProfile()`(폴백 UI의 새 CHARACTER 섹션, 13.10절)이다.
-
-**사람이 Editor GUI로 하는 대안** (짧게만): Content Browser에서 각 폴더에 우클릭 → Miscellaneous/Blueprint Class/Widget Blueprint/Level로 동일한 이름·부모 클래스·값을 지정하고 저장. IA/IMC 6개(`IA_Orbit`, `IA_OrbitPress`, `IA_Zoom`, `IA_ResetCamera`, `IA_ToggleTurntable`, `IA_ToggleCleanView`, `IMC_CharacterViewer`, 13.3절 표)는 여전히 선택 사항이며 만들지 않으면 런타임 폴백 입력이 대신 동작한다.
-
-### 13.7 검증 상태 (2026-09-28 실제 실행 결과)
-
-환경: UE 5.6.1 (`C:\Program Files\Epic Games\UE_5.6`, Launcher 설치), Visual Studio 2022 Community 17.14 + MSVC 14.38.33130 + Windows SDK 10.0.22621. `.uproject`의 `EngineAssociation`은 `5.6`으로 설정했다.
-
-| 항목 | 상태 |
-| --- | --- |
-| 프로젝트 파일 생성 (`Build.bat -projectfiles`) | 성공, 종료 코드 0 |
-| 빌드 `CharacterShowcaseEditor Win64 Development` | 성공, 종료 코드 0. 16개 액션, 오류 0, 경고 0. `Binaries/Win64/UnrealEditor-CharacterShowcase.dll` 생성 |
-| `CharacterShowcase.Profile.NullSafety` | 통과 (오류 0) |
-| `CharacterShowcase.Viewer.ActorFeatureNullSafety` | 통과 (오류 0). 1차 실행에서는 실패했고 아래 수정 후 통과 |
-| `CharacterShowcase.Viewer.CameraClamp` | 통과 (오류 0) |
-| `CharacterShowcase.Viewer.ProfileLookup` | 통과 (오류 0) |
-| Automation 합계(Editor 컨텍스트) | 실행 4 / 통과 4 / 실패 0 (`Saved/Automation/index.json` 기준, 10절 명령의 `-ExecCmds="Automation RunTests CharacterShowcase"`). 13.6절 자산 생성 이후 최종 재확인도 4/4 |
-| PIE(사람이 Editor GUI로 클릭) 표시/Orbit/Zoom/Reset/Turntable/Clean View/UI 입력 차단 | **여전히 미실행 — 아래 `-game` 스모크 테스트가 대신 실제 GameMode/레벨/BeginPlay로 이 항목들을 프로그램적으로 검증했다** |
-| Win64 패키지 | **완료 — 13.7.2절 참고 (2026-09-28 후속 세션)** |
-| P2 Inspection/Wireframe (Editor 테스트 2개 + `-game`/패키지 스모크) | **완료 — 13.11절 참고 (2026-09-28 P2 구현 세션)** |
-| Win64 Shipping 패키지 실행 | **완료 (자동화 테스트 미포함) — 13.11절 참고 (2026-09-28 P2 구현 세션)** |
-
-1차 테스트 실패와 수정: `ActorFeatureNullSafety`의 "ApplyProfile(nullptr) resets turntable rotation" 검사가 yaw 20으로 실패했다. 원인은 테스트 월드가 `InitializeActorsForPlay`를 호출하지 않아 `PostInitializeComponents`가 실행되지 않고 `InitialRotation` 캡처가 건너뛰어진 것이다. 실제 런타임과 같도록 테스트에서 `World->InitializeActorsForPlay(FURL())`를 SpawnActor 앞에 추가했다. 액터 코드는 바꾸지 않았다.
-
-빌드 로그의 `IncludeOrderVersion = Unreal5_3` 업그레이드 안내는 경고가 아니며, 두 Target.cs를 5.6 템플릿과 맞출 때 함께 정리한다.
-
-Editor 첫 실행이 `Config/DefaultEngine.ini`에 `[/Script/AndroidFileServerEditor.AndroidFileServerRuntimeSettings]` 섹션을 자동 추가했다. UE 기본 동작이며 매 실행 시 재생성되므로 그대로 둔다. UBT가 생성한 `.vsconfig`(필요한 VS 구성 요소 목록)도 커밋에 포함한다.
-
-#### 13.7.1 `-game` 스모크 테스트 결과 (2026-09-28 후속 세션, 실제 렌더링, NullRHI 아님)
-
-13.6절 자산을 만든 뒤 `Tests/CharacterViewerGameSmokeTest.cpp`(`CharacterShowcase.Game.ViewerSmoke`, `ClientContext | ProductFilter`라서 Editor 컨텍스트에서는 실행되지 않고 위 4/4에 포함되지 않음)를 실제 `-game` 프로세스로 실행했다:
-
-```powershell
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
-    "C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
-    /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1280 -ResY=720 -log -unattended -nosplash `
-    "-ExecCmds=Automation RunTests CharacterShowcase.Game" `
-    "-TestExit=Automation Test Queue Empty" `
-    "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation\Game"
-```
-
-| 시도 | 결과 | 원인/조치 |
-| --- | --- | --- |
-| 1차 | `-TestExit` 즉시 트리거, 테스트 자체가 실행되지 않음 | PowerShell `Start-Process -ArgumentList`가 공백 포함 값(`-ExecCmds="Automation RunTests ..."`)의 따옴표를 보존하지 않아 커맨드라인에서 `Automation`/`RunTests`/`CharacterShowcase.Game`이 별개 토큰으로 쪼개짐 → `-TestExit=Automation`만 남아 시작 로그의 "Automation" 문자열에 즉시 매치. 전체 커맨드라인 문자열을 직접 조립(각 값에 리터럴 큰따옴표 포함)해 해결 |
-| 2차 | 스크린샷이 대부분 검은 화면(아래 참고), 자동화 자체는 통과 | 5차·6차에서 해결(아래 참고) |
-| 3차 | `Exactly one APortfolioCharacterActor exists`가 1이 아니라 2로 실패, 카메라 clamp가 프로필 값이 아닌 `FViewerCameraFraming` 기본값(1000/50)으로 실패 | 13.6절 스크립트의 레벨 재생성 로직이 "기존 액터를 destroy 후 재생성"이었는데, 같은 Python 틱 안에서 destroy가 즉시 `TActorIterator`/저장에 반영된다는 보장이 없어 액터가 중복 저장됨. `Scripts/CreatePortfolioAssets.py`를 "기존 `LV_Portfolio` 삭제 후 완전히 새로 생성"으로 변경(스크립트 자체 코드 주석에 근거 기록), 재실행 후 해결 |
-| 4차 | **성공. 1/1 통과, 오류 0, 경고 0** | 카메라 clamp가 실제 Full 프리셋 값(Distance 120~700, Pitch -80~80)으로 정확히 검증됨. 스크린샷은 여전히 검은 화면 |
-| 5차 (Opus 에스컬레이션) | 1/1 통과. 마네킹 전신·정면·조명 정상, 하지만 UI 패널 없음 + 화면에 "Multiple directional lights are competing…" 엔진 경고 텍스트 | 조명/방향/프레이밍 수정(아래 원인 1~3), 스크린샷 경로 교체(원인 4). 패널 미표시는 원인 5로 규명 |
-| 6차(최종) | **1/1 통과, 오류 0, 경고 0. UI 스크린샷에 마네킹 전신 + 우측 패널, Clean 스크린샷에 마네킹만** | 원인 5 수정, 키 라이트 `ForwardShadingPriority=1`, 키/필 7/2 lux |
-
-최종 `Saved/Automation/Game/index.json`: `"succeeded": 1, "failed": 0`, `CharacterShowcase.Game.ViewerSmoke` = `Success`, `errors: 0`. 검증된 항목: 씬에 `APortfolioCharacterActor` 정확히 1개(Mesh/Profile 할당), `ACharacterViewerController`/`ACharacterViewerCameraPawn`/위젯 인스턴스 정상 연결·`IsInputEnabled()==true`, 큰 Orbit 델타의 Pitch clamp(Max/Min ±80), 큰 Zoom의 Distance clamp(120/700), `ResetCamera()` 후 1초 뒤 Distance/Pitch/Yaw가 Full 프리셋 값으로 복귀, `SetTurntableEnabled(true)` 후 0.5초 뒤 yaw 변화 확인 후 다시 off, `SelectAnimation("Idle")`→`AnimationSingleNode`+`SingleNodeInstance` 자산 설정, `SelectAnimation("Pose")`→정지 상태, `SelectMaterialVariant("Grid")`→슬롯0=WorldGridMaterial, `SelectMaterialVariant("Default")`→원래 재질 복원, `SelectExpression("Neutral")`=true/`SelectExpression("Nope")`=false(크래시 없음), `ToggleCleanView()`로 위젯이 원래 Visibility(`SelfHitTestInvisible`, UUserWidget 기본값 — `ESlateVisibility::Visible`이 아님, 테스트가 하드코딩 대신 시작 시점 값을 캡처해 비교하도록 수정)와 커서 상태로 정확히 복원.
-
-**스크린샷 (2026-09-28 Opus 에스컬레이션에서 해결)**: `Saved/Screenshots/WindowsEditor/ViewerSmoke_UI.png`, `Saved/Screenshots/WindowsEditor/ViewerSmoke_Clean.png` (둘 다 1280×720, 게임 창 전체 = UMG 포함). 육안 확인(6차): **UI** — 화면 중앙에 노란색 placeholder 마네킹(TutorialTPP)이 정면을 향해 머리부터 발끝까지 전부 보이고(Pose = Tutorial_Idle 0.5s, 소총 조준 자세), 발밑 회색 체커 플랫폼과 캐릭터 그림자가 보이며, 우측 어두운 패널(320 Slate 단위, 720p DPI 스케일로 약 213px)에 이름("Tutorial Mannequin (placeholder)"), 설명, VIEW(Face/Upper Body/Full Body), ANIMATION(Idle/Walk…) 버튼이 보인다(나머지 섹션은 스크롤 영역 아래). **Clean** — 패널이 완전히 사라지고 마네킹·플랫폼·그림자는 UI 스크린샷과 같은 위치·밝기로 그대로 보인다. 배경은 의도대로 검정(스카이/배경막 없음).
-
-이전(2~4차)의 "거의 검은 화면 + 위쪽 주황색 얼룩 2개"는 캡처 경로 문제가 아니라 **실제 렌더링 결과**였고, 원인은 다음과 같다(모두 코드/로그로 확인):
-1. **키 라이트가 바닥 아래에서 위로 비춤.** `unreal.Rotator`의 위치 인자 순서는 `(roll, pitch, yaw)`인데 스크립트가 `unreal.Rotator(-45.0, 45.0, 0.0)`을 (pitch, yaw, roll)로 가정했다. Editor Python으로 레벨을 열어 확인한 KeyLight 값: `pitch=45 roll=-45`, forward=`(0.707, 0, +0.707)`(위쪽). 반지름 200cm 플랫폼이 캐릭터 전체에 그림자를 드리워, 플랫폼 가장자리 밖으로 나온 머리 꼭대기·한 손만 빛을 받았다(= 주황색 얼룩 2개). 라이트 강도·자동 노출 조정이 효과가 없던 이유다. → 모든 `unreal.Rotator`를 키워드 인자로 바꾸고 키 라이트 `pitch=-40, yaw=30`(카메라 쪽 좌상단), 7 lux로 수정.
-2. **보조광이 사실상 0.** SkyLight가 `Captured Scene`인데 레벨에 하늘이 없어 검은색을 캡처 → 기여 0. → 엔진 `/Engine/MapTemplates/Sky/DaylightAmbientCubemap`을 `Specified Cubemap`으로 지정(Intensity 1) + 그림자 없는 필 DirectionalLight(`pitch=-15, yaw=-50`, 2 lux) 추가. 두 번째 DirectionalLight 때문에 화면에 뜨는 "Multiple directional lights are competing…" 엔진 경고는 키 라이트 `ForwardShadingPriority=1`로 제거.
-3. **카메라가 캐릭터 옆면을 보고 머리가 잘림.** TutorialTPP 임포트 바운드는 X ±100(팔), Y ±16.6, Z 0~192로 메시는 +Y를 향한다. 카메라는 yaw 0에서 -X 쪽에서 +X를 본다(`ACharacterViewerCameraPawn::UpdateCameraTransform`). → 캐릭터 액터를 yaw 90으로 배치해 정면이 카메라를 향하게 함. FOV 60(수평, 16:9 → 수직 약 36°)에서 Distance 300/Z 90은 Z -7~187만 담아 머리(192)가 잘렸으므로 DefaultFraming/Full 프리셋을 Distance 380, TargetOffset Z 95로 변경(Z 약 -28~218).
-4. **기존 스크린샷은 UMG를 원천적으로 제외.** `FScreenshotRequest::RequestScreenshot(Name, bInShowUI=false, …)`는 3D 뷰포트만 읽는다. `bInShowUI=true`로 바꾸자 이 `-game` 환경에서 파일도 로그도 없이 조용히 실패했다(5차 1회 시도에서 확인). → 테스트에 `FCaptureWindowScreenshotCommand`를 추가해 `FSlateApplication::TakeScreenshot(게임 창)`으로 직접 캡처·`FImageUtils::SaveImageByExtension`으로 저장하고, 실패 시 테스트 오류로 보고하도록 함. 캡처 전 대기도 1s→3s로 늘림(포즈/재질 변경 및 시간 누적 조명 안정화).
-5. **C++ 폴백 패널이 실제로는 한 번도 화면에 그려지지 않음.** `UCharacterViewerWidget`이 `NativeConstruct()`에서 `WidgetTree->RootWidget`을 채웠지만, `NativeConstruct()`는 `UUserWidget::RebuildWidget()`이 RootWidget(당시 null → `SSpacer`)으로 Slate 위젯을 이미 만든 뒤(`OnWidgetRebuilt`)에 호출된다. 그래서 위젯 인스턴스·Visibility 검사는 통과해도 화면은 비어 있었다. → `RebuildWidget()` override에서 `Super::RebuildWidget()` **이전에** `BuildFallbackUI()`를 호출(디자인 타임 제외), `NativeConstruct()`는 `RefreshFallbackUI()`만 수행.
-
-`r.DefaultFeature.AutoExposure=False`(고정 노출, 장면 휘도 1 = EV100 약 3)는 그대로 유지한다 — 위 lux 값은 이 고정 노출 기준으로 정했다.
-
-#### 13.7.2 P1 완료 증거 보강: 프로필 2개 코드 없는 교체 + Win64 패키지 기본 실행 (2026-09-28 후속 세션)
-
-이 절은 6절 P1 완료 증거의 나머지 2개 항목("프로필 2개로 코드 수정 없는 교체", "Win64 패키지 기본 실행")을 다룬다. 나머지 2개("기능별 실행 확인", "빈 데이터 무충돌")는 13.7/13.7.1절에서 이미 확인됨.
-
-**A. 두 번째 프로필 + 런타임 프로필 교체 (코드 수정 없음)**
-
-- `Scripts/CreatePortfolioAssets.py`를 확장해 `Content/Portfolio/Data/DA_Character_Cube.uasset`을 추가로 생성한다(13.6절에 상세). `/Engine/EngineMeshes/SkeletalCube`(존재 확인함, TutorialTPP와 무관한 별도 엔진 placeholder)를 사용하고, Animations/Expressions는 빈 배열, TurntableSpeedDegreesPerSecond=45(DA_Character의 20과 다름)로 두 프로필이 명확히 구분되게 했다.
-- `ACharacterViewerGameMode`에 `TArray<TObjectPtr<UCharacterProfileData>> ProfileLibrary`(EditDefaultsOnly) + `GetProfileLibrary()`(BlueprintPure)만 추가했다 — `UCharacterProfileData` 스키마는 손대지 않았다. `create_or_update_gamemode_blueprint()`가 `BP_CharacterViewerGameMode`의 CDO에 `profile_library = [DA_Character, DA_Character_Cube]`를 설정한다.
-- 교체 자체는 기존 `ACharacterViewerController::SwitchProfile(UCharacterProfileData*)`를 그대로 쓴다. 새로 추가한 `SelectCharacterProfile(FName ProfileAssetName)`은 `ProfileLibrary`에서 자산 FName이 일치하는 항목을 찾아 `SwitchProfile()`을 호출할 뿐이다 — 새 프로필을 추가/교체하려면 `ProfileLibrary` 배열에 에셋을 넣는 것만으로 충분하며 C++/Blueprint 코드는 그대로다.
-- `UCharacterViewerWidget`에 `GetCharacterLibrary()`(현재 GameMode의 `ProfileLibrary`를 항목화)와 `RequestCharacterProfile(FName)`을 추가하고, 13.10절 폴백 패널에 새 **CHARACTER** 섹션(맨 위, DisplayName/Description 바로 아래)을 추가해 프로필마다 버튼 하나씩 표시한다.
-- `Tests/CharacterViewerGameSmokeTest.cpp`에 `FSwitchProfileAndVerifyCommand`를 추가하고(기존 Clean View 단계 뒤에 실행), DA_Character → DA_Character_Cube → DA_Character 순으로 `SelectCharacterProfile()`을 호출해 각각 확인한다: Actor `Profile`이 실제로 바뀜, `Mesh->GetSkeletalMeshAsset()`이 새 프로필의 SkeletalMesh와 일치, `GetCurrentAnimationId()`가 새 프로필의 기본 재생 상태와 일치(`RestoreDefaultAnimationState()`가 `DefaultAnimationId`를 즉시 재적용하므로 DA_Character는 "Idle", DA_Character_Cube는 애니메이션이 없어 `NAME_None` — 처음에는 두 경우 모두 `NAME_None`을 기대해 1차 실행에서 실패했고, 프로필의 실제 기본 재생 로직을 반영하도록 기대값을 고쳐 통과시켰다), `GetCurrentExpressionId()`/`GetCurrentVariantId()`가 `NAME_None`으로 초기화, 액터 회전이 레벨에 배치된 회전(`FValidateSceneCommand`가 최초에 캡처한 값)으로 복원, `ACharacterViewerCameraPawn`의 Distance/TargetOffset이 새 프로필의 `GetResetFraming()`과 일치, 폴백 패널의 실제 렌더링된 텍스트(`UCharacterViewerWidget::GetFallbackDisplayNameText()`, 이번에 추가한 테스트 전용 접근자)가 새 프로필의 DisplayName과 일치. 각 전환 후 `ViewerSmoke_Profile2.png`/`ViewerSmoke_Profile1.png` 스크린샷을 찍는다.
-- 결과: **1/1 통과, 오류 0.** (`Saved/Automation/Game/index.json`, 아래 B의 패키지 스모크와 동일한 테스트를 Editor `-game` 프로세스로도 재실행해 확인.) 최초 큐브 프로필의 `DefaultFraming.Distance`를 측정된 half-extent(12.598cm) × 2.3으로 계산했을 때 `ViewerSmoke_Profile2.png`에서 큐브가 화면을 거의 뒤덮어(형태를 알아볼 수 없는 근접 샷) 나왔고, × 6.0으로 올려 재확인해 정상적으로 프레이밍됨을 육안 확인했다(13.9절에 원인 기록).
-- **스크린샷 육안 확인** (`Saved/Screenshots/WindowsEditor/`): **`ViewerSmoke_UI.png`** — 노란 마네킹 전신 + 우측 패널 맨 위에 **CHARACTER** 섹션("Tutorial Mannequin (placeholder)", "Skeletal Cube (pla…" 두 버튼)이 VIEW보다 먼저 보인다. **`ViewerSmoke_Profile2.png`** — DA_Character_Cube로 전환한 직후: 화면 중앙에 회색 체커보드 무늬의 정육면체(SkeletalCube의 엔진 기본 머티리얼, WorldGridMaterial이 아님)가 헤드룸을 두고 잘 프레이밍되어 있고, 아래 플랫폼과 그림자가 보이며, 우측 패널 설명 텍스트가 "Skeletal Cube (placeholder)"로 바뀌어 있다(VIEW 섹션은 Animations/Expressions가 빈 이 프로필에서도 CameraPresets=[Full] 덕분에 여전히 표시됨). **`ViewerSmoke_Profile1.png`** — DA_Character로 다시 전환한 직후: 마네킹 전신이 원래 크기/위치/포즈(Idle)로 복원되어 `ViewerSmoke_UI.png`와 동일하게 보인다.
-
-**B. Win64 패키지 기본 실행**
-
-- `Config/DefaultGame.ini`에 `[/Script/UnrealEd.ProjectPackagingSettings]`를 추가: `bCookAll=False` + `+MapsToCook=(FilePath="/Game/Portfolio/Maps/LV_Portfolio")`. `LV_Portfolio`가 참조하는 `BP_CharacterViewerGameMode`(그 CDO의 `ProfileLibrary`를 통해 `DA_Character`/`DA_Character_Cube` 양쪽 모두, 그리고 각 프로필이 참조하는 엔진 튜토리얼/엔진 메시 에셋까지)는 전부 하드 레퍼런스라 명시적 Primary Asset 등록 없이도 맵을 쿡하면 함께 쿡된다.
-- Game 타깃(`CharacterShowcase Win64 Development`) 단독 빌드: **성공, 종료 코드 0, 20개 액션, 오류 0, 경고 0**(UAT 실행 전 별도 확인).
-- UAT 명령:
-  ```powershell
-  & "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun `
-      -project="C:\Users\WINCARD1\Downloads\develop\project\character-showcase\CharacterShowcase.uproject" `
-      -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive `
-      -archivedirectory="C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Packaged" `
-      -unattended -noP4 -utf8output
-  ```
-  결과: **BUILD SUCCESSFUL, 종료 코드 0.** `BuildCookRun time: 42.97s`(스테이지+아카이브만 별도 집계된 시간; 코드 재사용 덕분에 쿡 자체는 전체 388→454개 패키지를 몇 분 내로 끝냄 — 이 프로젝트 콘텐츠가 적어 예상(20~60분)보다 훨씬 빨랐다), AutomationTool 총 실행 0h 0m 44s. 로그에 `error`/`fail` 문자열로 걸리는 실제 실패는 없었다(`LogObj: ... SlateThemeManager ...` 한 줄은 무해한 기존 엔진 경고).
-  - 산출물: `Saved/Packaged/Windows/CharacterShowcase.exe`(런처) + `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe`(실제 실행 파일) + `Content/Paks/*.pak`.
-  - 쿡된 에셋 확인: `Saved/Cooked/Windows/CharacterShowcase/Content/Portfolio/Data/DA_Character_Cube.uasset`(+`.uexp`) 존재 확인. 같은 폴더에 `DA_Character`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`도 모두 쿡됨.
-- 패키지 스모크 실행(내부 exe, Development 빌드는 자동화 테스트 코드 포함):
-  ```powershell
-  & "...\Saved\Packaged\Windows\CharacterShowcase\Binaries\Win64\CharacterShowcase.exe" `
-      -windowed -ResX=1280 -ResY=720 -log -unattended `
-      "-ExecCmds=Automation RunTests CharacterShowcase.Game" `
-      "-TestExit=Automation Test Queue Empty" `
-      "-ReportExportPath=...\Saved\Automation\Packaged"
-  ```
-  결과: **1/1 통과, 오류 0** (`Saved/Automation/Packaged/index.json`: `"succeeded": 1, "failed": 0`, `CharacterShowcase.Game.ViewerSmoke` = `Success`). 편집기 `-game` 실행과 동일한 검증 항목(A절 + 13.7.1절)이 패키지에서도 전부 통과했다.
-  - 패키지 스크린샷 경로: `Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/{ViewerSmoke_UI,ViewerSmoke_Clean,ViewerSmoke_Profile2,ViewerSmoke_Profile1}.png`. 육안 확인: 4장 모두 Editor `-game` 스크린샷과 픽셀 단위로 사실상 동일 — 마네킹/큐브 프레이밍, CHARACTER 섹션 버튼 2개, VIEW 섹션 모두 정상 렌더링.
-- 부수적으로 프로젝트 루트에 `Build/Windows/FileOpenOrder/*.log`(UAT가 쿡 시 자동 생성하는 파일 순서 로그, 880KB)가 새로 생겼다 — 커밋 대상이 아니므로 `.gitignore`에 `/Build/`를 추가했다(기존 `/Binaries/`, `/Saved/` 등과 같은 패턴).
-
-**결론**: 6절 P1 완료 증거 4개 항목 모두 이번 세션까지 포함해 전부 실행 확인됨(기능별 실행 확인/빈 데이터 무충돌은 13.7.1절, 프로필 2개 교체/Win64 패키지는 이 절).
-
-### 13.8 정적 자체 점검 결과 (이 세션에서 실행)
-
-- `.generated.h` 마지막 include 여부: 헤더 6개(`CharacterProfileData.h`, `PortfolioCharacterActor.h`, `CharacterViewerCameraPawn.h`, `CharacterViewerController.h`, `CharacterViewerGameMode.h`, `CharacterViewerWidget.h`) 전수 확인, 전부 마지막 줄이 자기 이름의 `.generated.h`. 문제 0건.
-- BOM/비-UTF-8 검사: `Source/**/*.{h,cpp,cs}` 17개 + `Config/*.ini` 3개 = 21개 파일, `python3`로 BOM 바이트와 UTF-8 디코딩 실패를 전수 검사. 문제 0건.
-- UPROPERTY 오브젝트 포인터: 모든 UPROPERTY 선언을 grep으로 전수 확인, 원시 포인터(`T*`) UPROPERTY 0건 — 전부 `TObjectPtr`/`TSubclassOf`이고, Widget의 뷰어 참조는 `TWeakObjectPtr`(비-UPROPERTY, `NativeDestruct`에서 `Reset()`)로 유지.
-- 헤더 선언 대비 `.cpp` 정의: out-of-line 함수 선언 61개(생성자/virtual override 10개 포함) 중 60개가 대응하는 `.cpp`에 정의됨을 grep으로 확인. 나머지 1개(`UCharacterViewerWidget::OnViewerDataChanged`)는 `UFUNCTION(BlueprintImplementableEvent)`로, UHT가 기본 구현을 생성하므로 `.cpp` 정의가 없는 것이 정상이다.
-- `Build.cs` 의존성: 이번 세션에서 실제로 include한 Enhanced Input/UMG/Camera 헤더(`EnhancedInputComponent.h`, `EnhancedInputSubsystems.h`, `InputAction.h`, `InputActionValue.h`, `InputMappingContext.h`, `Blueprint/UserWidget.h`, `Components/SlateWrapperTypes.h`, `Camera/CameraComponent.h`)를 제공하는 모듈(`EnhancedInput`, `InputCore`, `UMG`)이 모두 `PublicDependencyModuleNames`에 있음을 확인. `InputModifiers.h`/`InputTriggers.h`는 이번 구현(단순 Started/Triggered/Completed/Canceled 바인딩만 사용)에서 실제로 사용하지 않아 include하지 않았다.
-
-**2026-09-28 후속 세션(13.6~13.10) 재점검**: 신규/변경 파일 24개(`Source/**/*.{h,cpp,cs}` + `Scripts/*.py` + `Config/*.ini` + `CharacterShowcase.uproject`)를 같은 방식으로 전수 재검사 — BOM/비-UTF-8 0건. `.generated.h` 마지막 include: 이번에 새로 수정한 `CharacterViewerWidget.h`도 마지막 줄이 `CharacterViewerWidget.generated.h`. UPROPERTY 원시 포인터: `CharacterViewerWidget.h`(폴백 UI 위젯 포인터 다수 포함)와 `CharacterViewerController.h`(신규 Get* 접근자)를 포함해 전수 재확인, 전부 `TObjectPtr`/`TSubclassOf`/`TArray<TObjectPtr<...>>`. 빌드는 0 오류/0 경고로 4회 재현(초기 P0/P1 세션 1회 + 이번 세션 C++ 변경마다 3회).
-
-**2026-09-28 P1 완료 증거 보강 세션(13.7.2절) 재점검**: 이번에 수정/추가한 파일(`CharacterViewerGameMode.h/.cpp`, `CharacterViewerController.h/.cpp`, `CharacterViewerWidget.h/.cpp`, `CharacterViewerGameSmokeTest.cpp`, `Scripts/CreatePortfolioAssets.py`, `Config/DefaultGame.ini`, `.gitignore`)를 같은 방식으로 재검사 — BOM/비-UTF-8 0건(21개 파일 전수), `.generated.h` 마지막 include 이상 없음(`CharacterViewerGameMode.h`, `CharacterViewerWidget.h` 재확인), 신규 UPROPERTY(`ProfileLibrary`, 폴백 CHARACTER 섹션 멤버) 전부 `TArray<TObjectPtr<...>>`/`TObjectPtr<...>`, 원시 포인터 UPROPERTY 0건. Editor 빌드 0오류/0경고 2회 재현(테스트 1차 실패 수정 전후), Game 타깃 빌드 0오류/0경고 1회. `git status --short`는 의도한 파일만 표시(위 목록 + `Content/Portfolio/Data/DA_Character_Cube.uasset` 신규 + `Content/Portfolio/Blueprints/BP_CharacterViewerGameMode.uasset`/`Content/Portfolio/Maps/LV_Portfolio.umap` 갱신). `git check-attr filter -- Content/Portfolio/Data/DA_Character_Cube.uasset` = `lfs` 확인.
-
-### 13.9 남은 문제·위험 (컴파일러로 확인 못 함)
-
-- (2026-09-28 리뷰로 정정) `ACharacterViewerGameMode`는 `BeginPlay()`가 아니라 `PostLogin(APlayerController*)`에서 DefaultProfile 적용과 Controller/Widget 연결을 수행한다. 처음에는 "PostLogin이 PlayerController의 BeginPlay/OnPossess 이후 호출된다"고 가정했으나, 실제로는 그 반대다: LoadMap과 PIE 모두 `SpawnPlayActor`(그 안에서 `PostLogin` 호출)가 `World::BeginPlay` 패스보다 먼저 실행되므로 **`PostLogin`은 PlayerController/액터들의 `BeginPlay`보다 먼저 실행된다.** 이 정정에 맞춰 `PostLogin`은 `DefaultProfile`이 null이 아닐 때만 `ApplyProfile`을 호출하도록 바꿨고(레벨에 배치된 Actor의 기존 Profile을 `ApplyProfile(nullptr)`로 지우지 않기 위함), `APortfolioCharacterActor::InitialRotation` 캡처도 `BeginPlay`에서 `PostInitializeComponents()`로 옮겼다(그래야 `PostLogin`이 `BeginPlay`보다 먼저 `ApplyProfile`을 호출해도 배치 회전이 0으로 리셋되지 않는다). 여전히 이 프로젝트의 실제 UE 버전으로 PIE에서 직접 확인하지는 않았다. Controller 쪽은 순서와 무관하게 안전하도록(`EnsureWidgetCreated()`를 `BeginPlay`와 `SetViewerActor` 양쪽에서 모두 호출, idempotent) 방어적으로 작성했지만 최종 확인은 PIE 몫이다.
-- `APortfolioCharacterActor::SetAnimation`의 스켈레톤 호환성 검사는 `Entry->Sequence->GetSkeleton() == Mesh->GetSkeletalMeshAsset()->GetSkeleton()` 포인터 비교만 사용한다(요청 사양의 "가장 단순하고 안전한 검사"). 실제 리타겟/호환 스켈레톤 조합에서는 이 검사가 지나치게 엄격할 수 있어 실제 에셋으로 확인이 필요하다.
-- `ACharacterViewerController`의 포커스 상실(Alt-Tab 등) 처리는 `APlayerController`에 직접적인 "포커스 잃음" 콜백이 없어서 Enhanced Input의 `Completed`/`Canceled` 트리거와 `EndPlay`에서 드래그 상태를 정리하는 것으로 근사했다. 창 포커스를 잃은 채 마우스를 뗀 경우 드래그 상태가 남아있을 가능성을 배제하지 못한다(엔진에서 직접 확인 필요).
-- `UCharacterViewerWidget::IsPointerOverPanel()`은 `UWidget::IsHovered()`에 의존한다. UMG 계층 구성(패널의 Visibility, 자식 위젯의 히트테스트 설정)에 따라 최상위 UserWidget의 hover 상태가 기대와 다르게 갱신될 수 있어 WBP 제작 후 확인이 필요하다.
-- `ACharacterViewerCameraPawn`의 프리셋/리셋 보간은 항상 Yaw/Pitch를 0으로 되돌린다(즉 "복귀"이지 "현재 각도 유지한 채 줌만 전환"이 아니다). 이는 요청 사양의 카메라 클램프 테스트("ResetToFraming(instant)이 Distance/pitch/yaw 기본값을 복원") 문구를 프리셋 전환에도 동일하게 적용한 설계 판단이며, 실제 사용성 확인 후 프리셋 전환만 각도를 유지하도록 바꿀 수 있다.
-- `EAutomationTestFlags::EditorContext | EngineFilter` 조합은 기존 `CharacterProfileTests.cpp`와 동일하게 유지했다(1.1절에 기록된 5.5+ enum class 변경 관련 위험이 새 테스트 파일에도 동일하게 적용됨).
-- `Config/DefaultGame.ini`의 `ProjectID`는 실제로 생성된 GUID가 아니라 placeholder 16진수 문자열이다. Editor에서 프로젝트를 한 번 열면 엔진이 재발급할 수 있으며, 필요하면 교체할 것.
-- 모든 API 이름(`GetMaterialIndex`, `SetMorphTarget`, `FindMorphTarget`, `SetPosition`, `SetAnimInstanceClass`, `InterpEaseInOut` 등)은 UE 5.1~5.6 문서/기억에 근거해 작성했으나 실제 헤더로 시그니처를 대조하지 못했다. 빌드 시 가장 먼저 깨질 가능성이 있는 지점이다.
-- (2026-09-28 Opus 에스컬레이션, 해결) `-game` 스모크 스크린샷의 검은 화면은 해결됐다(원인·조치는 13.7.1절). 남은 주의점: (a) 조명 값(키 7 lux / 필 2 lux / Daylight 큐브맵 SkyLight 1.0)은 `r.DefaultFeature.AutoExposure=False` 고정 노출 기준으로 이 PC(Intel UHD 630) 스크린샷 1장을 눈으로 보고 정한 값이며, 배경은 하늘/배경막이 없어 검정이다. 실제 포트폴리오 아트가 들어오면 재조정 대상이다. (b) 스크린샷은 `FSlateApplication::TakeScreenshot`으로 게임 창을 캡처하므로 창이 최소화되는 등 Slate가 창을 그리지 않는 환경(원격 잠금/헤드리스)에서는 테스트가 "TakeScreenshot failed (visible/minimized …)" 오류로 실패한다(의도된 명시적 실패). 엔진 `FScreenshotRequest(bInShowUI=true)` 경로가 이 환경에서 조용히 실패한 이유 자체는 규명하지 않았다. (c) 이 PC는 5 FPS라 자동화 프레임워크의 `FWaitForInteractiveFrameRate`(≥10 FPS)가 매번 600초 타임아웃까지 기다린 뒤 테스트를 시작한다 — `-game` 스모크 1회에 약 11분.
-- 폴백 패널: 720p에서는 설명 문구가 길어 VIEW 섹션과 ANIMATION 일부만 스크롤 없이 보이고 EXPRESSION/APPEARANCE/DISPLAY 섹션은 ScrollBox 아래에 있다(스크린샷으로는 앞부분만 확인). 폴백 트리 생성 시점을 `NativeConstruct()`→`RebuildWidget()`으로 옮긴 변경은 Editor 컨텍스트 테스트 4개가 다루지 않으며 `-game` 스크린샷으로만 확인됐다. 디자이너가 트리를 채운 WBP에서는 기존과 같이 폴백이 건너뛰어진다(`RootWidget != nullptr`).
-- `Scripts/CreatePortfolioAssets.py`의 레벨 재생성은 idempotent 요구를 만족시키기 위해 "기존 액터를 지우고 재사용"이 아니라 "기존 `LV_Portfolio` 에셋을 삭제하고 완전히 새로 생성"하는 방식으로 되어 있다(13.7.1절의 3차 시도 실패 참고). 따라서 레벨에 스크립트가 만들지 않은 액터(예: 나중에 아티스트가 손으로 배치한 추가 소품)를 넣어 두면 스크립트를 재실행할 때 함께 사라진다 — 그런 손 배치 요소가 필요해지면 이 재생성 전략을 "기존 레벨을 열고 스크립트가 소유하는 액터만 정확히 추적해 치환"하는 방식으로 다시 바꿔야 한다.
-- **(2026-09-28 후속 세션, P1 완료 증거 보강)** `DA_Character_Cube`의 `DefaultFraming.Distance`를 처음에는 `측정된 half-extent × 2.3`로 계산했는데, `-game` 스모크의 `ViewerSmoke_Profile2` 스크린샷에서 큐브가 카메라를 거의 뒤덮어(형태를 알아볼 수 없는 근접 샷) 화면을 가득 채우는 것을 육안으로 확인했다(13.7.2절). 배율을 `×6.0`로 올려 재확인했고 정상적으로 프레이밍되었다. 이 배율은 DA_Character(Distance/half-height ≈ 4×)보다도 여유를 더 준 값으로, 절대 크기(cm)가 훨씬 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요했다 — `FViewerCameraFraming.Distance`를 mesh bounds로부터 자동 계산할 때는 이 절대 크기 편향을 고려해야 한다. `UCameraComponent::FieldOfView`가 정확히 수평/수직 중 어느 쪽 기준인지는 이번에도 엔진 소스로 확정하지 않았다(경험적 배율 조정으로 우회).
-- `SkeletalCube`의 기본(override 없는) 머티리얼은 옅은 회색 체커보드 패턴이다(엔진이 기본 제공하는 머티리얼이며 이 프로젝트가 지정한 것이 아니다). `ViewerSmoke_Profile2` 스크린샷에서 보이는 체커 무늬는 "Grid" MaterialVariant(WorldGridMaterial)가 아니라 이 메시의 기본 머티리얼이다 — 시각적으로 WorldGridMaterial과 혼동하기 쉬우므로 실제 캐릭터 에셋으로 교체 시 유의한다.
-- CHARACTER 섹션 버튼(`RequestCharacterProfile`)은 다른 폴백 버튼들과 마찬가지로 `-game` 스모크 테스트에서 실제 마우스 클릭이 아니라 `ACharacterViewerController::SelectCharacterProfile()`을 직접 호출해 검증했다(13.7.2절). `UButton::OnClicked` 델리게이트 배선 자체(`UCharacterViewerButtonBinding`)는 13.10절 기존 버튼들과 동일한 경로를 재사용하므로 위험이 새로 추가되지는 않지만, 실제 마우스 클릭 경로는 여전히 사람이 확인해야 한다(기존 P0/P1 버튼들과 동일한 미검증 범위).
-- Win64 패키지 스모크(13.7.2절)는 Development 구성으로 확인했다. Shipping 빌드는 자동화 테스트 코드가 기본적으로 포함되지 않아(`WITH_DEV_AUTOMATION_TESTS`가 Shipping에서 꺼짐) 이 절차로 검증할 수 없고, 이번 요청 범위(Win64 패키지 "기본 실행")에도 포함되지 않았다 — Shipping 배포 전에는 별도 수동 확인이 필요하다.
-
-### 13.10 폴백 UI 패널 (`UCharacterViewerWidget`, 2026-09-28 후속 세션)
-
-P0-5/P1 당시 `UCharacterViewerWidget`은 목록 Getter(`Get*`)와 `Request*` 전달 함수, `OnViewerDataChanged`(`BlueprintImplementableEvent`)만 제공하고 실제 화면 구성은 전적으로 WBP 디자이너(사람의 수작업)에 맡겨져 있었다. `WBP_CharacterViewer`가 13.6절 Python 스크립트로 생성되긴 하지만 디자이너 트리는 의도적으로 비워 두므로(파서/디자이너 그래프를 Python으로 구성하는 것은 범위 밖), 그 상태로는 화면에 아무것도 나오지 않는다. 이를 메우기 위해 `NativeConstruct()`에서 `WidgetTree->RootWidget == nullptr`(즉 디자이너가 아무것도 만들지 않은 경우)일 때만 최소 UMG 트리를 C++로 직접 구성하도록 `BuildFallbackUI()`를 추가했다. (2026-09-28 Opus 에스컬레이션 정정: `NativeConstruct()` 시점에는 Slate 위젯이 이미 만들어져 패널이 화면에 나오지 않았으므로, 생성 시점을 `RebuildWidget()` override(Super 호출 전)로 옮겼다. 13.7.1절 원인 5)
-
-- **구조**: `UCanvasPanel`(WidgetTree의 새 RootWidget) → 오른쪽 끝에 앵커된(Anchors (1,0)-(1,1), Alignment (1,0), Offsets (0,0,320,0)) 폭 320px 전체높이의 `UBorder`(어두운 반투명, `FLinearColor(0,0,0,0.65)`) → 그 안에 `UScrollBox` → DisplayName(큰 폰트) → Description(줄바꿈) → VIEW/ANIMATION/EXPRESSION/APPEARANCE/DISPLAY 5개 섹션(`UVerticalBox`, 헤더 `UTextBlock` + 항목별 `UButton`+`UTextBlock`).
-- **데이터 소스**: VIEW/ANIMATION/EXPRESSION/APPEARANCE 4개 섹션은 기존 `Get*`(BlueprintPure) 결과로 채워지며, 항목이 0개면 헤더를 포함해 섹션 전체가 `Collapsed`된다(`bEnabled=false` 항목은 `SetIsEnabled(false)`로 비활성화만 하고 숨기지는 않음). DISPLAY 섹션은 데이터와 무관하게 항상 "Turntable (Space)"(상태에 따라 텍스트가 `Turntable: On/Off (Space)`로 갱신됨) / "Reset Camera (R)" / "Clean View (H)" 3개 버튼을 고정 표시한다.
-- **버튼 클릭 배선**: `UButton::OnClicked`는 인자가 없는 dynamic delegate라 클릭된 항목의 Id/종류를 직접 실어 보낼 수 없다. 그래서 작은 헬퍼 `UCLASS() UCharacterViewerButtonBinding : public UObject`(같은 `UI/CharacterViewerWidget.h/.cpp`에 정의)가 `TWeakObjectPtr<UCharacterViewerWidget> Widget`, `FName Id`, `ECharacterViewerButtonKind Kind`를 들고 있다가 `UFUNCTION() void HandleClicked()`에서 `Kind`에 따라 `RequestCameraPreset/RequestAnimation/RequestExpression/RequestMaterialVariant/RequestToggleTurntable/RequestResetCamera/RequestToggleCleanView` 중 하나를 호출해 기존 Controller API로 그대로 전달한다. 버튼마다 하나씩 만들어지는 이 바인딩 객체들은 `UPROPERTY(Transient) TArray<TObjectPtr<UCharacterViewerButtonBinding>> FallbackButtonBindings`에 보관해 GC로부터 보호한다(버튼의 delegate는 `AddDynamic`으로 바인딩 객체를 약하게가 아니라 델리게이트 자체가 참조하지만, 배열의 강한 참조가 없으면 다음 GC에서 회수될 수 있다).
-- **재구성 시점**: `BindToViewer()`(Controller가 possess/`SetViewerActor`/`SwitchProfile` 때마다 호출)에서 기존 `OnViewerDataChanged()`(BlueprintImplementableEvent, 디자이너 WBP용으로 유지) 호출 직후 C++ 쪽 `RefreshFallbackUI()`를 호출해 폴백 패널의 이름/설명/각 섹션/턴테이블 버튼 텍스트를 다시 채운다. `RequestToggleTurntable()`도 호출 직후 `RefreshFallbackUI()`를 한 번 더 호출해 버튼에 켜짐/꺼짐 상태가 즉시 반영되게 한다.
-- **디자이너 WBP가 있으면 자동으로 건너뜀**: `BuildFallbackUI()`는 `WidgetTree->RootWidget != nullptr`이면 즉시 반환한다. 즉 누군가 `WBP_CharacterViewer`(또는 이를 상속한 다른 WBP)를 열어 디자이너에서 위젯 트리를 구성해 저장하면, 다음 실행부터는 이 폴백이 전혀 개입하지 않고 그 디자이너 트리가 그대로 쓰인다 — 코드 변경이 필요 없다.
-- **`IsPointerOverPanel()`과의 연동**: 폴백 패널의 `UBorder`를 `FallbackPanelBorder`에 저장해 두고, `IsPointerOverPanel()`은 `FallbackPanelBorder->IsHovered()`를 우선 확인한 뒤 `UWidget::IsHovered()`(디자이너 WBP 경로)로 폴백한다. 이렇게 해야 320px 패널 위에서는 Orbit/Zoom이 차단되고, 그 바깥의 빈 Canvas 영역에서는 차단되지 않는다(13.9절에 기록된 "WBP 제작 후 확인 필요"였던 항목이 폴백 UI에 한해서는 이번 세션에 코드 수준으로 해결됨. WBP 디자이너 경로의 `IsHovered()` 동작 자체는 여전히 실제 WBP 제작 후 확인이 필요하다).
-- **검증**: `-game` 스모크 테스트(13.7.1절)가 `Widget->IsInViewport()`, 초기 `GetVisibility()`(UUserWidget 기본값 캡처), `ToggleCleanView()`로 위젯이 `Collapsed`되고 커서가 숨겨지는지, 다시 껐을 때 정확히 원래 상태로 복원되는지를 확인했다 — 모두 통과. 다만 이는 위젯의 "표시/숨김/포커스" 상태만 프로그램적으로 검증한 것이고, 패널의 실제 레이아웃(글자 크기, 320px 폭, 버튼 배치)이 화면에서 의도한 대로 "보이는지"는 13.7.1절에 기록한 스크린샷 캡처 문제로 인해 육안 확인이 되지 않았다.
-
-### 13.11 P2 구현 (2026-09-28)
-
-이 절은 7절(P2 — Inspection과 Wireframe)의 P2-0~P2-4를 구현·빌드·테스트·패키지까지 실행한 세션의 결과다. P0/P1은 13.7/13.7.1/13.7.2절 기준으로 이미 검증되어 있었다.
-
-#### 13.11.1 P2-0 조사 결과 (placeholder `TutorialTPP` 구조 확정)
-
-Python(`unreal.load_asset` + `unreal.MaterialEditingLibrary` + `UPhysicsAsset::GetConstraints()`/`ConstraintInstanceBlueprintLibrary.get_attached_body_names()`)로 직접 측정했다. `PhysicsAsset.SkeletalBodySetups`는 UPROPERTY이지만 C++ 클래스 선언에서 `public:` 이전(사실상 `private`)에 있어 Python `get_editor_property`가 "protected and cannot be read"로 거부한다(엔진 코드, 수정 대상 아님) — 대신 body 목록을 얻을 수 있는 유일한 BlueprintCallable 경로인 `UPhysicsAsset::GetConstraints()` + `ConstraintInstanceBlueprintLibrary::GetAttachedBodyNames()`로 제약(constraint) 트리의 22개 edge를 순회해 본(bone) 집합을 역산했다(부모만으로 등장하는 본이 계층의 root).
-
-| 항목 | 값 |
-| --- | --- |
-| SkeletalMesh | `/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP` |
-| Skeleton 전체 본 수 | 68 |
-| PhysicsAsset | `TutorialTPP_PhysicsAsset` |
-| Physics Body(=Constraint 트리로 역산한 본) 수 | 22: `pelvis`(root, 가상의 `Root`에 연결), `spine_01/02/03`, `clavicle_l/r`, `upperarm_l/r`, `lowerarm_l/r`, `hand_l/r`, `neck_01`, `head`, `thigh_l/r`, `calf_l/r`, `foot_l/r`, `ball_l/r` |
-| Material Slot | 1개, `TutorialTPP_Mat` |
-| LOD 수 | 1 |
-| LOD0 정점/삼각형 수 | 3924 verts / **6118 triangles** (AssetRegistry `Vertices`/`Triangles` 태그) |
-| `TutorialTPP_Mat` 셰이딩/블렌드 | `MSM_Subsurface` / `BLEND_Opaque`, Expression 4개 |
-| `TutorialTPP_Mat`의 텍스처 | **0개** — BaseColor가 `MaterialExpressionConstant3Vector`(단색 상수)에 직결. `unreal.MaterialEditingLibrary.get_used_textures()`가 빈 배열을 반환해 확인 |
-| `SkeletalCube`(DA_Character_Cube용) | PhysicsAsset 없음, 본 2개(`Bone01`,`Bone02`), Material Slot 1개(머티리얼 미지정, 엔진 기본 재질), 12 triangles / 24 verts |
-
-**파츠 식별 방법 결정(placeholder 한정)**: **Bone 기반** — Line Trace hit의 `BoneName`을 프로필이 정의한 Part(`FViewerPartInfo::BoneNames`)와 정확히 매칭하고, 매칭되지 않으면(예: 손가락 본) `USkeletalMeshComponent::GetParentBone()`으로 최대 10단계까지 부모 본을 걸어 올라가며 다시 조회한다(`ACharacterViewerController::InspectAtScreenPosition()`). 이 구조는 단일 `SkeletalMeshComponent` + 22개 물리 바디이므로 Component Tag 기반 식별은 애초에 불가능하다(Component가 하나뿐). 스키마(`FViewerPartInfo`)는 `ComponentTag`도 함께 가지고 있어, 실제 캐릭터가 Face/Hair/Jacket을 별도 Component로 구성한다면 코드 변경 없이 Component Tag 매칭으로 전환할 수 있다(현재는 미사용).
-
-**Part 매핑(6개, 물리 바디 22개를 정확히 분배)** — `DA_Character`:
-
-| Part Id | BoneNames | TriangleCount | MaterialName | TextureResolution |
-| --- | --- | --- | --- | --- |
-| Head | head, neck_01 | 6118 | TutorialTPP_Mat | N/A (no texture) |
-| Torso | pelvis, spine_01, spine_02, spine_03 | 6118 | TutorialTPP_Mat | N/A (no texture) |
-| LeftArm | clavicle_l, upperarm_l, lowerarm_l, hand_l | 6118 | TutorialTPP_Mat | N/A (no texture) |
-| RightArm | clavicle_r, upperarm_r, lowerarm_r, hand_r | 6118 | TutorialTPP_Mat | N/A (no texture) |
-| LeftLeg | thigh_l, calf_l, foot_l, ball_l | 6118 | TutorialTPP_Mat | N/A (no texture) |
-| RightLeg | thigh_r, calf_r, foot_r, ball_r | 6118 | TutorialTPP_Mat | N/A (no texture) |
-
-**한계(정직하게 기록)**: `TutorialTPP`는 Material Slot이 1개뿐인 단일 렌더 섹션이라, 파츠별 실제 삼각형 수를 나눌 방법이 없다(엔진 Python API로 섹션별 삼각형을 얻을 BlueprintCallable 경로가 없음 — `UEditorSkeletalMeshLibrary`에는 `get_num_verts(mesh, lod)`만 있고 섹션/파츠 단위 API가 없다). 그래서 6개 Part 모두 LOD0 전체 삼각형 수(6118)와 동일한 `TriangleCount`/`MaterialName`을 authored data로 기록했다 — 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 이 값들은 파츠마다 달라야 하며, 그때는 Python으로 섹션별 삼각형 수를 다시 측정해 갱신해야 한다. `DA_Character_Cube`는 PhysicsAsset 자체가 없어(위 표) Part 1개("Cube", BoneNames=[Bone01, Bone02])만 스키마/프로필 교체 검증용으로 두었다 — 실제 클릭 판정 대상은 아니다(13.11.5절).
-
-#### 13.11.2 Profile 스키마 추가 (`CharacterProfileData.h`, 8절 계획대로)
-
-`FViewerPartInfo`(Id, DisplayName, PartType, Description, BoneNames, ComponentTag, TriangleCount, MaterialName, TextureResolution) + `TArray<FViewerPartInfo> Parts` + `UCharacterProfileData::FindPart(Id)`/`FindPartByBone(Bone)`(C++ 전용 헬퍼, 기존 `Find*`와 동일한 패턴). `TObjectPtr<UMaterialInterface> WireframeMaterial`(null 허용 — Wireframe 버튼 비활성화의 근거).
-
-#### 13.11.3 파츠 선택/강조 구현 (`PortfolioCharacterActor`, `ACharacterViewerController`)
-
-- **충돌**: `Mesh->SetCollisionEnabled(QueryOnly)` + `SetCollisionResponseToAllChannels(Ignore)` + `SetCollisionResponseToChannel(ECC_Visibility, Block)`(Viewer Actor 한정, 원본 Physics Asset은 손대지 않음). 물리(Simulate)는 계속 꺼져 있고, PhysicsAsset의 22개 바디가 그대로 Query 충돌 형상으로 쓰인다.
-- **클릭 판정**: `ACharacterViewerController::InspectAtScreenPosition(FVector2D)`가 `GetHitResultAtScreenPosition(ScreenPos, ECC_Visibility, false, Hit)`으로 트레이스하고, `Hit.GetActor() == ViewerActor && Hit.Component == ViewerActor->Mesh`만 수락한다. `Hit.BoneName`을 `Profile->FindPartByBone()`로 조회하고 실패 시 `Mesh->GetParentBone()`으로 최대 10단계 부모를 걸어 올라간다(손가락 본 → `hand_l` → "Left Arm"). 실제 클릭 경로(`HandleOrbitPressCompleted`, release가 `DragThresholdPixels` 미만이고 press가 UI 위에서 시작하지 않았을 때만)와 테스트가 이 함수 하나를 공유한다.
-- **선택 해제**: 빈 공간 클릭(hit 없음) 또는 Actor/Mesh 이외의 hit → `ClearSelectedPart()`.
-- **강조 표시**: `SetSelectedPart(PartId)`는 `Profile->FindPart(PartId)`로 유효성을 확인한 뒤(없는 Id는 무시, 기존 선택 유지) `ApplyHighlightState()`로 `Mesh->SetRenderCustomDepth(true)` + `SetCustomDepthStencilValue(1)` + `Mesh->SetOverlayMaterial(HighlightOverlayMaterial)`을 적용한다. `HighlightOverlayMaterial`은 `M_ViewerHighlight`(unlit/translucent, **마젠타 (1.0, 0.0, 0.8) Emissive, Opacity 0.55**, `bUsedWithSkeletalMesh=true`)다. 선택 해제/Inspection 종료/프로필 교체 시 `SetOverlayMaterial(nullptr)` + Custom Depth off로 원상 복구한다(`ClearSelectedPart()`, `SetInspectionEnabled(false)`, `ClearRuntimeState()`).
-- **한계(중요)**: **Custom Depth와 Overlay 강조는 둘 다 Component 단위로 적용된다.** 이 placeholder는 단일 `SkeletalMeshComponent`이므로 어떤 파츠를 선택하든 **메시 전체**가 똑같이 마젠타로 덮이고 Custom Depth도 메시 전체에 켜진다 — 화면의 강조만으로는 어느 파츠가 선택됐는지 구분할 수 없으며, **선택된 파츠는 오직 INSPECTION 패널 텍스트(DisplayName 등)로만 식별된다.** 파츠 영역만 강조하려면 (a) 파츠가 별도 Component인 실제 캐릭터를 쓰거나 (b) 프로젝트가 CustomStencil을 읽는 Post Process Material + 파츠별 stencil 구분 수단을 추가해야 한다(이번 범위 밖, 아티스트/후속 작업 항목).
-- **Clean View 연동**: `ACharacterViewerController::ToggleCleanView()`가 ON 전환 시 `ViewerActor->SetHighlightVisible(false)`, OFF 전환 시 `SetHighlightVisible(true)`를 호출한다. Actor는 `bHighlightVisible`이 false인 동안 선택 id는 그대로 기록하되 Overlay/Custom Depth는 끈 상태로 유지하고(이후 `SetSelectedPart()`가 호출돼도 표시하지 않음), true가 되면 현재 선택을 다시 표시한다 — 4절의 "선택 강조"도 Clean View가 숨기는 대상이라는 원칙을 반영. **Clean View 중 Inspection 클릭은 무시한다(설계 결정)**: 4절이 Clean View에서 유지하는 입력은 Orbit/Zoom/Space/H뿐이므로, `InspectAtScreenPosition()`이 `bCleanViewActive`이면 선택을 바꾸지 않고 `false`를 반환한다(파츠 클릭도 빈 공간 클릭도 선택에 영향 없음). `-game` 스모크가 Clean View 중 토르소/빈 공간 클릭이 무시되고, Actor 수준에서 선택을 바꿔도 강조가 숨겨진 채 유지되며, Clean View 해제 시 강조가 복원됨을 확인한다.
-- **Inspection 종료 시 선택 해제 / 프로필 교체 시 Inspection 유지(설계 결정, 문서화)**: `SetInspectionEnabled(false)`는 선택을 지운다(4절 원칙과 일치). 반면 프로필 교체(`ApplyProfile`)는 액터 쪽 선택/Wireframe만 지우고(`ClearRuntimeState()`), Controller의 Inspection 토글 상태 자체는 유지한다 — "다른 캐릭터를 고른 뒤에도 계속 Inspection 모드로 둘러보고 싶다"는 사용성을 우선한 결정이며, `-game` 스모크(13.11.5절)가 이 두 가지를 모두 검증한다.
-
-#### 13.11.4 Wireframe 구현 (`PortfolioCharacterActor::SetWireframeEnabled`)
-
-- 켤 때: `Profile->WireframeMaterial`(`M_Wireframe`: unlit/opaque/two-sided, `Wireframe=true`, 청록 Emissive, `bUsedWithSkeletalMesh=true`)을 모든 Material Slot에 `SetMaterial()`로 적용한다. `viewmode wireframe` 같은 Editor 전용 명령에 의존하지 않는다(런타임 Material 방식).
-- 끌 때: override 배열을 스냅샷/복사하지 않고 `ApplyMaterialsForCurrentVariant()`(현재 `CurrentVariantId`로 `Profile->FindMaterialVariant()`를 다시 조회해 슬롯을 재적용)를 호출한다 — 7절이 명시한 함정("Wireframe을 끌 때 이전 override 배열을 잘못 복사해 Variant를 잃지 않는다")을 정확히 이 방식으로 피한다.
-- **Wireframe·Variant 선택 동시 발생 시 우선순위(설계 결정, 문서화)**: Wireframe이 켜진 동안 `SelectMaterialVariant()`를 호출하면 `CurrentVariantId`는 갱신되지만(다음에 Wireframe을 끌 때 그 Variant가 나오도록) 화면에는 계속 Wireframe이 보인다 — **Wireframe이 Variant보다 시각적으로 우선**한다. `-game` 스모크가 Grid 선택 중에도 슬롯 재질이 여전히 `M_Wireframe`임을, 이후 Wireframe을 끄면 Grid Variant(`WorldGridMaterial`)로 바뀜을 확인한다(13.11.5절).
-- 선택 강조(Overlay Material)와는 별도 슬롯(`SetOverlayMaterial` vs `SetMaterial`)이라 Wireframe과 파츠 선택은 항상 공존한다.
-- **프로필에 `WireframeMaterial`이 없으면**: `SetWireframeEnabled()`가 `false`를 반환하는 안전한 no-op이고, Controller의 `ToggleWireframe()`도 그대로 `false`를 반환한다. 폴백 패널의 Wireframe 버튼은 `Actor->Profile->WireframeMaterial != nullptr`일 때만 활성화된다(`RefreshFallbackUI()`).
-- **테스트를 위한 구현 조정(엔진 제약)**: `USkinnedMeshComponent::GetNumMaterials()`는 실제 SkeletalMesh 에셋이 할당되어야만 0보다 크다. Editor 자동화 테스트(NullRHI, 에셋 없음)에서 Wireframe↔Variant 왕복을 검증하려면 에셋 없이도 override 슬롯을 조작할 수 있어야 해서, `ApplyMaterialsForCurrentVariant()`의 슬롯 인덱스 유효성 검사를 `(NumMaterials > 0 && ResolvedIndex >= NumMaterials)`로(즉 메시 에셋이 아예 없으면 authored SlotIndex를 신뢰) 완화하고, `SetWireframeEnabled(true)`의 "모든 슬롯" 루프 범위를 `Max(GetNumMaterials(), GetNumOverrideMaterials())`로 바꿨다. 실제 에셋이 할당된 경우(`NumMaterials>0`)는 기존과 동일하게 엄격히 검증하므로 실사용 동작에는 영향이 없다.
-
-#### 13.11.5 테스트
-
-**Editor 자동화(NullRHI, 에셋 불필요, `Tests/CharacterViewerInspectionTests.cpp` 신규)**:
-- `CharacterShowcase.Viewer.PartLookup`: `FindPart`(정확한 Id, 알 수 없는 Id/`NAME_None` → `nullptr`), `FindPartByBone`(정확한 본 매칭, 파츠에 없는 본(가상의 손가락 본 예시)/`NAME_None` → `nullptr`, 부모 걸어 올라가기는 하지 않음 — 그건 Controller 몫).
-- `CharacterShowcase.Viewer.WireframeRestore`: (A) `WireframeMaterial`이 없는 프로필 → `SetWireframeEnabled(true)`가 `false`를 반환하고 크래시 없음. (B) 임시 `UMaterial` 2개(Wireframe용/Variant용)로 Variant 선택 → Wireframe on(슬롯 재질이 Wireframe Material) → Wireframe off(슬롯 재질이 정확히 Variant Material로 복원, override 배열을 그대로 복사한 게 아니라 재조회로 복원됐음을 증명). (C) `ApplyProfile(nullptr)`이 Wireframe과 선택 파츠를 모두 지움.
-
-**`-game` 스모크(`CharacterShowcase.Game.ViewerSmoke` 확장)**: 기존 P0/P1 단계 뒤에 다음을 추가했다 — `ToggleInspection()` on(Widget이 Inspection 활성 보고) → 마네킹 토르소 지점(`Actor 위치 + Z 120`을 `ProjectWorldLocationToScreen`으로 투영)을 클릭해 "Torso" 선택 + Overlay Material 세팅 확인 + 스크린샷(`ViewerSmoke_Inspect`) → 빈 공간(좌상단) 클릭으로 선택 해제 → `ToggleWireframe()` on(모든 슬롯이 `M_Wireframe`) + 스크린샷(`ViewerSmoke_Wireframe`) → Wireframe 켜진 채 `SelectMaterialVariant("Grid")`(슬롯은 여전히 Wireframe, Variant id만 기록) → `ToggleWireframe()` off(슬롯이 Grid Variant로 복원) → `SelectMaterialVariant("Default")` → 토르소 재선택 후 Clean View on(Overlay 제거, 선택 id 유지) → Clean View off(Overlay 복원) → 기존 프로필 교체 테스트(`FSwitchProfileAndVerifyCommand`)에 파츠 선택이 지워지고 Inspection 토글은 유지됨을 검증하는 assertion 추가 → 패널 위 클릭 차단 검증(아래). **리뷰 반영 패스(13.11.9절)에서 순서/검증을 보강했다**: Inspection on 직후 폴백 INSPECTION 섹션 박스가 실제 `Visible`이고 본문이 "Click a part"인지, 토르소 선택 후 본문에 Torso의 `DisplayName`이 들어있는지(테스트 전용 접근자 `GetFallbackInspectionSectionVisibility()`/`GetFallbackInspectionBodyText()`), Clean View 중 클릭 무시/강조 숨김 유지, Clean View 해제 직후 Torso가 선택된 상태에서 Inspection off → 선택·Overlay·Custom Depth 모두 해제 + 섹션 Collapsed, Inspection 재진입 + Torso 선택 + **Wireframe on 상태에서 프로필 교체** → 모든 슬롯이 새 메시의 기본 머티리얼이고 `GetNumOverrideMaterials()==0`, Overlay null, Custom Depth off를 확인한다.
-
-**"패널 위에서 시작한 클릭은 선택하지 않는다" 검증(리뷰 반영 패스에서 자동화로 검증됨)**: 이전 시도(`FSlateApplication::SetCursorPos()`만 호출)는 OS 커서만 옮기고 Slate MouseMove를 만들지 않아 hover가 갱신되지 않았다. 이번에는 `FSlateApplication::ProcessMouseMoveEvent()`/`ProcessMouseButtonDownEvent()`/`ProcessMouseButtonUpEvent()`로 실제 Slate 포인터 이벤트를 합성한다(OS 커서도 같은 위치로 이동). 패널 지점은 위젯 오른쪽 끝에서 8 로컬 단위 안쪽(패널 Border의 16px 패딩 영역, 버튼이 아님), 대조 지점은 화면 10%/10%의 빈 캔버스다. 단계: Torso 선택 → 패널로 이동 → `IsPointerOverPanel()==true` → 좌클릭 press/release → **선택이 Torso 그대로** → Torso 재선택 → 빈 캔버스로 이동 → `IsPointerOverPanel()==false` → 좌클릭 press/release → **선택이 해제됨**(합성 입력이 실제로 Enhanced Input의 Inspection 클릭 경로까지 도달함을 증명 — 따라서 패널 위 "선택 유지"는 입력 유실이 아니라 가드 결과다). **이 검증이 실제 버그를 찾았다**(13.11.9절): 첫 실행에서 hover는 `true`였지만 패널 배경 press가 처리되지 않은 채 게임 뷰포트까지 버블링되어 뷰포트가 마우스를 캡처했고(Slate hover가 패널에서 빠짐), 그 뒤 Enhanced Input이 `HandleOrbitPressStarted()`를 실행할 때는 `IsPointerOverPanel()`이 이미 `false`여서 release가 Inspection 클릭으로 처리돼 선택이 해제됐다. 수정: 폴백 패널 `UBorder::OnMouseButtonDownEvent`에 `HandleFallbackPanelMouseButtonDown()`(Handled 반환)을 바인딩해 패널 배경 press가 뷰포트로 전달되지 않게 했다(버튼은 자체적으로 먼저 처리). 수정 후 재실행에서 위 assertion이 모두 통과했다. 범위: C++ 폴백 패널에 한함 — 디자이너가 만든 WBP 트리를 쓰면 그 WBP의 패널 배경도 클릭을 소비하도록 만들어야 한다(`IsPointerOverPanel()` 가드만으로는 위 타이밍 때문에 부족함).
-
-#### 13.11.6 에셋 (`Scripts/CreatePortfolioAssets.py`)
-
-- `create_or_update_wireframe_material()` / `create_or_update_highlight_material()`: `unreal.MaterialFactoryNew()`로 `/Game/Portfolio/Materials/M_Wireframe`, `M_ViewerHighlight` 생성. `unreal.MaterialEditingLibrary`로 `MaterialExpressionConstant3Vector`(색)와(Highlight만) `MaterialExpressionConstant`(Opacity)를 만들어 `MP_EMISSIVE_COLOR`/`MP_OPACITY`에 연결하고 `recompile_material()`. **함정(실행 중 발견, 이번 세션에 해결)**: 이 표현식 그래프 생성/삭제(`delete_all_material_expressions` 포함)를 **이미 존재하는 에셋에 대해 재실행**하면 `Assertion failed: !IsRooted()`(MaterialEditor 내부, `PythonScriptPlugin` 경유)로 에디터가 즉시 크래시했다 — 이 머티리얼이 `APortfolioCharacterActor`의 CDO 기본값(`HighlightOverlayMaterial`, 생성자의 `ConstructorHelpers::FObjectFinder`)으로 이미 로드되어 있는 상태에서 같은 오브젝트의 Expression을 지우고 새로 만드는 것이 원인으로 보인다. 해결: 표현식 그래프는 **최초 생성 시에만** 만들고(`if created:`), 재실행 시에는 `shading_model`/`blend_mode`/`two_sided`/`wireframe`/`used_with_skeletal_mesh` 같은 스칼라 프로퍼티만 멱등적으로 재설정한다. **(리뷰 반영 패스)** `M_ViewerHighlight`는 재실행 시 표현식을 지우지 않고 `MaterialEditingLibrary.get_material_property_input_node(mat, MP_EMISSIVE_COLOR/MP_OPACITY)`로 이미 연결된 상수 노드를 찾아 값만(`HIGHLIGHT_COLOR`/`HIGHLIGHT_OPACITY`) 갱신한 뒤 `recompile_material()` + 저장한다 — 에셋을 지우지 않고 색/투명도를 바꿀 수 있다(입력 노드가 예상 타입이 아니면 에셋을 지우고 재실행하라는 오류로 중단). 두 머티리얼 모두 `used_with_skeletal_mesh=True`를 명시적으로 설정한다 — 빠뜨리면 `LogMaterial: ... missing bUsedWithSkeletalMesh=True! Default Material will be used in game.`로 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(최초 `-game` 스모크 실행에서 경고로 발견, 13.11.5절의 최종 실행 결과는 이 수정 이후).
-- `DA_Character`: `WireframeMaterial=M_Wireframe`, `Parts`는 13.11.1절 표 그대로(실제 PhysicsAsset 본 이름 사용, 하드코딩 아님 — Python 조사 결과를 그대로 옮김).
-- `DA_Character_Cube`: `WireframeMaterial=M_Wireframe`, `Parts=[{Id=Cube, BoneNames=[Bone01,Bone02]}]`(13.11.1절 한계 참고).
-- `main()`이 두 머티리얼을 프로필보다 먼저 생성하도록 순서를 바꿨다(프로필의 `WireframeMaterial` 참조가 유효해야 하므로).
-
-#### 13.11.7 실행 결과 (2026-09-28, UE 5.6.1, 이 PC)
-
-| 항목 | 결과 |
-| --- | --- |
-| Editor 빌드 (`CharacterShowcaseEditor Win64 Development`) | 성공, 종료 코드 0. 오류 0, 경고 0(3회 재현 — 최초 P2 구현, 테스트 파일 1회 수정, 최종 재확인) |
-| Game 빌드 (`CharacterShowcase Win64 Development`) | 성공, 종료 코드 0. 오류 0, 경고 0(2회 재현) |
-| Editor 자동화(`Automation RunTests CharacterShowcase`) | **실행 6 / 통과 6 / 실패 0** (`Saved/Automation/EditorP2/index.json`) — 기존 4개 + `CharacterShowcase.Viewer.PartLookup` + `CharacterShowcase.Viewer.WireframeRestore` |
-| `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`) | 1차 시도: 1/1 통과이나 패널 hover guard assertion 1건 실패(hover 시뮬레이션 불가로 인한 오검출) + Material usage flag 경고 7건 → 두 문제 모두 수정. **최종: 1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2/index.json`) |
-| Win64 패키지(Development, `RunUAT BuildCookRun`) | **BUILD SUCCESSFUL, 종료 코드 0**, 26.5초 |
-| 패키지 스모크(Development exe) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/PackagedP2/index.json`) |
-| Win64 Shipping 패키지(`RunUAT BuildCookRun -clientconfig=Shipping`) | **BUILD SUCCESSFUL, 종료 코드 0**, 94.0초. 산출물: `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
-| Shipping 실행(자동화 테스트 없음, `-windowed -ResX=1280 -ResY=720`) | 실행 후 30초 뒤 프로세스 생존 확인(`Get-Process` = 살아있음), `Stop-Process`로 정상 종료(2초 뒤 프로세스 없음 확인) |
-
-**스크린샷 육안 확인** (`Saved/Screenshots/WindowsEditor/`, 패키지는 `Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/`에 픽셀 단위로 동일):
-- **`ViewerSmoke_Inspect.png`**: (이 기록은 주황 35% 시절 — 마젠타 55%로 바꾼 뒤의 결과는 13.11.9절) 토르소를 클릭해 선택한 직후. 마네킹은 `ViewerSmoke_UI.png`와 거의 동일하게 보인다 — Overlay Material(`M_ViewerHighlight`, 주황 35% 반투명)이 실제로 적용됐음은 테스트가 `Mesh->GetOverlayMaterial()`이 null이 아님을 확인해 프로그램적으로 증명했지만(값 확인, 크래시/경고 없음), **육안으로는 이 placeholder 마네킹 자체의 기본 색(노란빛이 도는 주황)과 하이라이트 색(주황)이 비슷해 거의 구분되지 않는다** — 실제 아트가 들어오면(피부색/의상색이 주황이 아닐 경우) 뚜렷하게 보일 것으로 예상되나 이 세션에서는 확인 불가. 우측 패널은 720p 스크롤 한계(13.9절 기존 기록과 동일 범주)로 CHARACTER/VIEW까지만 보이고 INSPECTION 섹션은 스크롤 아래에 있어 화면에 잡히지 않았다 — Widget의 `IsInspectionEnabled()`/`GetSelectedPartInfo()` 반환값은 테스트가 프로그램적으로 확인했다.
-- **`ViewerSmoke_Wireframe.png`**: **청록색 와이어프레임 마네킹이 뚜렷하게 보인다** — 배경(검정)과 명확히 대비되는 얇은 선으로 전신 메시 위상이 그대로 드러난다. 의도한 결과와 일치.
-- 나머지(`ViewerSmoke_UI`/`Clean`/`Profile1`/`Profile2`)는 13.7.1/13.7.2절 기록과 육안상 동일(회귀 없음).
-
-#### 13.11.8 남은 문제·위험
-
-- **선택 강조 가시성**: (리뷰 반영 패스에서 해결) `M_ViewerHighlight`를 마젠타 (1.0, 0.0, 0.8) / Opacity 0.55로 바꿔 패키지 스크린샷에서 선택 강조가 뚜렷이 보인다(13.11.9절). 단 강조는 여전히 **메시 전체**에 걸리며(13.11.3절 한계), 파츠 단위 강조는 별도 작업이다.
-- **파츠 단위 삼각형/재질 정확도**: `TutorialTPP`가 단일 Material Slot이라 6개 Part 모두 같은 `TriangleCount`(6118, 메시 전체)/`MaterialName`을 공유한다(13.11.1절). 실제 캐릭터가 파츠별 별도 섹션을 가지면 이 authored 값들을 다시 측정해야 한다.
-- **패널 위 클릭 차단**: (리뷰 반영 패스) 합성 Slate 포인터 이벤트로 자동화 검증 완료(13.11.5/13.11.9절). 남은 한계: 합성 이벤트이지 물리 마우스는 아니며, C++ 폴백 패널에만 적용된다(디자이너 WBP는 패널 배경이 클릭을 소비하도록 별도 구성 필요). Wheel(Zoom)의 패널 위 차단은 여전히 `IsPointerOverPanel()`에만 의존하며 이번 패스에서 검증하지 않았다.
-- **Custom Depth의 Component 단위 한계**: 13.11.3절 기록대로, 단일 SkeletalMeshComponent 구조에서는 Custom Depth가 파츠가 아니라 메시 전체를 플래그한다 — Overlay Material로 우회했지만, 실제 Post Process 기반 외곽선 강조를 원하면 별도 작업이 필요하다.
-- **`Scripts/CreatePortfolioAssets.py`의 레벨 재생성 스텝(`new_level("/Temp/CreatePortfolioAssets_Scratch")`)이 간헐적으로 불안정함을 이번 세션에 처음 관찰**: 매 실행마다 `LevelEditorSubsystem: Error: NewLevel. Failed to validate the destination ... There's alreay an asset at the destination.` 경고가 뜨는 것은 모든 실행(성공/실패 모두)에서 동일했지만, 5회 실행 중 2회는 그 직후 `EXCEPTION_ACCESS_VIOLATION`으로 에디터가 크래시했다(재실행 시 항상 복구됨, 자산 손상 없음 — 실패한 실행은 레벨/프로필 갱신 단계까지 도달하지 못해 디스크 상태가 이전 성공 실행 그대로 유지됨). 근본 원인은 규명하지 못했다(P2 범위 밖, 재현·디버깅에 추가 세션 필요). 이 스크립트를 CI 등에서 무인 재실행할 계획이라면 재시도 로직을 추가하는 것을 권장한다.
-- Shipping 빌드의 실제 시각적 Wireframe/Highlight 결과는 스크린샷으로 검증하지 않았다(Development에서만 확인, 지시사항에 따름) — Shipping 배포 전에는 사람이 직접 확인해야 한다. 리뷰 반영 패스 이후 Shipping 패키지는 다시 만들지 않았다(13.11.9절).
-
-#### 13.11.9 Opus 리뷰 반영 패스 (2026-09-28, P2 주기 2)
-
-Opus 리뷰 지적 9건 중 이전(중단된) 세션이 일부를 반영했고(Actor `SetHighlightVisible`/`IsHighlightVisible`/`ApplyHighlightState`, Clean View 해제 시 `SetHighlightVisible(true)`, `SetInspectionEnabled` 양방향·`ToggleWireframe`의 위젯 갱신, `SetSelectedPart`의 `FindPart` 검증, `InspectAtScreenPosition`의 Inspection off 조기 반환), 이번 패스에서 나머지를 반영했다.
-
-| 항목 | 반영 내용 |
-| --- | --- |
-| Clean View 진입 | Controller가 Mesh를 직접 건드리던 코드를 `ViewerActor->SetHighlightVisible(false)`로 교체, 미사용 `bHighlightHiddenByCleanView` 삭제. Clean View 중 Inspection 클릭은 `InspectAtScreenPosition()`에서 무시(13.11.3절) |
-| 주석 정합 | `CharacterViewerController.h`(ToggleCleanView/SetInspectionEnabled/InspectAtScreenPosition/ToggleWireframe), `CharacterViewerWidget.h`(`GetSelectedPartInfo`는 Inspection 토글을 직접 확인하지 않음, `NotifySelectionChanged` 호출처) |
-| 스모크: Inspection off | Clean View 복원 직후(Torso 선택 상태)로 이동, 선택 해제 + Overlay null + Custom Depth off + INSPECTION 섹션 Collapsed 확인 |
-| 스모크/Editor 테스트: Wireframe 중 프로필 교체 | Wireframe on 상태에서 교체 후 모든 슬롯 = 새 메시 기본 머티리얼, `GetNumOverrideMaterials()==0`, `IsWireframeEnabled()==false`, Overlay null, Custom Depth off. Editor 테스트 C에 `GetNumOverrideMaterials()==0`, `GetOverlayMaterial()==nullptr` 추가 |
-| 스모크: INSPECTION 섹션 | 테스트 전용 접근자 `GetFallbackInspectionSectionVisibility()`/`GetFallbackInspectionBodyText()` 추가, 섹션 `Visible` + "Click a part" + Torso `DisplayName` 포함을 실제 위젯 값으로 확인 |
-| 패널 위 클릭 차단 | 합성 Slate 포인터 이벤트로 검증(13.11.5절). **첫 실행에서 실제 버그 발견**(패널 배경 press가 뷰포트로 버블링 → 뷰포트 캡처로 hover 해제 → 가드 우회 → 선택 해제). `UBorder::OnMouseButtonDownEvent` 바인딩으로 패널 배경 press를 소비하게 수정 후 통과. 대조(빈 캔버스 클릭 → 선택 해제)로 합성 입력이 실제 클릭 경로에 도달함도 확인 |
-| 문서 | 13.11.3(Custom Depth와 Overlay 모두 Component 단위, 선택 파츠는 INSPECTION 텍스트로만 식별), 13.3("6개" → "8개" 2곳), 이 절 |
-| 강조 색 | `M_ViewerHighlight` 마젠타 (1.0, 0.0, 0.8) / Opacity 0.55. 스크립트가 기존 에셋의 상수 노드를 제자리 갱신(13.11.6절). 헤드리스 재실행 1회 만에 `DONE, NO ERRORS`(크래시 없음). 부수 효과: 스크립트가 `WBP_CharacterViewer`/`BP_CharacterViewerGameMode`/`LV_Portfolio`/DA 2개도 다시 저장함 |
-
-**실행 결과(UE 5.6.1, 이 PC)**:
-
-| 항목 | 결과 |
-| --- | --- |
-| Editor 빌드 | 종료 코드 0, 오류 0 / 경고 0 (3회: 1차 반영, 패널 클릭 소비 수정 후, 주석 수정 후) |
-| Editor 자동화(NullRHI) | **6/6 통과**(`Saved/Automation/EditorP2b/index.json`, 패널 수정 후 재실행) |
-| `-game` 스모크 1차 | **실패 1건**: "Press+release over the fallback panel does not change the selection" — Torso 기대, None(`Saved/Automation/GameP2b_run1_fail`). 위 버그 |
-| `-game` 스모크 2차(수정 후) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2b_run2_pass`) |
-| `-game` 스모크 3차(주석만 수정 후 재빌드, 스크린샷 재확인용) | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/GameP2b/index.json`) |
-| Win64 Development 패키지 | `BUILD SUCCESSFUL`, 종료 코드 0, 50초, Cook `0 error(s), 0 warning(s)` |
-| 패키지 스모크 | **1/1 통과, 오류 0, 경고 0**(`Saved/Automation/PackagedP2b/index.json`) |
-
-**스크린샷 육안 확인**:
-- 패키지(`Saved/Packaged/Windows/CharacterShowcase/Saved/Screenshots/Windows/`): `ViewerSmoke_Inspect.png` — 마네킹 전체가 **분홍/마젠타로 뚜렷하게** 덮여 있다(기본 노란색과 확실히 구분됨, 메시 전체 강조). `ViewerSmoke_Wireframe.png` — **청록색 와이어프레임이 온전함**.
-- `-game`(에디터 바이너리, 비쿠킹) 스크린샷(`Saved/Screenshots/WindowsEditor/`)은 2차·3차 실행 **모두** 화면 좌상단에 "Preparing Shaders (1)"이 떠 있고, Inspect는 마네킹 기본 노란색(마젠타 강조 미표시), Wireframe은 회색 기본 셰이딩(청록 와이어프레임 미표시)으로 찍혔다. 테스트의 값 검증(`GetOverlayMaterial()`/슬롯 재질)은 통과했고, 로그에 셰이더 컴파일 오류·머티리얼 경고는 없다. 스크립트가 두 머티리얼을 다시 저장/재컴파일한 뒤 비쿠킹 `-game`에서 해당 셰이더가 테스트의 짧은 촬영 시점(적용 1초 후)까지 준비되지 않은 것으로 보이며, 2회 연속 재현돼 원인(DDC 캐시 미반영 여부 등)은 규명하지 못했다. 셰이더를 쿠킹 시 미리 컴파일하는 **패키지에서는 두 효과 모두 정상 표시**되므로 코드 결함은 아닌 것으로 판단한다. 비쿠킹 `-game` 화면으로 확인하려면 먼저 에디터에서 두 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장한다(미검증).
+- **간헐적 크래시(해결됨)**: 구버전 `CreatePortfolioAssets.py`가 레벨을 "삭제 후 완전히 새로 생성"하던 방식에서, 스크래치 레벨 전환(`new_level("/Temp/CreatePortfolioAssets_Scratch")`)이 매번 실패(대상 경로에 이미 자산 있음)했는데 스크립트가 이 반환값을 확인하지 않고 계속 진행 → 그 순간 Editor에 로드되어 있던 현재 월드(=LV_Portfolio 자신)의 패키지를 `delete_asset()`으로 삭제 → 같은 경로에 즉시 새 월드 생성 → 댕글링 포인터 접근으로 `EXCEPTION_ACCESS_VIOLATION`(5회 중 2회 재현). 크래시 덤프(`CrashContext.runtime-xml`, 로그 타임라인)로 원인을 확정했다. 2026-09-29 "존재하면 보존" 방식으로 전환하면서 이 호출 순서 자체가 코드에서 제거되어 해결됐다.
+- **별개 크래시(이미 그 세션에 해결)**: `Assertion failed: !IsRooted()`(MaterialEditor 경유) — 이미 로드되어 참조 중인 Material의 Expression 그래프를 재실행마다 지우고 새로 만들던 것이 원인. 스칼라 프로퍼티만 멱등 재설정하고 표현식 그래프는 최초 생성 시에만 만들도록 수정.
+- **큐브 프레이밍 조정**: `DA_Character_Cube`의 `DefaultFraming.Distance`를 half-extent × 2.3으로 계산했더니 스크린샷에서 큐브가 화면을 뒤덮어(근접 샷) 형태를 알아볼 수 없었다. × 6.0으로 올려 재확인, 정상 프레이밍 확인. 절대 크기가 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요함을 기록.
+- **Material usage flag 경고**: `bUsedWithSkeletalMesh=True`를 빠뜨리면 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(`LogMaterial` 경고) — 두 신규 Material 모두 명시적으로 설정해 해결.
+- **비쿠킹 `-game`에서 강조/Wireframe이 안 보이던 현상**: 값 자체(`GetOverlayMaterial()`, 슬롯 재질)는 테스트가 프로그램적으로 확인해 통과했지만, 화면에는 "Preparing Shaders" 오버레이가 뜬 채 기본 셰이딩으로 찍혔다(셰이더 프리컴파일이 끝나지 않음). 셰이더를 미리 컴파일해 두는 **쿡된 패키지에서는 두 효과 모두 정상 표시**되어 코드 결함이 아닌 것으로 판단했다. 비쿠킹 `-game`으로 확인하려면 먼저 Editor에서 해당 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장(미검증).

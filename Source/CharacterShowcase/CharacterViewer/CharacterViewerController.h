@@ -188,6 +188,14 @@ private:
 	void ApplyFramingForCurrentActor(bool bInstant);
 	void ReleaseDrag();
 
+	// Section 4 ("드래그 종료·포커스 상실 시 캡처/버튼 상태를 해제한다") /
+	// 13.10 input boundary: when the application (window) loses OS focus
+	// mid-drag, the platform never delivers the matching mouse-up, so
+	// bIsPressed/bIsDragging would otherwise stick. Bound to
+	// FSlateApplication::OnApplicationActivationStateChanged() in BeginPlay,
+	// unbound in EndPlay.
+	void HandleApplicationActivationStateChanged(bool bIsActive);
+
 	void HandleOrbitPressStarted(const FInputActionValue& Value);
 	void HandleOrbitPressCompleted(const FInputActionValue& Value);
 	void HandleOrbitAxis(const FInputActionValue& Value);
@@ -219,4 +227,6 @@ private:
 	bool bPreCleanViewShowCursor = true;
 
 	bool bInspectionEnabled = false;
+
+	FDelegateHandle ApplicationActivationStateChangedHandle;
 };

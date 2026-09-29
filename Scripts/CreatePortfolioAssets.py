@@ -1,5 +1,5 @@
 """
-Creates/updates the Editor-only assets needed by section 13.6 of
+Creates the Editor-only assets needed by section 13.6 of
 Docs/CHARACTER_VIEWER_SETUP.md, using the Unreal Editor Python API instead of
 a human clicking through the Editor.
 
@@ -13,9 +13,24 @@ Or from within a running Editor: Window > Developer Tools > Python Console,
 then `exec(open(r"<project>\\Scripts\\CreatePortfolioAssets.py").read())`, or
 Output Log's Cmd combo box does not run Python -- use the Python console.
 
-Idempotent: safe to re-run. Existing assets are loaded and their properties
-reset/overwritten deterministically (not duplicated), so re-running after a
-profile/lighting/framing tweak in this script is the intended workflow.
+Default behavior is CREATE-MISSING-ONLY, PRESERVE-EXISTING:
+  - If an asset does not exist yet, it is created exactly as before.
+  - If an asset already exists, this script does NOT modify or re-save it
+    (no lighting/placement/Profile/WBP-layout/Material overwrite). Instead it
+    loads the asset read-only and validates it against a minimal expected
+    shape, printing one line per asset:
+        [keep] <path> OK
+        [keep] <path> DIFFERS: <what>
+    An existing asset that is incomplete or configured differently is
+    reported and skipped -- it is never "fixed" automatically. To pick up a
+    script change to an asset's generated content, delete that specific
+    asset in the Editor and re-run the script so it is recreated.
+  - Config/DefaultEngine.ini is only written if the GlobalDefaultGameMode key
+    is missing or different from the expected value; what happened is logged
+    either way.
+  - Re-running this script is always safe: with everything already present
+    it makes no changes at all (see Docs/CHARACTER_VIEWER_SETUP.md section
+    13.6 for the preservation test that checks this).
 
 Uses ONLY engine-provided placeholder content (no project art exists yet):
   - Skeletal mesh:  /Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP
@@ -29,6 +44,8 @@ This mesh has NO morph targets, so Expressions is limited to a single
 Docs/CHARACTER_VIEWER_SETUP.md section 8/13.2) -- expression verification is
 out of scope until a real rigged/morphed character asset is imported.
 """
+
+import sys
 
 import unreal
 
@@ -113,34 +130,86 @@ def load_or_none(path):
 
 
 def save(path):
+    """Saves a just-created asset. Every call site here is a fresh asset (an
+    existing one is validated read-only and never re-saved), so a failed
+    save here means the asset this script just built was never actually
+    written to disk -- a real failure, not a warning: it is appended to
+    `errors` so the script exits non-zero instead of silently reporting
+    success at the end."""
     ok = EAL.save_asset(path, only_if_is_dirty=False)
     if not ok:
-        log_warn(f"[CreatePortfolioAssets] save_asset returned False for '{path}'.")
+        msg = f"[CreatePortfolioAssets] FAILED: save_asset returned False for '{path}'."
+        log_err(msg)
+        errors.append(msg)
     return ok
+
+
+def report_keep(path, diffs):
+    """Prints the one-line [keep] verdict for an existing asset that was
+    validated read-only (never modified/re-saved by this script)."""
+    if diffs:
+        log(f"[CreatePortfolioAssets] [keep] {path} DIFFERS: {'; '.join(diffs)}")
+    else:
+        log(f"[CreatePortfolioAssets] [keep] {path} OK")
 
 
 # ---------------------------------------------------------------------------
 # 1. DA_Character (CharacterProfileData data asset)
 # ---------------------------------------------------------------------------
 
+def validate_character_profile(profile, path):
+    """Minimal read-only shape check for an existing CharacterProfileData:
+    SkeletalMesh set, DefaultPresetId found in CameraPresets, WireframeMaterial
+    set, Parts non-empty. Never writes to `profile`."""
+    diffs = []
+    try:
+        if profile.get_editor_property("skeletal_mesh") is None:
+            diffs.append("skeletal_mesh is not set")
+    except Exception as exc:
+        diffs.append(f"could not read skeletal_mesh ({exc!r})")
+
+    try:
+        default_preset_id = profile.get_editor_property("default_preset_id")
+        presets = profile.get_editor_property("camera_presets") or []
+        preset_ids = [p.get_editor_property("id") for p in presets]
+        if default_preset_id not in preset_ids:
+            diffs.append(f"default_preset_id '{default_preset_id}' not found in camera_presets {preset_ids}")
+    except Exception as exc:
+        diffs.append(f"could not read default_preset_id/camera_presets ({exc!r})")
+
+    try:
+        if profile.get_editor_property("wireframe_material") is None:
+            diffs.append("wireframe_material is not set")
+    except Exception as exc:
+        diffs.append(f"could not read wireframe_material ({exc!r})")
+
+    try:
+        if not profile.get_editor_property("parts"):
+            diffs.append("parts is empty")
+    except Exception as exc:
+        diffs.append(f"could not read parts ({exc!r})")
+
+    report_keep(path, diffs)
+
+
 def create_or_update_character_profile():
-    ensure_directory(DATA_PACKAGE)
-
-    data_asset_class = unreal.CharacterProfileData
-
     if EAL.does_asset_exist(DATA_ASSET_PATH):
         profile = EAL.load_asset(DATA_ASSET_PATH)
-        log(f"[CreatePortfolioAssets] DA_Character already exists, updating in place: {DATA_ASSET_PATH}")
-    else:
-        factory = unreal.DataAssetFactory()
-        try:
-            factory.set_editor_property("data_asset_class", data_asset_class)
-        except Exception as exc:
-            report_exception("DataAssetFactory.data_asset_class", exc)
-        profile = asset_tools.create_asset(DATA_ASSET_NAME, DATA_PACKAGE, data_asset_class, factory)
-        if profile is None:
-            raise RuntimeError("asset_tools.create_asset returned None for DA_Character")
-        log(f"[CreatePortfolioAssets] Created DA_Character at {DATA_ASSET_PATH}")
+        log(f"[CreatePortfolioAssets] DA_Character already exists, preserving (read-only): {DATA_ASSET_PATH}")
+        validate_character_profile(profile, DATA_ASSET_PATH)
+        return profile
+
+    ensure_directory(DATA_PACKAGE)
+    data_asset_class = unreal.CharacterProfileData
+    factory = unreal.DataAssetFactory()
+    try:
+        factory.set_editor_property("data_asset_class", data_asset_class)
+    except Exception as exc:
+        report_exception("DataAssetFactory.data_asset_class", exc)
+    profile = asset_tools.create_asset(DATA_ASSET_NAME, DATA_PACKAGE, data_asset_class, factory)
+    if profile is None:
+        raise RuntimeError("asset_tools.create_asset returned None for DA_Character")
+    log(f"[CreatePortfolioAssets] Created DA_Character at {DATA_ASSET_PATH}")
 
     skel_mesh = load_or_none(TUTORIAL_MESH)
     idle_seq = load_or_none(TUTORIAL_IDLE)
@@ -341,15 +410,25 @@ def measure_skeletal_mesh_extent(mesh):
 # 1a. M_Wireframe / M_ViewerHighlight (P2-3/P2-4 materials)
 # ---------------------------------------------------------------------------
 
-def _create_or_load_material(asset_name, package_path, asset_path):
-    if EAL.does_asset_exist(asset_path):
-        return EAL.load_asset(asset_path), False
-    ensure_directory(package_path)
-    factory = unreal.MaterialFactoryNew()
-    mat = asset_tools.create_asset(asset_name, package_path, unreal.Material, factory)
-    if mat is None:
-        raise RuntimeError(f"asset_tools.create_asset returned None for {asset_name}")
-    return mat, True
+def validate_material(mat, path, require_wireframe):
+    """Minimal read-only shape check for an existing material: must be
+    usable on a skeletal mesh (`used_with_skeletal_mesh`), and M_Wireframe
+    must additionally have `wireframe` on. Never writes to `mat`."""
+    diffs = []
+    try:
+        if mat.get_editor_property("used_with_skeletal_mesh") is not True:
+            diffs.append("used_with_skeletal_mesh is not True")
+    except Exception as exc:
+        diffs.append(f"could not read used_with_skeletal_mesh ({exc!r})")
+
+    if require_wireframe:
+        try:
+            if mat.get_editor_property("wireframe") is not True:
+                diffs.append("wireframe is not True")
+        except Exception as exc:
+            diffs.append(f"could not read wireframe ({exc!r})")
+
+    report_keep(path, diffs)
 
 
 def create_or_update_wireframe_material():
@@ -357,9 +436,27 @@ def create_or_update_wireframe_material():
     emissive. Applied to every material slot while Wireframe is on
     (APortfolioCharacterActor::SetWireframeEnabled); Wireframe=True makes the
     engine render only the mesh's edges, so the constant color only needs to
-    be visible/bright, not textured (section 7: no viewmode-wireframe dependency)."""
-    mat, created = _create_or_load_material(WIREFRAME_MAT_NAME, MATERIALS_PACKAGE, WIREFRAME_MAT_PATH)
-    log(f"[CreatePortfolioAssets] M_Wireframe {'created' if created else 'already exists, updating'}: {WIREFRAME_MAT_PATH}")
+    be visible/bright, not textured (section 7: no viewmode-wireframe dependency).
+
+    Only ever built once, on first creation -- an existing M_Wireframe is
+    validated read-only and never touched (see module docstring; this also
+    means the historical `Assertion failed: !IsRooted()` crash from deleting
+    and rebuilding an already-referenced material's expression graph on a
+    re-run, documented in Docs/CHARACTER_VIEWER_SETUP.md section 13.11.6, can
+    no longer happen here -- the expression-graph-rebuild code path for an
+    existing asset has been removed entirely, not just guarded)."""
+    if EAL.does_asset_exist(WIREFRAME_MAT_PATH):
+        mat = EAL.load_asset(WIREFRAME_MAT_PATH)
+        log(f"[CreatePortfolioAssets] M_Wireframe already exists, preserving (read-only): {WIREFRAME_MAT_PATH}")
+        validate_material(mat, WIREFRAME_MAT_PATH, require_wireframe=True)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    factory = unreal.MaterialFactoryNew()
+    mat = asset_tools.create_asset(WIREFRAME_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, factory)
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {WIREFRAME_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created M_Wireframe at {WIREFRAME_MAT_PATH}")
 
     mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
@@ -373,20 +470,12 @@ def create_or_update_wireframe_material():
     # (Docs/CHARACTER_VIEWER_SETUP.md section 13.11).
     mat.set_editor_property("used_with_skeletal_mesh", True)
 
-    if created:
-        # Only build the expression graph once: on a re-run this material may
-        # already be referenced elsewhere in the loaded editor process (e.g.
-        # APortfolioCharacterActor's CDO default), and deleting/recreating its
-        # expressions then crashed with "Assertion failed: !IsRooted()" inside
-        # MaterialEditor -- see Docs/CHARACTER_VIEWER_SETUP.md section 13.11.
-        # The graph is a fixed constant color, so it never needs to change
-        # after creation; only the scalar properties above are re-applied idempotently.
-        MEL = unreal.MaterialEditingLibrary
-        MEL.delete_all_material_expressions(mat)
-        color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
-        color_node.set_editor_property("constant", unreal.LinearColor(0.0, 1.0, 1.0, 1.0))  # cyan
-        MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-        MEL.recompile_material(mat)
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
+    color_node.set_editor_property("constant", unreal.LinearColor(0.0, 1.0, 1.0, 1.0))  # cyan
+    MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    MEL.recompile_material(mat)
 
     save(WIREFRAME_MAT_PATH)
     return mat
@@ -403,12 +492,21 @@ def create_or_update_highlight_material():
     (APortfolioCharacterActor::SetSelectedPart) so the selection is visible
     without a project post-process material reading CustomStencil.
 
-    On a re-run the existing graph is NOT deleted/recreated (that crashed with
-    !IsRooted(), see below); instead the constant nodes already wired to
-    Emissive/Opacity are found via get_material_property_input_node() and only
-    their values are updated in place, then the material is recompiled."""
-    mat, created = _create_or_load_material(HIGHLIGHT_MAT_NAME, MATERIALS_PACKAGE, HIGHLIGHT_MAT_PATH)
-    log(f"[CreatePortfolioAssets] M_ViewerHighlight {'created' if created else 'already exists, updating'}: {HIGHLIGHT_MAT_PATH}")
+    Only ever built once, on first creation -- same rationale/crash history
+    as create_or_update_wireframe_material() above. An existing
+    M_ViewerHighlight is validated read-only and never touched."""
+    if EAL.does_asset_exist(HIGHLIGHT_MAT_PATH):
+        mat = EAL.load_asset(HIGHLIGHT_MAT_PATH)
+        log(f"[CreatePortfolioAssets] M_ViewerHighlight already exists, preserving (read-only): {HIGHLIGHT_MAT_PATH}")
+        validate_material(mat, HIGHLIGHT_MAT_PATH, require_wireframe=False)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    factory = unreal.MaterialFactoryNew()
+    mat = asset_tools.create_asset(HIGHLIGHT_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, factory)
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {HIGHLIGHT_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created M_ViewerHighlight at {HIGHLIGHT_MAT_PATH}")
 
     mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
@@ -420,41 +518,17 @@ def create_or_update_highlight_material():
     # to the default material.
     mat.set_editor_property("used_with_skeletal_mesh", True)
 
-    if created:
-        # See create_or_update_wireframe_material(): only build the expression
-        # graph once (same !IsRooted() crash risk on a re-run once this
-        # material is in active use, e.g. as APortfolioCharacterActor's
-        # default HighlightOverlayMaterial).
-        MEL = unreal.MaterialEditingLibrary
-        MEL.delete_all_material_expressions(mat)
-        color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, -50)
-        color_node.set_editor_property("constant", HIGHLIGHT_COLOR)
-        MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, -50)
+    color_node.set_editor_property("constant", HIGHLIGHT_COLOR)
+    MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
-        opacity_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 100)
-        opacity_node.set_editor_property("r", HIGHLIGHT_OPACITY)
-        MEL.connect_material_property(opacity_node, "", unreal.MaterialProperty.MP_OPACITY)
+    opacity_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 100)
+    opacity_node.set_editor_property("r", HIGHLIGHT_OPACITY)
+    MEL.connect_material_property(opacity_node, "", unreal.MaterialProperty.MP_OPACITY)
 
-        MEL.recompile_material(mat)
-    else:
-        # Update the existing constants in place (no expression deletion).
-        MEL = unreal.MaterialEditingLibrary
-        color_node = MEL.get_material_property_input_node(mat, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-        opacity_node = MEL.get_material_property_input_node(mat, unreal.MaterialProperty.MP_OPACITY)
-        if not isinstance(color_node, unreal.MaterialExpressionConstant3Vector):
-            raise RuntimeError(f"M_ViewerHighlight: Emissive input is not a Constant3Vector ({color_node}); delete the asset and re-run to recreate it")
-        if not isinstance(opacity_node, unreal.MaterialExpressionConstant):
-            raise RuntimeError(f"M_ViewerHighlight: Opacity input is not a Constant ({opacity_node}); delete the asset and re-run to recreate it")
-
-        old_color = color_node.get_editor_property("constant")
-        old_opacity = opacity_node.get_editor_property("r")
-        color_node.set_editor_property("constant", HIGHLIGHT_COLOR)
-        opacity_node.set_editor_property("r", HIGHLIGHT_OPACITY)
-        MEL.recompile_material(mat)
-        log(f"[CreatePortfolioAssets] M_ViewerHighlight constants updated in place: "
-            f"color ({old_color.r:.2f},{old_color.g:.2f},{old_color.b:.2f}) -> "
-            f"({HIGHLIGHT_COLOR.r:.2f},{HIGHLIGHT_COLOR.g:.2f},{HIGHLIGHT_COLOR.b:.2f}), "
-            f"opacity {old_opacity:.2f} -> {HIGHLIGHT_OPACITY:.2f}")
+    MEL.recompile_material(mat)
 
     save(HIGHLIGHT_MAT_PATH)
     return mat
@@ -466,23 +540,23 @@ def create_or_update_highlight_material():
 # ---------------------------------------------------------------------------
 
 def create_or_update_character_profile_cube():
-    ensure_directory(DATA_PACKAGE)
-
-    data_asset_class = unreal.CharacterProfileData
-
     if EAL.does_asset_exist(DATA_ASSET_CUBE_PATH):
         profile = EAL.load_asset(DATA_ASSET_CUBE_PATH)
-        log(f"[CreatePortfolioAssets] DA_Character_Cube already exists, updating in place: {DATA_ASSET_CUBE_PATH}")
-    else:
-        factory = unreal.DataAssetFactory()
-        try:
-            factory.set_editor_property("data_asset_class", data_asset_class)
-        except Exception as exc:
-            report_exception("DataAssetFactory.data_asset_class (cube)", exc)
-        profile = asset_tools.create_asset(DATA_ASSET_CUBE_NAME, DATA_PACKAGE, data_asset_class, factory)
-        if profile is None:
-            raise RuntimeError("asset_tools.create_asset returned None for DA_Character_Cube")
-        log(f"[CreatePortfolioAssets] Created DA_Character_Cube at {DATA_ASSET_CUBE_PATH}")
+        log(f"[CreatePortfolioAssets] DA_Character_Cube already exists, preserving (read-only): {DATA_ASSET_CUBE_PATH}")
+        validate_character_profile(profile, DATA_ASSET_CUBE_PATH)
+        return profile
+
+    ensure_directory(DATA_PACKAGE)
+    data_asset_class = unreal.CharacterProfileData
+    factory = unreal.DataAssetFactory()
+    try:
+        factory.set_editor_property("data_asset_class", data_asset_class)
+    except Exception as exc:
+        report_exception("DataAssetFactory.data_asset_class (cube)", exc)
+    profile = asset_tools.create_asset(DATA_ASSET_CUBE_NAME, DATA_PACKAGE, data_asset_class, factory)
+    if profile is None:
+        raise RuntimeError("asset_tools.create_asset returned None for DA_Character_Cube")
+    log(f"[CreatePortfolioAssets] Created DA_Character_Cube at {DATA_ASSET_CUBE_PATH}")
 
     skel_mesh = load_or_none(SKELETAL_CUBE_MESH)
     grid_mat = load_or_none(GRID_MAT)
@@ -600,24 +674,47 @@ def create_or_update_character_profile_cube():
 
 # ---------------------------------------------------------------------------
 # 2. WBP_CharacterViewer (Widget Blueprint, parent = UCharacterViewerWidget)
-#    Left with an empty designer tree on purpose: the C++ fallback panel
-#    (CharacterViewerWidget::NativeConstruct) builds the UI when
-#    WidgetTree->RootWidget is null.
+#    Created here with an empty designer tree; Scripts/CreateViewerWidgetLayout.py
+#    (UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout(), run
+#    separately/afterward) fills that tree with the 7-widget designer layout.
+#    Only if that tree ends up empty (or that script has not been run yet)
+#    does the C++ fallback panel (CharacterViewerWidget::RebuildWidget())
+#    build the UI instead, when WidgetTree->RootWidget is null.
 # ---------------------------------------------------------------------------
 
-def create_or_update_widget_blueprint():
-    ensure_directory(WBP_PACKAGE)
+def validate_widget_blueprint(wbp, path):
+    """Minimal read-only shape check for an existing WBP_CharacterViewer:
+    parent class must be UCharacterViewerWidget. Never writes to `wbp` (in
+    particular, never recompiles it)."""
+    diffs = []
+    try:
+        generated_class = wbp.generated_class()
+        if generated_class is None:
+            diffs.append("generated_class() is None (blueprint not compiled)")
+        else:
+            cdo = unreal.get_default_object(generated_class)
+            if not isinstance(cdo, unreal.CharacterViewerWidget):
+                diffs.append(f"parent class is not CharacterViewerWidget (CDO class = {cdo.get_class().get_name()})")
+    except Exception as exc:
+        diffs.append(f"could not validate parent class ({exc!r})")
 
+    report_keep(path, diffs)
+
+
+def create_or_update_widget_blueprint():
     if EAL.does_asset_exist(WBP_ASSET_PATH):
         wbp = EAL.load_asset(WBP_ASSET_PATH)
-        log(f"[CreatePortfolioAssets] WBP_CharacterViewer already exists: {WBP_ASSET_PATH}")
-    else:
-        factory = unreal.WidgetBlueprintFactory()
-        factory.set_editor_property("parent_class", unreal.CharacterViewerWidget)
-        wbp = asset_tools.create_asset(WBP_ASSET_NAME, WBP_PACKAGE, unreal.WidgetBlueprint, factory)
-        if wbp is None:
-            raise RuntimeError("asset_tools.create_asset returned None for WBP_CharacterViewer")
-        log(f"[CreatePortfolioAssets] Created WBP_CharacterViewer at {WBP_ASSET_PATH}")
+        log(f"[CreatePortfolioAssets] WBP_CharacterViewer already exists, preserving (read-only): {WBP_ASSET_PATH}")
+        validate_widget_blueprint(wbp, WBP_ASSET_PATH)
+        return wbp
+
+    ensure_directory(WBP_PACKAGE)
+    factory = unreal.WidgetBlueprintFactory()
+    factory.set_editor_property("parent_class", unreal.CharacterViewerWidget)
+    wbp = asset_tools.create_asset(WBP_ASSET_NAME, WBP_PACKAGE, unreal.WidgetBlueprint, factory)
+    if wbp is None:
+        raise RuntimeError("asset_tools.create_asset returned None for WBP_CharacterViewer")
+    log(f"[CreatePortfolioAssets] Created WBP_CharacterViewer at {WBP_ASSET_PATH}")
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(wbp)
@@ -632,19 +729,51 @@ def create_or_update_widget_blueprint():
 # 3. BP_CharacterViewerGameMode (Blueprint, parent = ACharacterViewerGameMode)
 # ---------------------------------------------------------------------------
 
-def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
-    ensure_directory(BP_PACKAGE)
+def validate_gamemode_blueprint(bp, path):
+    """Minimal read-only shape check for an existing BP_CharacterViewerGameMode:
+    parent class correct, DefaultProfile set, ProfileLibrary non-empty,
+    ViewerWidgetClass set. Never writes to `bp` (in particular, never
+    recompiles it or touches its CDO)."""
+    diffs = []
+    try:
+        generated_class = bp.generated_class()
+        if generated_class is None:
+            diffs.append("generated_class() is None (blueprint not compiled)")
+            report_keep(path, diffs)
+            return
 
+        cdo = unreal.get_default_object(generated_class)
+        if not isinstance(cdo, unreal.CharacterViewerGameMode):
+            diffs.append(f"parent class is not CharacterViewerGameMode (CDO class = {cdo.get_class().get_name()})")
+
+        if cdo.get_editor_property("default_profile") is None:
+            diffs.append("default_profile is not set")
+
+        if not cdo.get_editor_property("profile_library"):
+            diffs.append("profile_library is empty")
+
+        if cdo.get_editor_property("viewer_widget_class") is None:
+            diffs.append("viewer_widget_class is not set")
+    except Exception as exc:
+        diffs.append(f"could not validate ({exc!r})")
+
+    report_keep(path, diffs)
+
+
+def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
     if EAL.does_asset_exist(BP_ASSET_PATH):
         bp = EAL.load_asset(BP_ASSET_PATH)
-        log(f"[CreatePortfolioAssets] BP_CharacterViewerGameMode already exists: {BP_ASSET_PATH}")
-    else:
-        factory = unreal.BlueprintFactory()
-        factory.set_editor_property("parent_class", unreal.CharacterViewerGameMode)
-        bp = asset_tools.create_asset(BP_ASSET_NAME, BP_PACKAGE, unreal.Blueprint, factory)
-        if bp is None:
-            raise RuntimeError("asset_tools.create_asset returned None for BP_CharacterViewerGameMode")
-        log(f"[CreatePortfolioAssets] Created BP_CharacterViewerGameMode at {BP_ASSET_PATH}")
+        log(f"[CreatePortfolioAssets] BP_CharacterViewerGameMode already exists, preserving (read-only): {BP_ASSET_PATH}")
+        validate_gamemode_blueprint(bp, BP_ASSET_PATH)
+        return bp
+
+    ensure_directory(BP_PACKAGE)
+    factory = unreal.BlueprintFactory()
+    factory.set_editor_property("parent_class", unreal.CharacterViewerGameMode)
+    bp = asset_tools.create_asset(BP_ASSET_NAME, BP_PACKAGE, unreal.Blueprint, factory)
+    if bp is None:
+        raise RuntimeError("asset_tools.create_asset returned None for BP_CharacterViewerGameMode")
+    log(f"[CreatePortfolioAssets] Created BP_CharacterViewerGameMode at {BP_ASSET_PATH}")
 
     generated_class = bp.generated_class()
     if generated_class is None:
@@ -681,30 +810,135 @@ def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
 # 4. LV_Portfolio (level)
 # ---------------------------------------------------------------------------
 
-def create_or_update_level(profile, gamemode_bp):
-    ensure_directory(MAP_PACKAGE)
+def validate_level(path):
+    """Minimal read-only shape check for an existing LV_Portfolio: exactly
+    one APortfolioCharacterActor with Profile set, at least one light,
+    World Settings GameModeOverride (DefaultGameMode) set.
 
+    LevelEditorSubsystem.load_level(path) silently discards any unsaved
+    edits of the level CURRENTLY open in the Editor, with no prompt -- fine
+    for a headless run, but a real correctness bug when this script is run
+    from the in-Editor Python console while an artist has unsaved changes
+    open (whether in LV_Portfolio itself or in a different level). So:
+      - If LV_Portfolio is already the open level, it is validated in place
+        (no load_level() call at all -- nothing to discard).
+      - Otherwise, in an interactive (non-unattended) session, the
+        currently open level's dirty state is checked first
+        (EditorLoadingAndSavingUtils.get_dirty_map_packages()); if it is
+        dirty, this is skipped entirely with a [keep] line instead of
+        risking a silent discard.
+      - Only when the open map is clean and different (or the session is
+        headless/unattended, where there is no one to lose unsaved work)
+        is load_level() actually called.
+    This function never calls new_level(), delete_asset(), or
+    save_current_level()/save_asset() on the level."""
+    diffs = []
+    level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    unreal_editor_subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+
+    current_world = unreal_editor_subsystem.get_editor_world() if unreal_editor_subsystem else None
+    current_package = current_world.get_outer() if current_world else None
+    current_package_name = current_package.get_name() if current_package else None
+
+    if current_package_name != path:
+        is_unattended = unreal.SystemLibrary.is_unattended()
+        if not is_unattended:
+            try:
+                dirty_map_packages = unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages() or []
+            except Exception as exc:
+                dirty_map_packages = []
+                report_exception("EditorLoadingAndSavingUtils.get_dirty_map_packages()", exc)
+            dirty_package_names = {p.get_name() for p in dirty_map_packages if p}
+            if current_package_name in dirty_package_names:
+                log(f"[CreatePortfolioAssets] [keep] {path} not validated (another unsaved level is open)")
+                return
+
+        if not level_subsystem.load_level(path):
+            diffs.append("LevelEditorSubsystem.load_level() returned False; could not validate contents")
+            report_keep(path, diffs)
+            return
+
+    try:
+        actors = actor_subsystem.get_all_level_actors()
+
+        character_actors = [a for a in actors if isinstance(a, unreal.PortfolioCharacterActor)]
+        if len(character_actors) != 1:
+            diffs.append(f"expected exactly 1 PortfolioCharacterActor, found {len(character_actors)}")
+        elif character_actors[0].get_editor_property("profile") is None:
+            diffs.append("PortfolioCharacterActor.profile is not set")
+
+        light_types = (unreal.DirectionalLight, unreal.PointLight, unreal.SpotLight, unreal.RectLight, unreal.SkyLight)
+        light_count = sum(1 for a in actors if isinstance(a, light_types))
+        if light_count < 1:
+            diffs.append("no light actors found")
+
+        world = unreal_editor_subsystem.get_editor_world() if unreal_editor_subsystem else None
+        if world is None:
+            world = level_subsystem.get_current_level().get_outer()
+        world_settings = world.get_world_settings()
+        if world_settings.get_editor_property("default_game_mode") is None:
+            diffs.append("World Settings DefaultGameMode is not set")
+    except Exception as exc:
+        diffs.append(f"could not validate level contents ({exc!r})")
+
+    report_keep(path, diffs)
+
+
+def create_or_update_level(profile, gamemode_bp):
+    """Creates LV_Portfolio only if it does not exist yet. An existing
+    LV_Portfolio is validated read-only via validate_level() and is never
+    deleted, recreated, or re-saved.
+
+    (Root-cause note, Docs/CHARACTER_VIEWER_SETUP.md sections 13.9/13.11.8:
+    the previous version of this function deleted and recreated LV_Portfolio
+    on every re-run -- first switching to a `/Temp/...` scratch level, then
+    EditorAssetLibrary.delete_asset() on LV_Portfolio, then new_level() on
+    the same path again. That scratch-level switch's return value was never
+    checked, and it always failed in practice ("Failed to validate the
+    destination ... There's already an asset at the destination", seen in
+    every run's log, e.g. Saved/Crashes/UECC-Windows-40B8CFD74992167DEFFD7B95
+    0E878C7C_0000/CreateAssets_P2d.log). Because LV_Portfolio is also the
+    Editor's auto-loaded startup map in this project (same log: `Cmd: MAP
+    LOAD FILE=".../LV_Portfolio.umap"` right after Editor init), the silent
+    scratch-switch failure meant delete_asset() ran on the package backing
+    the CURRENTLY LOADED world, and was immediately followed by new_level()
+    creating a fresh world at that same path. Two of five observed runs then
+    crashed with EXCEPTION_ACCESS_VIOLATION reading address 0xffffffffffffffff
+    (a dangling-pointer read) right after the log's last line, "Creating
+    Chaos Debug Draw Scene for world LV_Portfolio" -- i.e. inside that
+    immediate re-create of the just-deleted, still-referenced world. This
+    matches CrashContext.runtime-xml's GameThread call stack, which is
+    entirely inside UnrealEditor-CoreUObject with no PythonScriptPlugin
+    frames, consistent with the crash happening during the engine-internal
+    world/package teardown-and-recreate rather than inside a Python call
+    itself. This entire delete+recreate call sequence, including the
+    `/Temp/...` scratch step, has been removed below -- an existing
+    LV_Portfolio is never deleted or recreated by this script anymore, so
+    this call sequence cannot recur. A second, unrelated crash
+    (Assertion failed: !IsRooted(), Saved/Crashes/UECC-Windows-4EC0D0634C08C
+    B787087C792EADF35E7_0000/CreateAssets_P2b.log) was already root-caused
+    and fixed in section 13.11.6 -- rebuilding a material's expression graph
+    on an already-loaded, already-referenced existing Material -- and is now
+    additionally impossible here because existing materials are validated
+    read-only and their expression graphs are never touched at all, see
+    create_or_update_wireframe_material()/create_or_update_highlight_material().)
+    """
+    ensure_directory(MAP_PACKAGE)
     level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
     if EAL.does_asset_exist(MAP_ASSET_PATH):
-        # Re-running this script used to load the existing level and destroy
-        # only the actors this script itself placed, but EditorActorSubsystem
-        # actor destruction inside a single headless Python tick is not
-        # guaranteed to be visible to the SAME session's TActorIterator before
-        # the level is saved, which produced two overlapping
-        # APortfolioCharacterActor instances in LV_Portfolio (caught by the
-        # -game smoke test: "Exactly one APortfolioCharacterActor exists" was
-        # 2, see Docs/CHARACTER_VIEWER_SETUP.md section 13.7). Deleting and
-        # recreating the level asset from scratch every run sidesteps that
-        # whole class of leftover/duplicate-actor bugs and keeps the level
-        # fully deterministic.
-        log(f"[CreatePortfolioAssets] LV_Portfolio already exists, deleting and recreating it: {MAP_ASSET_PATH}")
-        level_subsystem.new_level("/Temp/CreatePortfolioAssets_Scratch")
-        EAL.delete_asset(MAP_ASSET_PATH)
+        log(f"[CreatePortfolioAssets] LV_Portfolio already exists, preserving (read-only): {MAP_ASSET_PATH}")
+        validate_level(MAP_ASSET_PATH)
+        return True
 
     log(f"[CreatePortfolioAssets] Creating new level at {MAP_ASSET_PATH}")
-    level_subsystem.new_level(MAP_ASSET_PATH)
+    if not level_subsystem.new_level(MAP_ASSET_PATH):
+        msg = f"[CreatePortfolioAssets] FAILED: new_level() returned False for {MAP_ASSET_PATH}; aborting level population."
+        log_err(msg)
+        errors.append(msg)
+        return False
 
     # NOTE: unreal.Rotator's POSITIONAL order is (roll, pitch, yaw), not
     # (pitch, yaw, roll). Always pass keywords here. The first version of this
@@ -804,7 +1038,13 @@ def create_or_update_level(profile, gamemode_bp):
     generated_class = gamemode_bp.generated_class() if gamemode_bp else None
     world_settings.set_editor_property("default_game_mode", generated_class)
 
-    level_subsystem.save_current_level()
+    if not level_subsystem.save_current_level():
+        msg = f"[CreatePortfolioAssets] FAILED: save_current_level() returned False for {MAP_ASSET_PATH}; not proceeding further."
+        log_err(msg)
+        errors.append(msg)
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -812,7 +1052,17 @@ def create_or_update_level(profile, gamemode_bp):
 # ---------------------------------------------------------------------------
 
 def update_default_engine_ini():
+    """Only writes Config/DefaultEngine.ini's GlobalDefaultGameMode key when
+    it is missing entirely or still set to the known C++ default
+    (/Script/CharacterShowcase.CharacterViewerGameMode); no other line in the
+    file is touched. If the key is present with any OTHER value (e.g. an
+    artist/designer deliberately pointed it at a different GameMode), that
+    is left completely alone -- only reported as
+    "[keep] ... GlobalDefaultGameMode DIFFERS: <value>" -- instead of being
+    silently overwritten or duplicated with a second, conflicting line.
+    Always logs what it did (or that nothing needed to change)."""
     import os
+    import re
 
     project_dir = unreal.Paths.project_dir()
     ini_path = os.path.normpath(os.path.join(unreal.Paths.convert_relative_path_to_full(project_dir), "Config", "DefaultEngine.ini"))
@@ -823,22 +1073,34 @@ def update_default_engine_ini():
     with open(ini_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    old_line = "GlobalDefaultGameMode=/Script/CharacterShowcase.CharacterViewerGameMode"
-    new_line = f"GlobalDefaultGameMode={BP_ASSET_PATH}.{BP_ASSET_NAME}_C"
+    key = "GlobalDefaultGameMode"
+    known_default_value = "/Script/CharacterShowcase.CharacterViewerGameMode"
+    expected_value = f"{BP_ASSET_PATH}.{BP_ASSET_NAME}_C"
+    new_line = f"{key}={expected_value}"
 
-    if new_line in content:
-        log(f"[CreatePortfolioAssets] {ini_path} already has the Blueprint GlobalDefaultGameMode.")
+    match = re.search(rf"^{re.escape(key)}=(.*)$", content, re.MULTILINE)
+    current_value = match.group(1).strip() if match else None
+
+    if current_value == expected_value:
+        log(f"[CreatePortfolioAssets] [keep] {ini_path} OK (GlobalDefaultGameMode already set to the Blueprint path, not rewritten)")
         return
 
-    if old_line in content:
-        content = content.replace(old_line, new_line)
+    if current_value is not None and current_value != known_default_value:
+        # Some other value (not missing, not the known C++ default): never
+        # overwrite or duplicate it -- just report and move on.
+        log(f"[CreatePortfolioAssets] [keep] {ini_path} GlobalDefaultGameMode DIFFERS: {current_value}")
+        return
+
+    if match:
+        content = content[:match.start()] + new_line + content[match.end():]
+        write_reason = f"replaced default C++ GlobalDefaultGameMode line with {new_line}"
     else:
-        log_warn("[CreatePortfolioAssets] Expected GlobalDefaultGameMode line not found verbatim; appending explicit override instead.")
         content += f"\n[/Script/EngineSettings.GameMapsSettings]\n{new_line}\n"
+        write_reason = f"appended explicit override {new_line} (GlobalDefaultGameMode key not present)"
 
     with open(ini_path, "w", encoding="utf-8") as f:
         f.write(content)
-    log(f"[CreatePortfolioAssets] Updated {ini_path}: GlobalDefaultGameMode -> {new_line}")
+    log(f"[CreatePortfolioAssets] Updated {ini_path}: {write_reason}")
 
 
 # ---------------------------------------------------------------------------
@@ -860,6 +1122,7 @@ def main():
         log_err(f"[CreatePortfolioAssets] ==== DONE WITH {len(errors)} ERROR(S) ====")
         for e in errors:
             log_err(e)
+        sys.exit(1)
     else:
         log("[CreatePortfolioAssets] ==== DONE, NO ERRORS ====")
 

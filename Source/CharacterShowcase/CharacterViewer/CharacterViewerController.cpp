@@ -12,6 +12,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
+#include "Framework/Application/SlateApplication.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
@@ -42,6 +43,11 @@ void ACharacterViewerController::BeginPlay()
 	}
 
 	ApplyFramingForCurrentActor(true);
+
+	if (FSlateApplication::IsInitialized())
+	{
+		ApplicationActivationStateChangedHandle = FSlateApplication::Get().OnApplicationActivationStateChanged().AddUObject(this, &ACharacterViewerController::HandleApplicationActivationStateChanged);
+	}
 }
 
 void ACharacterViewerController::OnPossess(APawn* InPawn)
@@ -60,6 +66,12 @@ void ACharacterViewerController::OnPossess(APawn* InPawn)
 void ACharacterViewerController::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	ReleaseDrag();
+
+	if (FSlateApplication::IsInitialized() && ApplicationActivationStateChangedHandle.IsValid())
+	{
+		FSlateApplication::Get().OnApplicationActivationStateChanged().Remove(ApplicationActivationStateChangedHandle);
+		ApplicationActivationStateChangedHandle.Reset();
+	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
@@ -287,6 +299,20 @@ void ACharacterViewerController::ReleaseDrag()
 	bIsDragging = false;
 }
 
+void ACharacterViewerController::HandleApplicationActivationStateChanged(bool bIsActive)
+{
+	if (bIsActive)
+	{
+		return;
+	}
+
+	// Losing OS focus (alt-tab, another window, etc.) never delivers a mouse-up
+	// to this application, so any in-progress drag/press must be cleared here
+	// instead of sticking until the next click (section 4/13.10).
+	ReleaseDrag();
+	FlushPressedKeys();
+}
+
 void ACharacterViewerController::HandleOrbitPressStarted(const FInputActionValue& Value)
 {
 	if (!bInputEnabled)
@@ -362,11 +388,13 @@ void ACharacterViewerController::HandleOrbitAxis(const FInputActionValue& Value)
 
 		bIsDragging = true;
 
-		// Manual Orbit start stops the turntable; CameraPawn->Orbit() below cancels any in-progress interpolation.
-		if (ViewerActor)
-		{
-			ViewerActor->SetTurntableEnabled(false);
-		}
+		// Manual Orbit start stops the turntable; CameraPawn->Orbit() below
+		// cancels any in-progress interpolation. Routed through this
+		// Controller's own SetTurntableEnabled() (not ViewerActor's directly)
+		// so the Turntable button label follows this path too (section 13.10
+		// "state display") instead of silently going stale until some other
+		// state change happens to refresh the widget.
+		SetTurntableEnabled(false);
 	}
 
 	CameraPawn->Orbit(Delta);
@@ -450,6 +478,16 @@ void ACharacterViewerController::SetTurntableEnabled(bool bEnabled)
 	{
 		ViewerActor->SetTurntableEnabled(bEnabled);
 	}
+
+	// Section 13.10 "state display": the Turntable button label must follow
+	// every path that can change this state, not only the UI's own
+	// RequestToggleTurntable() (which already refreshes itself) -- in
+	// particular a direct/keyboard toggle (Space -> HandleToggleTurntable() ->
+	// ToggleTurntable(), below) must also keep the label current.
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
 }
 
 void ACharacterViewerController::ToggleTurntable()
@@ -457,6 +495,11 @@ void ACharacterViewerController::ToggleTurntable()
 	if (ViewerActor)
 	{
 		ViewerActor->SetTurntableEnabled(!ViewerActor->IsTurntableEnabled());
+	}
+
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
 	}
 }
 
@@ -632,6 +675,17 @@ void ACharacterViewerController::ResetCamera()
 	{
 		const FViewerCameraFraming ResetFramingValue = CameraPawn->GetResetFraming();
 		CameraPawn->SetOrbitCenter(ViewerActor->GetActorLocation() + ResetFramingValue.TargetOffset, false);
+	}
+
+	// Section 13.10 "state display": Reset Camera returns the CAMERA to the
+	// profile's own DefaultPresetId framing, so the VIEW section's "▶" must
+	// follow it too -- otherwise a previously-selected preset (e.g. "Face")
+	// stays marked current even though Reset just moved the camera away from it.
+	if (ViewerWidget)
+	{
+		const FName DefaultPresetId = (ViewerActor && ViewerActor->Profile) ? ViewerActor->Profile->DefaultPresetId : NAME_None;
+		ViewerWidget->SetCurrentCameraPresetId(DefaultPresetId);
+		ViewerWidget->NotifySelectionChanged();
 	}
 }
 

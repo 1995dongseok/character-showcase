@@ -8,6 +8,7 @@
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerController.h"
+#include "Components/Border.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SlateWrapperTypes.h"
 #include "Engine/Engine.h"
@@ -71,6 +72,22 @@ namespace CharacterViewerGameSmokeTest
 		// Absolute (desktop) Slate position of the last synthesized pointer
 		// event (FSynthPointerMoveCommand), reused by FSynthLeftButtonCommand.
 		FVector2D SynthPointerPos = FVector2D::ZeroVector;
+
+		// Scratch values for the P2 UMG-pass input-boundary checks below
+		// (wheel-over-panel / drag-over-panel / focus loss): captured by
+		// FCaptureCameraStateCommand, compared by FCheckCameraDistanceChangedCommand
+		// / FCheckCameraYawChangedCommand.
+		float CapturedDistance = 0.f;
+		float CapturedYaw = 0.f;
+
+		// Was a previously-reported "the -game window must be active/unobscured"
+		// precondition failure already logged this run? Kept on FSharedState
+		// (constructed fresh per RunTest()) instead of a function-local `static`
+		// so a second RunTest() in the same process (e.g. the test re-run by
+		// hand, or a future multi-run harness) reports the precondition failure
+		// again instead of silently staying quiet forever after the first run
+		// in that process ever hit it once.
+		bool bPreconditionReported = false;
 	};
 
 	static const FName TorsoPartId(TEXT("Torso"));
@@ -903,12 +920,50 @@ namespace CharacterViewerGameSmokeTest
 			const FVector2D LastPos = SlateApp.GetCursorPos();
 			SlateApp.SetCursorPos(TargetPos);
 
+			// Precondition for every pointer step that follows. Slate re-synthesizes
+			// cursor moves on its own (FSlateUser::SynthesizeCursorMoveIfNeeded ->
+			// FSlateApplication::ProcessMouseMoveEvent(..., bIsSynthetic=true)) and,
+			// when the application is not active and the OS cursor is not directly
+			// over a Slate window (e.g. another app's window covers the game
+			// window), those synthesized moves get an empty widget path and clear
+			// the panel's hover; Win32 also denies mouse capture to background
+			// windows, which stops viewport mouse-axis input. So an inactive or
+			// obscured -game window makes hover/wheel/orbit results meaningless.
+			// Fail loudly here instead (Docs/CHARACTER_VIEWER_SETUP.md 13.10.2).
+			const bool bAppActive = SlateApp.IsActive();
+			const TSharedPtr<GenericApplication> PlatformApp = SlateApp.GetPlatformApplication();
+			const bool bCursorOverSlateWindow = PlatformApp.IsValid() && PlatformApp->IsCursorDirectlyOverSlateWindow();
+			if ((!bAppActive || !bCursorOverSlateWindow) && !State->bPreconditionReported)
+			{
+				State->bPreconditionReported = true;
+				Test->AddError(FString::Printf(TEXT("Precondition failed: the -game window must be the active, unobscured foreground window for synthesized pointer steps (FSlateApplication::IsActive()=%d, IsCursorDirectlyOverSlateWindow()=%d). Bring the game window to the front with nothing covering it and re-run."), bAppActive ? 1 : 0, bCursorOverSlateWindow ? 1 : 0));
+			}
+
 			const TSet<FKey> NoButtons;
 			const FPointerEvent MoveEvent(FSlateApplication::CursorPointerIndex, TargetPos, LastPos, NoButtons, EKeys::Invalid, 0.f, SlateApp.GetModifierKeys());
 			SlateApp.ProcessMouseMoveEvent(MoveEvent);
 
 			State->SynthPointerPos = TargetPos;
 			Test->AddInfo(FString::Printf(TEXT("Synthesized pointer move to %s at (%.0f, %.0f)."), bOverPanel ? TEXT("the fallback panel") : TEXT("empty canvas"), TargetPos.X, TargetPos.Y));
+
+			// Diagnostics only (no assertion): the synthesized events are
+			// hit-tested against these rects, so a minimized/off-screen game
+			// window (see Docs/CHARACTER_VIEWER_SETUP.md 13.10.2 launch recipe)
+			// shows up here instead of as an unexplained hover/zoom/orbit failure.
+			if (bOverPanel)
+			{
+				const TSharedPtr<SWindow> Window = (GEngine && GEngine->GameViewport) ? GEngine->GameViewport->GetWindow() : nullptr;
+				const UCharacterViewerWidget* Widget = State->Widget.Get();
+				const FGeometry PanelGeometry = (Widget && Widget->PanelRoot) ? Widget->PanelRoot->GetCachedGeometry() : FGeometry();
+				const FVector2D PanelMin = PanelGeometry.GetAbsolutePosition();
+				const FVector2D PanelMax = PanelMin + PanelGeometry.GetAbsoluteSize();
+				Test->AddInfo(FString::Printf(TEXT("Window state: visible=%d minimized=%d pos=(%.0f, %.0f) size=%.0fx%.0f; PanelRoot absolute rect=(%.0f, %.0f)-(%.0f, %.0f)."),
+					Window.IsValid() && Window->IsVisible() ? 1 : 0,
+					Window.IsValid() && Window->IsWindowMinimized() ? 1 : 0,
+					Window.IsValid() ? Window->GetPositionInScreen().X : 0.f, Window.IsValid() ? Window->GetPositionInScreen().Y : 0.f,
+					Window.IsValid() ? Window->GetSizeInScreen().X : 0.f, Window.IsValid() ? Window->GetSizeInScreen().Y : 0.f,
+					PanelMin.X, PanelMin.Y, PanelMax.X, PanelMax.Y));
+			}
 			return true;
 		}
 
@@ -1144,6 +1199,304 @@ namespace CharacterViewerGameSmokeTest
 		FString ProfilePath;
 		bool bExpectWireframeOnBefore = false;
 	};
+
+	// --- P2 UMG designer/fallback pass (Docs/CHARACTER_VIEWER_SETUP.md section 13.10) ---
+
+	// Runs an arbitrary one-shot action on the next Update(); avoids a
+	// dedicated latent command class for every single Controller/Widget call
+	// below (SelectCameraPreset/SetTurntableEnabled/etc. are already exercised
+	// elsewhere in this file through their own named commands -- these are
+	// just wiring, not new behavior under test).
+	class FGenericLatentCommand : public IAutomationLatentCommand
+	{
+	public:
+		explicit FGenericLatentCommand(TFunction<void()> InFunc)
+			: Func(MoveTemp(InFunc))
+		{
+		}
+
+		virtual bool Update() override
+		{
+			Func();
+			return true;
+		}
+
+	private:
+		TFunction<void()> Func;
+	};
+
+	// WBP_CharacterViewer now HAS a designer-built tree: the 2026-09-29 P2 UMG
+	// pass added UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout()
+	// (Source/CharacterShowcase/Editor/CharacterViewerEditorTools.h/.cpp) and
+	// Scripts/CreateViewerWidgetLayout.py ran it against WBP_CharacterViewer
+	// (see Docs/CHARACTER_VIEWER_SETUP.md section 13.10.1), so the designer
+	// path -- not the C++ fallback -- is what is actually in the viewport now.
+	// This asserts that (IsUsingDesignerLayout()==true) and separately proves
+	// NameText/GetFallbackDisplayNameText() -- shared by both layout paths --
+	// shows the live profile DisplayName regardless of which path filled it.
+	class FCheckLayoutModeCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckLayoutModeCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			APortfolioCharacterActor* Actor = State->Actor.Get();
+			if (!Test->TestNotNull(TEXT("Widget exists for the layout-mode check"), Widget) || !Actor || !Actor->Profile)
+			{
+				return true;
+			}
+
+			Test->TestTrue(TEXT("WBP_CharacterViewer now has a designer-built tree (UCharacterViewerEditorTools), so IsUsingDesignerLayout() is true (see Docs/CHARACTER_VIEWER_SETUP.md section 13.10.1)"),
+				Widget->IsUsingDesignerLayout());
+			Test->TestEqual(TEXT("NameText/GetFallbackDisplayNameText() (shared by both layout paths) shows the current profile's DisplayName"),
+				Widget->GetFallbackDisplayNameText().ToString(), Actor->Profile->DisplayName.ToString());
+
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	// Stores the camera pawn's current distance/yaw for a later
+	// FCheckCameraDistanceChangedCommand/FCheckCameraYawChangedCommand comparison.
+	class FCaptureCameraStateCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCaptureCameraStateCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState)
+			: Test(InTest), State(InState)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			if (ACharacterViewerCameraPawn* Pawn = State->Pawn.Get())
+			{
+				State->CapturedDistance = Pawn->GetDistance();
+				State->CapturedYaw = FMath::UnwindDegrees(Pawn->GetYaw());
+			}
+			else
+			{
+				Test->AddError(TEXT("FCaptureCameraStateCommand: missing pawn."));
+			}
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+	};
+
+	class FCheckCameraDistanceChangedCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckCameraDistanceChangedCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, bool bInExpectChanged, const TCHAR* InDescription)
+			: Test(InTest), State(InState), bExpectChanged(bInExpectChanged), Description(InDescription)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerCameraPawn* Pawn = State->Pawn.Get();
+			if (!Pawn)
+			{
+				Test->AddError(TEXT("FCheckCameraDistanceChangedCommand: missing pawn."));
+				return true;
+			}
+			const bool bChanged = !FMath::IsNearlyEqual(Pawn->GetDistance(), State->CapturedDistance, 0.5f);
+			if (bExpectChanged)
+			{
+				Test->TestTrue(FString::Printf(TEXT("%s (before: %.2f, after: %.2f)"), Description, State->CapturedDistance, Pawn->GetDistance()), bChanged);
+			}
+			else
+			{
+				Test->TestFalse(FString::Printf(TEXT("%s (before: %.2f, after: %.2f)"), Description, State->CapturedDistance, Pawn->GetDistance()), bChanged);
+			}
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		bool bExpectChanged;
+		const TCHAR* Description;
+	};
+
+	class FCheckCameraYawChangedCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckCameraYawChangedCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, bool bInExpectChanged, const TCHAR* InDescription)
+			: Test(InTest), State(InState), bExpectChanged(bInExpectChanged), Description(InDescription)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			ACharacterViewerCameraPawn* Pawn = State->Pawn.Get();
+			if (!Pawn)
+			{
+				Test->AddError(TEXT("FCheckCameraYawChangedCommand: missing pawn."));
+				return true;
+			}
+			const float CurrentYaw = FMath::UnwindDegrees(Pawn->GetYaw());
+			const bool bChanged = !FMath::IsNearlyEqual(CurrentYaw, State->CapturedYaw, 0.5f);
+			if (bExpectChanged)
+			{
+				Test->TestTrue(FString::Printf(TEXT("%s (before: %.2f, after: %.2f)"), Description, State->CapturedYaw, CurrentYaw), bChanged);
+			}
+			else
+			{
+				Test->TestFalse(FString::Printf(TEXT("%s (before: %.2f, after: %.2f)"), Description, State->CapturedYaw, CurrentYaw), bChanged);
+			}
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		bool bExpectChanged;
+		const TCHAR* Description;
+	};
+
+	// Synthesizes a mouse-wheel event at State->SynthPointerPos (set by a
+	// prior FSynthPointerMoveCommand), the same Slate entry point
+	// (FSlateApplication::ProcessMouseWheelOrGestureEvent) the platform
+	// message handler uses for a real wheel tick.
+	class FSynthWheelCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSynthWheelCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, float InDelta)
+			: Test(InTest), State(InState), Delta(InDelta)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			if (!FSlateApplication::IsInitialized())
+			{
+				Test->AddError(TEXT("FSynthWheelCommand: no Slate application."));
+				return true;
+			}
+
+			FSlateApplication& SlateApp = FSlateApplication::Get();
+			const TSet<FKey> NoButtons;
+			const FPointerEvent WheelEvent(FSlateApplication::CursorPointerIndex, State->SynthPointerPos, State->SynthPointerPos, NoButtons, EKeys::Invalid, Delta, SlateApp.GetModifierKeys());
+			SlateApp.ProcessMouseWheelOrGestureEvent(WheelEvent, nullptr);
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		float Delta;
+	};
+
+	// Moves the synthesized pointer BY Delta from its last position
+	// (State->SynthPointerPos), with the left mouse button reported held --
+	// i.e. a drag step -- via FSlateApplication::ProcessMouseMoveEvent, the
+	// same entry point the platform message handler uses while the mouse is
+	// captured by the game viewport.
+	class FSynthDragMoveCommand : public IAutomationLatentCommand
+	{
+	public:
+		FSynthDragMoveCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, FVector2D InDelta)
+			: Test(InTest), State(InState), Delta(InDelta)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			if (!FSlateApplication::IsInitialized())
+			{
+				Test->AddError(TEXT("FSynthDragMoveCommand: no Slate application."));
+				return true;
+			}
+
+			FSlateApplication& SlateApp = FSlateApplication::Get();
+			const FVector2D LastPos = State->SynthPointerPos;
+			const FVector2D NewPos = LastPos + Delta;
+			SlateApp.SetCursorPos(NewPos);
+
+			TSet<FKey> PressedButtons;
+			PressedButtons.Add(EKeys::LeftMouseButton);
+			const FPointerEvent MoveEvent(FSlateApplication::CursorPointerIndex, NewPos, LastPos, PressedButtons, EKeys::Invalid, 0.f, SlateApp.GetModifierKeys());
+			SlateApp.ProcessMouseMoveEvent(MoveEvent);
+
+			State->SynthPointerPos = NewPos;
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		FVector2D Delta;
+	};
+
+	// Simulates the application (window) losing OS focus mid-drag/press by
+	// broadcasting the same delegate ACharacterViewerController::BeginPlay()
+	// subscribed to (FSlateApplication::OnApplicationActivationStateChanged()).
+	class FBroadcastActivationStateCommand : public IAutomationLatentCommand
+	{
+	public:
+		FBroadcastActivationStateCommand(FAutomationTestBase* InTest, bool bInActive)
+			: Test(InTest), bActive(bInActive)
+		{
+		}
+
+		virtual bool Update() override
+		{
+			if (!FSlateApplication::IsInitialized())
+			{
+				Test->AddError(TEXT("FBroadcastActivationStateCommand: no Slate application."));
+				return true;
+			}
+			FSlateApplication::Get().OnApplicationActivationStateChanged().Broadcast(bActive);
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		bool bActive;
+	};
+
+	// Checks the rendered label of the generated button for (Kind, Id)
+	// (UCharacterViewerWidget::GetGeneratedButtonText(), section 13.10 "state
+	// display") contains ExpectedSubstring.
+	class FCheckGeneratedButtonTextCommand : public IAutomationLatentCommand
+	{
+	public:
+		FCheckGeneratedButtonTextCommand(FAutomationTestBase* InTest, TSharedRef<FSharedState> InState, ECharacterViewerButtonKind InKind, FName InId, FString InExpectedSubstring, FString InDescription)
+			: Test(InTest), State(InState), Kind(InKind), Id(InId), ExpectedSubstring(MoveTemp(InExpectedSubstring)), Description(MoveTemp(InDescription))
+		{
+		}
+
+		virtual bool Update() override
+		{
+			UCharacterViewerWidget* Widget = State->Widget.Get();
+			if (!Widget)
+			{
+				Test->AddError(TEXT("FCheckGeneratedButtonTextCommand: missing widget."));
+				return true;
+			}
+			const FString Text = Widget->GetGeneratedButtonText(Kind, Id).ToString();
+			Test->TestTrue(FString::Printf(TEXT("%s (actual button text: '%s')"), *Description, *Text), Text.Contains(ExpectedSubstring));
+			return true;
+		}
+
+	private:
+		FAutomationTestBase* Test;
+		TSharedRef<FSharedState> State;
+		ECharacterViewerButtonKind Kind;
+		FName Id;
+		FString ExpectedSubstring;
+		FString Description;
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCharacterViewerGameSmokeTest,
@@ -1261,6 +1614,104 @@ bool FCharacterViewerGameSmokeTest::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCheckSelectedPartCommand(this, State, NAME_None, TEXT("Control: press+release over empty canvas reaches the Inspection click path and clears the selection")));
+
+	// --- P2 UMG designer/fallback pass (Docs/CHARACTER_VIEWER_SETUP.md section 13.10) ---
+
+	// 1. Layout mode: WBP_CharacterViewer now has a designer-built tree
+	// (UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout(), run via
+	// Scripts/CreateViewerWidgetLayout.py -- see that script's docstring and
+	// Docs/CHARACTER_VIEWER_SETUP.md section 13.10.1), so the designer path
+	// -- not the C++ fallback -- is what is actually in the viewport here.
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckLayoutModeCommand(this, State));
+
+	// 2. Wheel: over the panel must scroll it (never reach Zoom); outside the
+	// panel must Zoom. Cursor positions/hover reuse FSynthPointerMoveCommand
+	// (proven, section 13.11.5/13.11.9) and the wheel is a real synthesized
+	// Slate wheel event (FSlateApplication::ProcessMouseWheelOrGestureEvent).
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureCameraStateCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthWheelCommand(this, State, -5.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckCameraDistanceChangedCommand(this, State, false, TEXT("Wheel over the panel's padding does not change camera distance (Controller::HandleZoom's IsPointerOverPanel() guard blocks Zoom)")));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureCameraStateCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthWheelCommand(this, State, -5.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckCameraDistanceChangedCommand(this, State, true, TEXT("Wheel outside the panel (empty canvas) changes camera distance (Zoom)")));
+
+	// 3. Drag: a press+move starting over the panel must not Orbit (the
+	// panel's OnMouseButtonDownEvent consumes the press, section 13.10/13.11.9);
+	// the same press+move starting over empty canvas must Orbit (yaw changes).
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureCameraStateCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthDragMoveCommand(this, State, FVector2D(200.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckCameraYawChangedCommand(this, State, false, TEXT("Press+200px drag starting over the panel's padding does not Orbit (PanelRoot->OnMouseButtonDownEvent consumes the press; yaw unchanged)")));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureCameraStateCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthDragMoveCommand(this, State, FVector2D(200.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckCameraYawChangedCommand(this, State, true, TEXT("Control: press+200px drag starting over empty canvas Orbits (yaw changes)")));
+
+	// 4. Focus loss mid-press: press over empty canvas (bIsPressed true),
+	// then simulate the application losing OS focus
+	// (FSlateApplication::OnApplicationActivationStateChanged(false), the same
+	// delegate ACharacterViewerController subscribes to) -- the drag must be
+	// cleared, so a subsequent move does not Orbit.
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthPointerMoveCommand(this, State, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCaptureCameraStateCommand(this, State));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FBroadcastActivationStateCommand(this, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthDragMoveCommand(this, State, FVector2D(200.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckCameraYawChangedCommand(this, State, false, TEXT("Losing OS focus mid-press clears the drag (subsequent move does not Orbit)")));
+	ADD_LATENT_AUTOMATION_COMMAND(FBroadcastActivationStateCommand(this, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FSynthLeftButtonCommand(this, State, false));
+
+	// 5. State display: the generated CHARACTER/VIEW/DISPLAY button labels
+	// must reflect the current selection/toggle state (section 13.10).
+	ADD_LATENT_AUTOMATION_COMMAND(FGenericLatentCommand([State]()
+	{
+		if (UCharacterViewerWidget* Widget = State->Widget.Get())
+		{
+			Widget->RequestCameraPreset(FName(TEXT("Face")));
+		}
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckGeneratedButtonTextCommand(this, State, ECharacterViewerButtonKind::CameraPreset, FName(TEXT("Face")), FString(TEXT("▶")), TEXT("Face camera preset button shows the selected-state prefix after RequestCameraPreset('Face')")));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FGenericLatentCommand([State]()
+	{
+		if (ACharacterViewerController* Controller = State->Controller.Get())
+		{
+			Controller->SetTurntableEnabled(true);
+		}
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckGeneratedButtonTextCommand(this, State, ECharacterViewerButtonKind::ToggleTurntable, NAME_None, FString(TEXT("On")), TEXT("Turntable button label shows 'On' after Controller->SetTurntableEnabled(true)")));
+	ADD_LATENT_AUTOMATION_COMMAND(FGenericLatentCommand([State]()
+	{
+		if (ACharacterViewerController* Controller = State->Controller.Get())
+		{
+			Controller->SetTurntableEnabled(false);
+		}
+	}));
 
 	return true;
 }
