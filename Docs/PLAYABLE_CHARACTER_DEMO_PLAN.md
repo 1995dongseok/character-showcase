@@ -173,3 +173,144 @@ C++는 입력·이동 설정·대표 동작 제어를, Animation Blueprint는 �
 - 제외: Jump 재생, `MM_Attack_03`, `MM_ChargedAttack`, Quinn, Pistol/Rifle/Death.
 
 미정 항목(사용자 확인 대기): 목표 PC 사양·해상도, 실제 캐릭터·애니메이션 제공 시점. 확인 전까지 D1/D2는 placeholder 기술 검증까지만 진행하고 D3는 미완료로 둔다.
+
+## 12. D1 구현 결과 (2026-09-30)
+
+범위: 걷기·달리기·추적 카메라. 대표 동작, 안내 UI, 전시/플레이 전환은 포함하지 않는다. placeholder(마네킹) 기술 검증이며 실제 아티스트 캐릭터의 검증이 아니다. 기존 Viewer 코드·에셋(`Content/Portfolio`, `CreatePortfolioAssets.py`, `Config/*.ini`)은 변경하지 않았다.
+
+### 12.1 클래스와 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| `Source/CharacterShowcase/Character/CharacterProfileData.h` | `WalkSpeed`(300), `RunSpeed`(600) 추가(카테고리 "Play"). Mesh·AnimClass는 기존 `SkeletalMesh`, `DefaultAnimClass`를 그대로 사용 |
+| `PlayDemo/DemoCharacter.h/.cpp` | `ADemoCharacter : ACharacter`. SpringArm(350, 충돌 검사, ProbeSize 12) + Camera, 이동 방향 회전(500도/초), `ApplyProfile`, `SetRunning`, `AddMoveInput2D`(카메라 yaw 기준, 길이 1로 제한), `ResetToStart`, 카메라 API(`AddCameraYaw/Pitch`, `ZoomCamera`, `ResetCamera`), 낙하 복귀(`FellOutOfWorld` + Tick에서 시작 Z + `KillZOffset` 검사). 캐릭터의 `WalkSpeed`/`RunSpeed`는 표시 전용(프로필이 없을 때의 fallback, 프로필의 Play 값이 우선) |
+| `PlayDemo/DemoPlayerController.h/.cpp` | Enhanced Input(에디터 에셋이 없으면 런타임 fallback IMC/IA 생성), 커서 모드, 포커스 상실 처리(`InputKey` 재정의로 포커스 상실·커서 모드 이후 새로 누르지 않은 키의 OS 반복 입력 무시) |
+| `PlayDemo/DemoGameMode.h/.cpp` | DefaultPawn=`ADemoCharacter`, Controller=`ADemoPlayerController`, `DemoProfile` 적용. `ChoosePlayerStart()`가 PlayerStart를 찾지 못하면 원점 +Z 100에 스폰(`FindPlayerStart()`는 World Settings 액터로 대체해 null을 반환하지 않으므로 판정에 쓰지 않음) |
+| `Tests/DemoTests.cpp` | Editor(NullRHI) `CharacterShowcase.Demo.NullSafety` |
+| `Tests/DemoMovementSmokeTest.cpp` | `-game` 스모크 `CharacterShowcase.Demo.MovementSmoke` (ClientContext) |
+| `Scripts/CreatePlayDemoAssets.py` | 신규 에셋 생성(생성 전용, 기존 에셋은 `[keep]` 검증만). `Content/Portfolio`는 건드리지 않음 |
+
+Build.cs 변경 없음(신규 모듈 없음).
+
+### 12.2 에셋
+
+| 경로 | 내용 |
+| --- | --- |
+| `/Game/PlayDemo/Data/DA_PlayCharacter_Manny` | `CharacterProfileData`. DisplayName "Manny (placeholder)", `SkeletalMesh`=`SKM_Manny_Simple`, `DefaultAnimClass`=`ABP_Unarmed`, WalkSpeed 300, RunSpeed 600 |
+| `/Game/PlayDemo/Blueprints/BP_DemoCharacter` | 부모 `ADemoCharacter`. 카메라 거리·각도·`KillZOffset`·메시 상대 위치/회전 등을 BP에서 조정할 때 사용 |
+| `/Game/PlayDemo/Blueprints/BP_DemoGameMode` | 부모 `ADemoGameMode`. `DemoProfile`=`DA_PlayCharacter_Manny`, `DefaultPawnClass`=`BP_DemoCharacter` |
+| `/Game/PlayDemo/Maps/LV_PlayDemo` | 30m x 30m 바닥(상면 Z=0), 가장자리 벽 4개(높이 2m, 안쪽 면 +-1475), 장애물 3개, PlayerStart(0,0,100) +X 방향, Key/Fill Directional + SkyLight(Viewer 레벨과 같은 값). World Settings GameMode = `BP_DemoGameMode` |
+
+`DefaultEngine.ini`의 `GameDefaultMap`(Viewer)은 변경하지 않았다. 패키지 빌드의 `MapsToCook`에는 아직 `LV_PlayDemo`가 없다(D3에서 결정).
+
+### 12.3 입력 (fallback 이름과 키)
+
+| Input Action (fallback 이름) | 값 | 키 | 동작 |
+| --- | --- | --- | --- |
+| `IA_DemoMove_Fallback` | Axis2D | W/S/A/D (W: Swizzle YXZ, S: Swizzle+Negate, A: Negate) | 카메라 yaw 기준 이동. 대각선은 길이 1로 제한 |
+| `IA_DemoRun_Fallback` | Bool | Left Shift | Started: 달리기, Completed/Canceled: 걷기 |
+| `IA_DemoLook_Fallback` | Axis2D | Mouse2D | X: yaw, Y: pitch(+Y = 위를 봄, 별도 Negate 없음). 감도 `LookSensitivity` 0.3도/단위 |
+| `IA_DemoZoom_Fallback` | Axis1D | Mouse Wheel | 휠 1칸당 `ZoomStep` 60cm, 150~600 제한 |
+| `IA_DemoResetCamera_Fallback` | Bool | R | 거리 350, pitch -15, yaw = 캐릭터 뒤. 위치 유지 |
+| `IA_DemoRespawn_Fallback` | Bool | Backspace | 시작 위치 복귀 + 정지 + 카메라 복원 |
+| `IA_DemoToggleCursor_Fallback` | Bool | Esc | 커서 모드 토글(커서 표시, GameAndUI, 이동·시점·줌·R·Backspace 무시, 이동 정지) |
+
+- 시작: `FInputModeGameOnly`, 커서 숨김. 포커스 상실(`OnApplicationActivationStateChanged(false)`): `FlushPressedKeys`, 달리기 해제, 이동 정지. 복귀 후에는 키를 새로 눌러야 이동한다. 키를 누른 채 창을 다시 클릭해도 OS 키 반복(`IE_Repeat`)은 그 키를 새로 누를 때까지 `ADemoPlayerController::InputKey`에서 버린다(Enhanced Input은 `IE_Repeat`를 눌림으로 취급하므로). 커서 모드 진입(Esc) 후에도 같다.
+- 카메라 제한(편집 가능): Pitch -60~30, 거리 150~600, 기본 -15 / 350. 카메라는 SpringArm 충돌 검사로 바닥·벽을 통과하지 않는다.
+- 낙하: Z < 시작 위치 Z + `KillZOffset`(-500)이면 시작 위치로 복귀(`ResetToStart`). PlayerStart·레벨 높이를 옮겨도 기준이 따라간다.
+- 이동 속도: `ADemoCharacter`의 `WalkSpeed`/`RunSpeed`는 표시 전용(VisibleAnywhere)이며 프로필이 없을 때만 쓰는 fallback이다. 실제 값은 프로필(`CharacterProfileData`의 Play 카테고리)에서 바꾼다.
+- 안내 UI는 없다. `HintWidgetClass`가 비어 있으면 로그 한 줄만 남긴다(D2 항목).
+
+### 12.4 실행 방법
+
+- PIE: `LV_PlayDemo`를 열고 Play. GameMode는 World Settings 오버라이드로 적용된다. PIE에서 Esc는 에디터가 PIE를 종료하므로 커서 해제는 Shift+Esc 또는 `-game`에서 확인한다.
+- `-game`: `UnrealEditor.exe <uproject> /Game/PlayDemo/Maps/LV_PlayDemo -game -windowed -ResX=1280 -ResY=720 -log`
+- 에셋 생성: `UnrealEditor-Cmd.exe <uproject> -ExecutePythonScript=<abs>\Scripts\CreatePlayDemoAssets.py -unattended -nosplash -nop4 -log`
+
+### 12.5 검증 결과 (개발 PC, 약 5 FPS)
+
+| 항목 | 결과 |
+| --- | --- |
+| Editor / Game Development 빌드 | 오류 0 / 경고 0 (신규·변경 cpp 전체 재컴파일 기준) |
+| `CreatePlayDemoAssets.py` | 1회차 4개 생성(DA, BP 2, LV), 2회차 `[keep] OK` x4, `Content/PlayDemo` 4개 파일 SHA-256 동일. `CreatePortfolioAssets.py` 재실행 `[keep] OK` x7 + ini, `git status`에 Portfolio 변경 없음 |
+| Editor 자동화(NullRHI) | 7/7 (기존 6 + `Demo.NullSafety`), 경고 0 |
+| `-game` `Demo.MovementSmoke` | 1/1 성공, 실행 41초(자동화 프레임워크가 10 FPS 대기에 600초 소비) |
+| Viewer 맵 헤드리스 로드 | `LV_Portfolio` -game -NullRHI 로드, GameMode `BP_CharacterViewerGameMode_C`, 로그 Error 0 |
+
+`-game` 스모크 단계별 측정값(Enhanced Input 주입 + `PlayerController::InputKey`):
+
+| 단계 | 측정값 |
+| --- | --- |
+| 1 정지·연결 | 메시 `SKM_Manny_Simple`, AnimInstance `ABP_Unarmed_C`, 속도 0.00, 시작 (0,0,98.15) |
+| 2 걷기 | 속도 300.0(범위 250~310), 2초간 전진 743cm, yaw 0.0. 오른쪽 이동 시 yaw 90.0, 속도 (X 0, Y 300) |
+| 3 달리기 | 속도 600.0(범위 550~610), Shift 해제 후 300.0 |
+| 4 대각선 (1,1) | 속도 300.0, 최대 300.0 (기준 305 이하) |
+| 5 정지 | 입력 중단 1초 후 0.00 |
+| 6 벽 | X = 1432.5 (한계 1475 - 42 = 1433), 밀고 있는 속도 0.00 |
+| 7 카메라 | Look(200,0) yaw 60.0, Look(0,-200) pitch -60.00(Min), Look(0,400) pitch 30.00(Max), Zoom -5 arm 600.0(Max), Zoom +100 arm 150.0(Min), R 후 arm 350 / pitch -15.00 / yaw 0.00. 카메라 충돌: pitch 30 + arm 600에서 카메라 Z 12.0(바닥 위), 실제 거리 272.3 < 600 |
+| 8 포커스 | Shift+W를 `InputKey`로 누른 채 속도 600.0 -> 포커스 상실 직후 `IsRunning()` false -> 1초 후 속도 0.00(W는 눌린 상태로 남겨 둠) -> 복귀 후 1초간 속도 0.00, 이동 0.0cm -> W를 다시 누르면 300.0 |
+| 9 낙하 | Z = KillZ - 100 (-600)으로 이동 후 1.5초 뒤 시작 위치와 거리 0.0 |
+| 10 Esc | 커서 표시, Move 주입 1.5초 동안 속도 0.00·이동 0.0cm. 다시 토글 후 Move 속도 300.0 |
+
+- 테스트는 물리 키보드·마우스가 창에 들어와도 결과가 바뀌지 않도록 각 단계마다 `GameViewport->SetIgnoreInput(true)`를 다시 걸고, 시작 시 `ReleaseAllInput` + `ResetToStart`로 초기화한다. 이 처리를 넣기 전 두 번의 실행에서 10분 대기 중 들어온 실제 마우스·휠 입력으로 카메라/시작 상태가 달라져 실패했고(카메라 거리 410, yaw/pitch 변경), 원인을 확인한 뒤 초기화와 입력 무시를 추가했다. 허용 오차는 바꾸지 않았다.
+- 스크린샷: `Saved/Screenshots/WindowsEditor/DemoSmoke_Idle.png`, `DemoSmoke_Run.png`, `DemoSmoke_Wall.png` (1280x720). Idle은 마네킹 뒷모습·바닥 타일·장애물·먼 벽, Run은 달리기 자세(팔 스윙, 모션 블러), Wall은 벽 앞에서 서 있는 자세로 확인했다.
+
+### 12.6 알려진 한계
+
+- placeholder(엔진 마네킹)이며 실제 캐릭터·애니메이션·조명은 검증하지 않았다. 레벨 조명은 Viewer와 같은 값이라 밝고 대비가 낮다(D3에서 조정).
+- 입력은 Enhanced Input 주입과 `PlayerController::InputKey`(키 매핑 경로, 12.8)로 검증했다. OS 수준 실제 키보드·마우스 조작으로 검증하지 않았다(마우스 감도 0.3도/단위는 조정 전 값). 시작 시 카메라 구도는 컨트롤러 `BeginPlay` 직후 기록값으로 검증한다(12.8).
+- 발 미끄러짐은 정지 화면과 속도 값으로만 확인했고 동작 영상 검토는 하지 않았다. Root Motion 정책: 걷기·조깅 클립은 `force_root_lock`이라 제자리 재생이며 캐릭터 이동은 CharacterMovement가 담당한다. 대표 동작(Attack)의 Root Motion 무시 정책은 D2에서 적용한다.
+- 안내 UI, H(UI 숨김), 대표 동작(1/2), 전시/플레이 전환은 미구현(D2 이후). 점프 입력은 바인딩하지 않았다(`ABP_Unarmed`의 Jump/Fall 자산은 컴파일 의존성 때문에 유지).
+- `-game` 스모크는 자동화 프레임워크의 10 FPS 대기(최대 600초) 때문에 이 PC에서 약 11~12분 걸린다. 그 동안 창이 마우스를 캡처한다.
+- `LV_PlayDemo`는 패키지 `MapsToCook`에 없어 Shipping/Development 패키지 검증은 D3에서 다시 한다.
+
+### 12.7 아티스트가 연결할 항목
+
+1. `DA_PlayCharacter_Manny`를 복제하거나 실제 캐릭터 프로필을 만들어 `SkeletalMesh`, `DefaultAnimClass`(Idle/Walk/Run 전환 AnimBP), `WalkSpeed`, `RunSpeed`를 설정한다. Walk/Run 클립의 이동 속도와 이 값을 맞춰 발 미끄러짐을 줄인다. 속도는 프로필 값이 적용되며 `BP_DemoCharacter`의 `WalkSpeed`/`RunSpeed`는 표시 전용 fallback이다.
+2. `BP_DemoGameMode`의 `DemoProfile`을 그 프로필로 교체한다. 메시가 마네킹과 방향이 다르면 `BP_DemoCharacter`의 Mesh 컴포넌트 상대 위치/회전(C++ 기본 yaw -90, Z = -캡슐 절반 높이)을 조정한다. `ApplyProfile`은 메시 에셋·AnimClass·속도만 적용하고 이 상대 위치/회전은 덮어쓰지 않는다.
+3. 캐릭터 크기에 맞게 `BP_DemoCharacter`의 캡슐, 카메라 거리(기본 350, 150~600), Pitch 제한, 카메라 오프셋(SpringArm 상대 위치 Z 50)을 조정한다.
+4. `LV_PlayDemo`의 바닥·벽·조명·배경은 실제 작품에 맞게 아티스트가 편집한다(`CreatePlayDemoAssets.py`는 기존 레벨을 덮어쓰지 않는다).
+
+### 12.8 리뷰 반영 (2026-09-30)
+
+D1 리뷰 8건을 반영했다. placeholder 기술 검증이며 실제 손 조작 검증은 아니다.
+
+| # | 항목 | 반영 |
+| --- | --- | --- |
+| 1 | `ApplyProfile()`이 메시 상대 위치/회전을 매번 하드코딩 값으로 덮어씀 | 해당 줄 삭제. 기본값은 생성자에만 있고 `BP_DemoCharacter`에서 조정한 값이 유지된다. 메시 에셋·AnimClass·속도 적용은 그대로 |
+| 2 | 포커스 복귀 시 누른 채인 키의 OS 반복(`IE_Repeat`)으로 이동 재개 가능 | `ADemoPlayerController::InputKey(const FInputKeyEventArgs&)` 재정의. `ReleaseAllInput()`(포커스 상실·커서 모드) 이후, 새 `IE_Pressed`가 없었던 키의 `IE_Repeat`는 소비하고 전달하지 않는다(키별) |
+| 3 | 키 매핑 경로 검증 부족 | 스모크 11단계 추가: A/S/D, 마우스 X/Y(`EKeys::MouseX/MouseY` 축 이벤트), 휠(`MouseWheelAxis`), R, Backspace, Esc를 모두 `PlayerController::InputKey`로 보낸다. 기존 주입 단계는 유지 |
+| 4 | 캐릭터 `WalkSpeed`/`RunSpeed`가 프로필에 덮어써지는데 편집 가능 | `VisibleAnywhere`/`BlueprintReadOnly`로 변경. 프로필이 없을 때의 fallback이며 프로필 Play 값이 우선(12.3, 12.7) |
+| 5 | KillZ가 월드 절대 Z | `KillZOffset`(-500)으로 이름 변경, 시작 위치 Z + `KillZOffset` 아래에서 복귀. 스모크 낙하 단계도 상대 값 사용 |
+| 6 | 스모크 1단계의 초기 카메라 검사가 초기화 뒤라 무의미 | 컨트롤러가 `BeginPlay` 직후 pitch/거리를 기록(`GetBeginPlayCameraPitch/ArmLength`), 첫 단계에서 초기화 전에 -15 / 350(+-0.5) 검사. 실제 창 입력에 흔들리지 않도록 기록값으로 판정하고 초기화 전 실시간 값은 로그로 남긴다. `PossessedBy()`의 `ResetCamera()`는 제거: 엔진 `APlayerController::OnPossess`가 `PossessedBy` 직후 컨트롤 회전을 폰 회전으로 덮어쓰고, 시작 시 `SpawnPlayActor`가 월드 `BeginPlay`보다 먼저라 컨트롤러 `BeginPlay`의 `ResetCamera()`가 최종 구도를 정한다 |
+| 7 | 에셋 스크립트 `[keep]` 검사가 느슨함 | `BP_DemoGameMode` CDO `default_pawn_class`가 `BP_DemoCharacter` 생성 클래스인지, `LV_PlayDemo` World Settings `default_game_mode`가 `BP_DemoGameMode` 생성 클래스인지 비교. 다르면 DIFFERS만 출력(수정 없음) |
+| 8 | `FindPlayerStart()`는 null을 반환하지 않아 원점 fallback이 죽은 코드 | `ChoosePlayerStart()` 결과가 없거나 `APlayerStart`가 아니면 원점 +Z 100에 스폰. 헤더 주석과 12.1 수정 |
+
+재검증(개발 PC):
+
+| 항목 | 결과 |
+| --- | --- |
+| Editor / Game Development 빌드 | 둘 다 성공, 오류 0 / 경고 0 (변경 cpp 6개 재컴파일) |
+| `CreatePlayDemoAssets.py` | `[keep] OK` x4(DIFFERS 없음), `Content/PlayDemo` 4개 파일 SHA-256 실행 전후 동일 |
+| `CreatePortfolioAssets.py` | `[keep] OK` x7 + ini OK, `git status`에 Portfolio 변경 없음 |
+| Editor 자동화(NullRHI) | 7/7 성공, 경고 0 |
+| `-game` `Demo.MovementSmoke` | 1/1 성공, 경고 0, 테스트 67초(프로세스 전체 11.4분), 로그 Error 0 |
+
+`-game` 스모크 신규·변경 단계 측정값(모두 `PlayerController::InputKey` 경로):
+
+| 단계 | 측정값 |
+| --- | --- |
+| 1 시작 구도 | BeginPlay 기록 pitch -15.00 / 거리 350.0, 초기화 전 실시간 pitch -15.00 / 거리 350.0 / yaw 0.0 |
+| 8e~8g 키 반복 | W 누름 속도 300.0 -> 포커스 상실 -> 복귀 후 1초간 W `IE_Repeat`만: 속도 0.00, 최대 0.00, 이동 0.0cm -> W 새로 누름 속도 300.0 |
+| 9 낙하 | 시작 Z 98.2 + KillZOffset -500 - 100 = Z -501.9로 이동, 1.5초 뒤 시작 위치와 거리 0.0 |
+| 11 A / S / D | 속도 (0,-300) yaw -90 / (-300,0) yaw 180 / (0,300) yaw 90. 1.5초 이동 485 / 475 / 470cm. 키를 떼면 1초 안에 속도 < 5 |
+| 11 마우스 | MouseX +100: yaw 0 -> 2.10(오른쪽), MouseY +100(마우스 위): pitch -15 -> -12.90(위를 봄). 마우스 1단위당 0.021도 = `LookSensitivity` 0.3 x 엔진 기본 Mouse 축 감도 0.07(`BaseInput.ini`) |
+| 11 R | 시점 변경 뒤 거리 350.0, pitch -15.00, yaw 0.00 |
+| 11 휠 | `MouseWheelAxis` +1: 거리 350.0 -> 290.0(ZoomStep 60, 1칸만 적용) |
+| 11 Backspace | W로 475.4cm 이동 뒤 시작 위치와 거리 0.0, 속도 0.00, 거리 350.0, pitch -15.00 |
+| 11 Esc | 커서 모드에서 W 1.5초: 속도 0.00, 이동 0.0cm. Esc 다시 누름 뒤 W 속도 300.0 |
+
+- 테스트 중 `GameViewport->SetIgnoreInput(true)`가 켜져 있어도 `PlayerController::InputKey` 호출은 뷰포트를 거치지 않으므로 키 매핑 단계가 정상 동작함을 확인했다(위 수치).
+- 기존 단계 수치(2~8d, 10)는 12.5와 같다(걷기 300.0, 달리기 600.0, 대각선 300.0, 벽 X 1432.6, 카메라 60.0 / -60 / 30 / 600 / 150, 충돌 카메라 Z 12.0). `DemoSmoke_Run.png`에서 달리기 자세를 다시 확인했다.
+- 마우스 실효 감도는 1단위당 0.021도다(엔진 기본 축 감도 0.07 포함). 실제 마우스 조작 체감은 사람이 확인해야 한다.
+- 남은 미검증: OS 수준 실제 키보드·마우스 조작(키 반복·포커스 전환 포함)은 사람이 직접 확인하지 않았다.

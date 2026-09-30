@@ -256,6 +256,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Part")
 	TObjectPtr<UMaterialInterface> WireframeMaterial = nullptr;
 
+	// D1 (Docs/PLAYABLE_CHARACTER_DEMO_PLAN.md): ground speeds (cm/s) used by
+	// ADemoCharacter for walking / running. SkeletalMesh and DefaultAnimClass
+	// above are reused for the play character; nothing is duplicated.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Play", meta = (ClampMin = "1"))
+	float WalkSpeed = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Play", meta = (ClampMin = "1"))
+	float RunSpeed = 600.f;
+
 	// Plain C++ helpers (not UFUNCTION: UHT does not support a raw pointer to a
 	// USTRUCT as a Blueprint-exposed return type). Used from C++ only
 	// (Actor/Controller/Widget/tests).
