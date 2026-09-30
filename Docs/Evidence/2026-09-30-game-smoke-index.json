@@ -1,0 +1,236 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-M67CJ73",
+			"instance": "0D9788FA4C00178700BDFF95FA576135",
+			"instanceName": "DESKTOP-M67CJ73-2344",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 10 (22H2) [10.0.19045.6466] ",
+			"model": "Default",
+			"gPU": "Intel(R) UHD Graphics 630",
+			"cPUModel": "Intel(R) Core(TM) i5-9600K CPU @ 3.70GHz",
+			"rAMInGB": 24,
+			"renderMode": "D3D12_SM5",
+			"rHI": "D3D12 (SM5)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.09.30-05.12.23",
+	"succeeded": 1,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 40.303905487060547,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "ViewerSmoke",
+			"fullTestPath": "CharacterShowcase.Game.ViewerSmoke",
+			"state": "Success",
+			"deviceInstance": [
+				"0D9788FA4C00178700BDFF95FA576135"
+			],
+			"duration": 40.303905487060547,
+			"dateTime": "2026.09.30-05.11.42",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_UI' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_UI.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.11.50"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_Clean' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_Clean.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.11.53"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_Inspect' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_Inspect.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.11.58"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_Wireframe' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_Wireframe.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.01"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_Profile2' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_Profile2.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.08"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Screenshot 'ViewerSmoke_Profile1' (1280x720, with UI) -> C:/Users/WINCARD1/Downloads/develop/project/character-showcase/Saved/Screenshots/WindowsEditor/ViewerSmoke_Profile1.png",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.11"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to the fallback panel at (1275, 360).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.12"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Window state: visible=1 minimized=0 pos=(0, 0) size=1280x720; PanelRoot absolute rect=(1067, 0)-(1280, 720).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.12"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to empty canvas at (128, 72).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to the fallback panel at (1275, 360).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.16"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Window state: visible=1 minimized=0 pos=(0, 0) size=1280x720; PanelRoot absolute rect=(1067, 0)-(1280, 720).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.16"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to empty canvas at (128, 72).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.16"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to the fallback panel at (1275, 360).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.17"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Window state: visible=1 minimized=0 pos=(0, 0) size=1280x720; PanelRoot absolute rect=(1067, 0)-(1280, 720).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.17"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to empty canvas at (128, 72).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Synthesized pointer move to empty canvas at (128, 72).",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.09.30-05.12.20"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}
