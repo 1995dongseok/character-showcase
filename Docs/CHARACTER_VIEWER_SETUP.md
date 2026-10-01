@@ -21,9 +21,11 @@
 
 ## 1. 실행 방법
 
+**처음이면 [README.md](../README.md) → [ARTIST_QUICKSTART.md](ARTIST_QUICKSTART.md) 순서로 본다**(FBX 규칙은 [FBX_IMPORT_GUIDE.md](FBX_IMPORT_GUIDE.md)). 아래 명령은 전부 `Tools\*.bat`으로 감싸 두었다 — 더블클릭으로 실행하고, `--check`를 붙이면 실행할 명령만 출력한 뒤 종료 코드 0으로 끝난다(아무것도 시작하지 않음). 엔진 경로는 기본 `C:\Program Files\Epic Games\UE_5.6`, 환경 변수 `UE_ROOT`로 바꿀 수 있다. 이 PC는 Launcher가 5.6을 레지스트리에 등록하지 않아 `.uproject` 더블클릭/우클릭 메뉴가 동작하지 않을 수 있으므로 .bat 사용을 권장한다. 공통 처리(경로·엔진 탐지, C++ 모듈 DLL·LFS 포인터 검사)는 `Tools\_Common.bat`에 있다.
+
 ### 1.1 Editor에서 열기
 
-`CharacterShowcase.uproject`를 더블클릭하거나 `UnrealEditor.exe`에 직접 넘긴다(설치 경로: `C:\Program Files\Epic Games\UE_5.6`).
+**`Tools\OpenEditor.bat`**(C++ 모듈이 아직 없으면 먼저 **`Tools\BuildEditor.bat`**, 1.4절). 직접 실행하려면 `CharacterShowcase.uproject`를 더블클릭하거나 `UnrealEditor.exe`에 직접 넘긴다(설치 경로: `C:\Program Files\Epic Games\UE_5.6`).
 
 ```powershell
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
@@ -34,9 +36,11 @@
 
 ### 1.2 PIE (Play In Editor)
 
-Editor 툴바의 **Play** 버튼으로 사람이 직접 확인한 기록은 아직 없다(4.1절 — 지금까지의 실행 검증은 전부 `-game`/패키지 프로세스와 Editor Automation으로 이루어졌다). 아티스트는 캐릭터를 등록한 뒤 Play로 직접 눌러 확인하는 것을 권장한다.
+`Tools\OpenEditor.bat`으로 연 Editor에서 툴바 **Play**. Editor 툴바의 **Play** 버튼으로 사람이 직접 확인한 기록은 아직 없다(4.1절 — 지금까지의 실행 검증은 전부 `-game`/패키지 프로세스와 Editor Automation으로 이루어졌다). 아티스트는 캐릭터를 등록한 뒤 Play로 직접 눌러 확인하는 것을 권장한다.
 
 ### 1.3 `-game` 커맨드 (렌더링 실확인, NullRHI 아님)
+
+**`Tools\RunViewer.bat`**(`/Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1920 -ResY=1080`, `--720p`면 1280×720)과 **`Tools\RunPlayDemo.bat`**(같은 인자로 `/Game/PlayDemo/Maps/LV_PlayDemo`)이 이 명령을 감싼다. 둘 다 `-log -unattended -nosplash`는 붙이지 않는다(아티스트용). 아래는 스모크/테스트용 원래 명령이다.
 
 ```powershell
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" `
@@ -49,6 +53,8 @@ Editor 툴바의 **Play** 버튼으로 사람이 직접 확인한 기록은 아�
 실제 입력 재생 검증(Shipping 등 자동화 테스트가 없는 빌드): `Docs/Evidence/2026-09-30-shipping-real-input/ViewerInputDriver.ps1`이 user32 `SendInput`으로 실제 마우스/키보드 이벤트를 보내고 단계마다 창을 캡처한다. 게임 창이 전면 창임을 확인한 뒤에만 입력을 보내며, 아니면 중단한다. 실행 중 PC를 조작하지 않는다. 이 PC는 약 5 FPS라 키 입력은 400 ms 이상 누르고 드래그는 한 단계 250 ms 간격으로 보내야 엔진이 인식한다(60 ms 탭은 프레임 사이에 묻힘).
 
 ### 1.4 빌드/테스트 명령
+
+Editor 빌드는 **`Tools\BuildEditor.bat`**(`Build.bat CharacterShowcaseEditor Win64 Development -Project=... -WaitMutex`, 실행 중인 Editor의 Live Coding이 있으면 막히므로 Editor를 닫고 실행). 프로젝트 파일 생성·Game 빌드·Automation은 .bat이 없다 — 아래 명령을 쓴다.
 
 ```powershell
 $ueRoot = 'C:\Program Files\Epic Games\UE_5.6'
@@ -74,6 +80,8 @@ Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.
 
 ### 1.5 패키지 명령 (Development / Shipping)
 
+**`Tools\PackageViewer.bat`**이 아래 Development 명령(같은 플래그)을 실행한 뒤 `Saved\Packaged\Windows`를 `*.pdb`와 `CharacterShowcase-Win64-Shipping.*`를 빼고 복사해 `Saved\Packaged\CharacterShowcase-Win64-<yyyyMMdd>.zip`(PowerShell `Compress-Archive`, zip 안 최상위 폴더 `CharacterShowcase-Win64-<yyyyMMdd>`)으로 압축한다. `--zip-only`는 패키징을 건너뛰고 압축만 한다. Shipping용 .bat은 없다. `MapsToCook`이 `LV_Portfolio`뿐이라 플레이 데모 맵은 패키지에 들어가지 않는다.
+
 ```powershell
 & "$ueRoot\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="$proj" `
     -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive `
@@ -84,6 +92,8 @@ Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.
 Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping 빌드는 `WITH_DEV_AUTOMATION_TESTS`가 꺼져 있어 자동화 테스트로 검증할 수 없다 — 배포 전 사람이 직접 화면을 확인해야 한다(4.1절).
 
 ### 1.6 두 Python 스크립트 — 언제 실행하고, 언제 실행하지 않는가
+
+아래 두 생성 스크립트는 일부러 .bat으로 감싸지 않았다(일상 작업에서 실행할 일이 없음). 프로필 검사 스크립트 `Scripts/ValidateProfiles.py`(별도 작업으로 추가)는 **`Tools\ValidateProfiles.bat`**이 `UnrealEditor-Cmd ... -ExecutePythonScript=<abs>\Scripts\ValidateProfiles.py -NullRHI -unattended -nosplash -nop4 -abslog=Saved\Logs\ValidateProfiles.log`로 실행하고, 끝나면 로그에서 `[ValidateProfiles]` 줄(`<asset>: E=0 W=.. I=..`)만 다시 보여 준다. 스크립트가 없으면 "not present yet"만 출력하고 종료 코드 0.
 
 ```powershell
 & "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$proj" `
@@ -104,6 +114,8 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
 - 기본 레이아웃을 최신 생성 로직으로 다시 만들려면 `WBP_CharacterViewer`를 삭제하고 이 스크립트만 다시 실행한다(2026-10-01부터 에셋이 없으면 빈 WBP(부모 `CharacterViewerWidget`)부터 만든다 — `CreatePortfolioAssets.py`를 함께 돌릴 필요 없음). 트리는 런타임 C++ 폴백과 같은 함수(`UCharacterViewerWidget::BuildDefaultLayoutTree()`)로 만들어지므로 두 경로의 모양이 같다.
 
 ### 1.7 조작 키 · 촬영(포트폴리오 캡처)
+
+`Tools\RunViewer.bat`/PIE에서 쓰는 키다. 뷰어 키와 플레이 데모 키를 한 표로 모은 아티스트용 요약은 [README.md](../README.md#조작-키), 촬영 순서는 [ARTIST_QUICKSTART.md](ARTIST_QUICKSTART.md) 5단계.
 
 | 키 | 동작 | 패널 버튼 |
 | --- | --- | --- |
@@ -458,3 +470,27 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - 이 엔진 빌드에서 **`-NullRHI`로 `StaticMeshActor`를 spawn하면 `EXCEPTION_INT_DIVIDE_BY_ZERO`로 Editor가 크래시**한다(재현 1/1, 실제 RHI에서는 정상). 레벨 편집 스크립트는 `-NullRHI` 없이 실행했다. 에셋 생성/검증(`CreatePortfolioAssets.py`, 기존 레벨이 있으면 Actor를 spawn하지 않음)은 `-NullRHI`로 정상.
 - `-NullRHI`에서 스켈레탈 메시 FBX 내보내기도 `Assertion failed: MeshObject`로 크래시 — 실제 RHI에서는 정상.
 - `MaterialEditingLibrary.set_material_instance_*_parameter_value`의 bool 반환값은 값이 적용됐는데도 False를 돌려줬다 → 스크립트는 반환값 대신 값을 다시 읽어 검사한다.
+
+### 6.16 아티스트용 진입 문서와 Tools\*.bat (2026-10-01)
+
+**무엇/왜**: Unreal을 처음 여는 아티스트가 이 문서(개발/인계 기록)부터 읽지 않도록 짧은 진입 문서 3개와 더블클릭 실행 파일을 만들었다. C++/Content/Config는 바꾸지 않았다.
+
+- `README.md`(저장소 소개, 10분 보기, 뷰어+플레이 데모 키 표, 촬영, 하드웨어, 문제 시 링크), `Docs/ARTIST_QUICKSTART.md`(0 설치 ~ 7 문제 해결, 단계마다 "확인 방법", 2절 ①~⑨ 체크리스트), `Docs/FBX_IMPORT_GUIDE.md`(단위·축, `SK_Mannequin` 재사용 vs 새 Skeleton, Physics Asset, Morph, Material Slot = 파츠, 텍스처 sRGB, 애니메이션 Root Motion, 자동 측정 값, 커밋 전 체크리스트).
+- `Docs/Images/` 4장(`viewer_ui_1280x720.png`, `viewer_clean_1280x720.png` = `Saved/Screenshots/ViewerCapture/ViewerCapture_{UI,Clean}_1280x720.png`, `troubleshoot_preparing_shaders.png` = `ViewerSmoke_Inspect.png`, `playdemo_run.png` = `DemoSmoke_Run.png`, 각 1 MB 미만). `.gitattributes`에 `Docs/Images/*.png` LFS 규칙과 `*.bat text eol=crlf`를 추가했다(기존 `Docs/Evidence/*.png`는 일반 Git 그대로).
+- `Tools\_Common.bat`(옵션 파싱, 프로젝트 루트 `%~dp0..`, `UE_ROOT` 탐지, `Binaries\Win64\UnrealEditor-CharacterShowcase.dll` 유무, `LV_Portfolio.umap` 1 KB 미만이면 LFS 포인터로 판정) + `OpenEditor`, `RunViewer`, `RunPlayDemo`, `ValidateProfiles`, `PackageViewer`, `BuildEditor` 6개. ASCII 전용, `setlocal`, 오류 시 원인 출력 + 종료 코드 1, 끝에 `pause`(`--check`/`--no-pause`면 생략).
+- 작성 중 발견: 호출된 배치에서 `shift` 후에는 `%~dp0`도 밀린다 → `_Common.bat`이 맨 앞에서 `TOOLS_DIR`을 먼저 저장하도록 1회 수정(수정 전에는 프로젝트 루트를 한 단계 위로 잘못 계산해 6개 모두 `Project file not found`, 종료 코드 1).
+
+**검증(`--check`만, UE를 띄우지 않음)**: 먼저 가짜 `UE_ROOT`(빈 exe/에코 배치)로 실행해 아무것도 시작되지 않음을 확인한 뒤 실제 경로로 실행했다. 8회 모두 종료 코드 0, 공통 머리말 `Project : ...\character-showcase\CharacterShowcase.uproject` / `Engine : C:\Program Files\Epic Games\UE_5.6` / `C++ : editor module built` / `Content : ok`.
+
+| 명령 | `[check]` 출력(경로는 `<UE>` = `C:\Program Files\Epic Games\UE_5.6`, `<P>` = 프로젝트 루트로 줄임) |
+| --- | --- |
+| `OpenEditor.bat --check` | `start "" "<UE>\Engine\Binaries\Win64\UnrealEditor.exe" "<P>\CharacterShowcase.uproject"` |
+| `RunViewer.bat --check` | `start "" "<UE>\...\UnrealEditor.exe" "<P>\CharacterShowcase.uproject" /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1920 -ResY=1080` (`--720p`: `-ResX=1280 -ResY=720`) |
+| `RunPlayDemo.bat --check` | map file `<P>\Content\PlayDemo\Maps\LV_PlayDemo.umap (31204 bytes)`, `... /Game/PlayDemo/Maps/LV_PlayDemo -game -windowed -ResX=1920 -ResY=1080` |
+| `ValidateProfiles.bat --check` | `[ValidateProfiles] Scripts\ValidateProfiles.py is not present yet - nothing to validate.` + `would run once the script exists: "<UE>\...\UnrealEditor-Cmd.exe" "<P>\CharacterShowcase.uproject" "-ExecutePythonScript=<P>\Scripts\ValidateProfiles.py" -NullRHI -unattended -nosplash -nop4 "-abslog=<P>\Saved\Logs\ValidateProfiles.log"` |
+| `BuildEditor.bat --check` | `Visual Studio installer: found`, `call "<UE>\Engine\Build\BatchFiles\Build.bat" CharacterShowcaseEditor Win64 Development -Project="<P>\CharacterShowcase.uproject" -WaitMutex` |
+| `PackageViewer.bat --check` (`--zip-only` 동일 + "step 1 would be skipped") | `call "<UE>\...\RunUAT.bat" BuildCookRun -project="<P>\CharacterShowcase.uproject" -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="<P>\Saved\Packaged" -unattended -noP4 -utf8output` → `robocopy "<P>\Saved\Packaged\Windows" "<P>\Saved\Packaged\_zipstage\CharacterShowcase-Win64-20261001" /E ... /XF *.pdb CharacterShowcase-Win64-Shipping.*` → `Compress-Archive ... -DestinationPath '<P>\Saved\Packaged\CharacterShowcase-Win64-20261001.zip'` |
+
+추가 확인: 알 수 없는 옵션 `--bogus` → 종료 코드 1, 없는 `UE_ROOT` → `[ERROR] Unreal Engine 5.6 not found` 종료 코드 1, 스크래치 가짜 프로젝트(130바이트 LFS 포인터 `LV_Portfolio.umap`) → `Content : lfs-pointer` + 종료 코드 1.
+
+**미검증**: .bat의 실제 실행(Editor/`-game`/UnrealEditor-Cmd/Build.bat/RunUAT 기동, robocopy·`Compress-Archive` 압축)은 하지 않았다 — 같은 체크아웃에서 패키지·스모크가 돌고 있었기 때문이다. 문서의 Editor 메뉴 경로·FBX 옵션 이름(UE 5.6 Interchange 가져오기 창), 막 받은 저장소의 전체 C++ 빌드·첫 셰이더 컴파일 시간, 일반 GPU의 FPS, 다른 PC에서 패키지 zip 실행은 측정·확인하지 않았다. `ValidateProfiles.bat`의 요약 줄 형식은 `Scripts/ValidateProfiles.py`(별도 작업)의 출력 형식 `[ValidateProfiles] <asset>: E=.. W=.. I=..`을 전제로 한다.
