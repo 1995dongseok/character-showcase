@@ -91,7 +91,7 @@ float UCharacterViewerWidget::EstimateLineHeight(int32 FontSize)
 	return static_cast<float>(FMath::Max(1, FontSize)) * (96.f / 72.f) * 1.25f;
 }
 
-float UCharacterViewerWidget::MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset)
+float UCharacterViewerWidget::MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset, const FString& SampleText)
 {
 	const int32 SafeLines = FMath::Max(1, Lines);
 	const float SafeScale = LayoutScale > KINDA_SMALL_NUMBER ? LayoutScale : 1.f;
@@ -104,7 +104,8 @@ float UCharacterViewerWidget::MeasureTextLinesHeight(const FSlateFontInfo& Font,
 		TArray<FString> LineTexts;
 		for (int32 Index = 1; Index <= SafeLines; ++Index)
 		{
-			LineTexts.Add(FString::FromInt(Index));
+			// Digits (Roboto) plus the sample's fallback-font characters.
+			LineTexts.Add(FString::FromInt(Index) + SampleText);
 		}
 		const TSharedRef<STextBlock> Probe = SNew(STextBlock)
 			.Text(FText::FromString(FString::Join(LineTexts, TEXT("\n"))))
@@ -120,11 +121,34 @@ float UCharacterViewerWidget::MeasureTextLinesHeight(const FSlateFontInfo& Font,
 	return EstimateLineHeight(FMath::RoundToInt(Font.Size)) * static_cast<float>(SafeLines);
 }
 
-float UCharacterViewerWidget::ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset)
+float UCharacterViewerWidget::ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset, const FString& SampleText)
 {
 	// DescriptionScroll (ScrollBox) and DescriptionText (Margin 0) add no
 	// vertical padding, so the box height is exactly the text height.
-	return MeasureTextLinesHeight(Font, Lines, LayoutScale, ShadowOffset);
+	return MeasureTextLinesHeight(Font, Lines, LayoutScale, ShadowOffset, SampleText);
+}
+
+FString UCharacterViewerWidget::GetLineHeightSample(const FString& Text)
+{
+	FString Sample;
+	for (const TCHAR Character : Text)
+	{
+		if (Character > 127 && !FChar::IsWhitespace(Character) && !FChar::IsLinebreak(Character)
+			&& Sample.Len() < 16 && !Sample.Contains(FString::Chr(Character), ESearchCase::CaseSensitive))
+		{
+			Sample.AppendChar(Character);
+		}
+	}
+	return Sample;
+}
+
+void UCharacterViewerWidget::RequestListsScrollToEnd(int32 Ticks)
+{
+	PendingListsScrollToEndTicks = FMath::Max(PendingListsScrollToEndTicks, FMath::Max(1, Ticks));
+	if (ListsScroll)
+	{
+		ListsScroll->ScrollToEnd();
+	}
 }
 
 void UCharacterViewerWidget::ApplyDescriptionLineFit(float LayoutScale)
@@ -142,13 +166,15 @@ void UCharacterViewerWidget::ApplyDescriptionLineFit(float LayoutScale)
 	const FSlateFontInfo Font = DescriptionText->GetFont();
 	const FVector2D Shadow = DescriptionText->GetShadowOffset();
 	const int32 Lines = FMath::Max(1, DescriptionVisibleLines);
+	const FString Sample = GetLineHeightSample(DescriptionText->GetText().ToString());
 	if (AppliedDescriptionMaxHeight > 0.f && FMath::IsNearlyEqual(LastDescriptionFitScale, LayoutScale, 1e-4f)
-		&& LastDescriptionFitLines == Lines && LastDescriptionFitShadow.Equals(Shadow) && LastDescriptionFitFont.IsIdenticalTo(Font))
+		&& LastDescriptionFitLines == Lines && LastDescriptionFitShadow.Equals(Shadow) && LastDescriptionFitFont.IsIdenticalTo(Font)
+		&& LastDescriptionFitSample.Equals(Sample, ESearchCase::CaseSensitive))
 	{
 		return;
 	}
 
-	const float Height = ComputeDescriptionMaxHeight(Font, Lines, LayoutScale, Shadow);
+	const float Height = ComputeDescriptionMaxHeight(Font, Lines, LayoutScale, Shadow, Sample);
 	if (Height <= 0.f)
 	{
 		return;
@@ -162,6 +188,7 @@ void UCharacterViewerWidget::ApplyDescriptionLineFit(float LayoutScale)
 	LastDescriptionFitLines = Lines;
 	LastDescriptionFitShadow = Shadow;
 	LastDescriptionFitFont = Font;
+	LastDescriptionFitSample = Sample;
 }
 
 bool UCharacterViewerWidget::BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacterViewerLayoutWidgets& Out)
@@ -825,6 +852,15 @@ void UCharacterViewerWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	// Text is laid out at the accumulated layout scale (DPI scale), so the
 	// whole-line description height is fitted for that scale.
 	ApplyDescriptionLineFit(MyGeometry.Scale);
+
+	if (PendingListsScrollToEndTicks > 0)
+	{
+		--PendingListsScrollToEndTicks;
+		if (ListsScroll)
+		{
+			ListsScroll->ScrollToEnd();
+		}
+	}
 }
 
 void UCharacterViewerWidget::ApplyAutoPanelWidth(float ViewportWidth)
@@ -1033,6 +1069,18 @@ void UCharacterViewerWidget::RefreshUI()
 		AddListSection(ListsBox, FText::FromString(TEXT("APPEARANCE")), GetMaterialVariants(), ECharacterViewerButtonKind::MaterialVariant, GetCurrentMaterialVariantId());
 		BuildInspectionSection(ListsBox);
 	}
+
+	// INSPECTION is the last section inside ListsScroll; its selected-part
+	// block (name / Measured|Authored / Highlight) is its last rows. When a
+	// NEW part gets selected, scroll the lists to the end so that block is
+	// on screen (at 720p the lists area is only ~11 text lines tall).
+	const APortfolioCharacterActor* BoundActor = WeakActor.Get();
+	const FName SelectedPart = (BoundActor && IsInspectionEnabled()) ? BoundActor->GetSelectedPartId() : NAME_None;
+	if (SelectedPart != NAME_None && SelectedPart != LastAutoScrolledPartId)
+	{
+		RequestListsScrollToEnd();
+	}
+	LastAutoScrolledPartId = SelectedPart;
 
 	ApplyCaptureStatus();
 }

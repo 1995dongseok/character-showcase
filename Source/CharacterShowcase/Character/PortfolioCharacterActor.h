@@ -76,8 +76,8 @@ public:
 	TObjectPtr<UMaterialInterface> HighlightOverlayMaterial = nullptr;
 
 	// Per-part highlight: opaque unlit emissive magenta material put on the
-	// selected part's material slots (EViewerHighlightMode::MaterialSlots) and
-	// on the bone marker spheres (BoneMarkers). Defaults to
+	// selected part's material slots (EViewerHighlightMode::MaterialSlots)
+	// (and on the bone marker spheres only if BoneMarkerMaterial is null). Defaults to
 	// /Game/Portfolio/Materials/M_ViewerPartHighlight (created by
 	// Scripts/CreatePortfolioAssets.py) if present at construction time. Null
 	// disables both per-part modes; a selection then falls back to WholeMesh.
@@ -89,9 +89,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
 	TObjectPtr<UStaticMesh> BoneMarkerMesh = nullptr;
 
+	// Material of the bone marker spheres only: translucent unlit magenta with
+	// Disable Depth Test, so markers on joints INSIDE the mesh (head, neck,
+	// spine) are drawn through the character instead of being hidden by it.
+	// Defaults to /Game/Portfolio/Materials/M_ViewerBoneMarker (created by
+	// Scripts/CreatePortfolioAssets.py) if present at construction time; null
+	// falls back to PartHighlightMaterial (opaque, depth-tested).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
+	TObjectPtr<UMaterialInterface> BoneMarkerMaterial = nullptr;
+
 	// World-space diameter (cm) of one bone marker sphere.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection", meta = (ClampMin = "1"))
-	float BoneMarkerDiameter = 10.f;
+	float BoneMarkerDiameter = 12.f;
 
 	// Opt-in: also keep the faint whole-mesh overlay tint while BoneMarkers
 	// are shown. Off by default: the markers are the indication.

@@ -57,6 +57,8 @@ Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.13), same create-missing-only
 Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.14), same rule:
   - M_WireframeOverlay: the shaded-wireframe overlay material
     (APortfolioCharacterActor::WireframeOverlayMaterial).
+  - M_ViewerBoneMarker: translucent, depth-test-disabled marker material
+    (APortfolioCharacterActor::BoneMarkerMaterial).
 """
 
 import sys
@@ -108,6 +110,9 @@ PART_HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{PART_HIGHLIGHT_MAT_NAME}"
 # mesh's OVERLAY material by APortfolioCharacterActor while Wireframe is on.
 WIREFRAME_OVERLAY_MAT_NAME = "M_WireframeOverlay"
 WIREFRAME_OVERLAY_MAT_PATH = f"{MATERIALS_PACKAGE}/{WIREFRAME_OVERLAY_MAT_NAME}"
+# Bone marker spheres (BoneMarkers highlight), drawn through the mesh.
+BONE_MARKER_MAT_NAME = "M_ViewerBoneMarker"
+BONE_MARKER_MAT_PATH = f"{MATERIALS_PACKAGE}/{BONE_MARKER_MAT_NAME}"
 
 TUTORIAL_MESH = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"
 TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Idle.Tutorial_Idle"
@@ -709,19 +714,26 @@ WIREFRAME_OVERLAY_COLOR = (0.0, 1.0, 1.0)  # same cyan as M_Wireframe
 # the line lands on screen, only its depth, so the lines win the depth test
 # against the identical shaded surface instead of z-fighting into dashes.
 # 0.002 = 0.9 cm at the 4.6 m Full Body distance, 0.36 cm at the 1.8 m Face distance.
-WIREFRAME_OVERLAY_SCALARS = {"DepthBiasFraction": 0.002}
+# LineOpacity: the overlay is TRANSLUCENT (2026-10-01 review fix): on the 92k-
+# triangle Manny at 720p nearly every pixel carries an edge, so opaque lines
+# read as a solid cyan silhouette. At 0.35 a single line tints the shaded
+# surface and overlapping lines in dense regions saturate (1 - 0.65^n)
+# instead of covering it completely.
+WIREFRAME_OVERLAY_SCALARS = {"DepthBiasFraction": 0.002, "LineOpacity": 0.35}
 WIREFRAME_OVERLAY_VECTORS = {"LineColor": WIREFRAME_OVERLAY_COLOR}
 
 
 def validate_wireframe_overlay_material(mat, path):
     """Read-only check for an existing M_WireframeOverlay: skeletal-mesh
-    usage, Wireframe on, unlit, opaque, and the two exposed parameters.
-    Never writes to `mat`."""
+    usage, Wireframe on, two-sided, unlit, TRANSLUCENT, depth test ON, and the
+    exposed parameters. Never writes to `mat`."""
     diffs = []
     expected = (
         ("used_with_skeletal_mesh", True, "used_with_skeletal_mesh is not True"),
         ("wireframe", True, "wireframe is not True"),
         ("two_sided", True, "two_sided is not True"),
+        # The wireframe must stay depth-tested (only the visible surface's edges).
+        ("disable_depth_test", False, "disable_depth_test is not False"),
     )
     for prop, value, message in expected:
         try:
@@ -732,8 +744,8 @@ def validate_wireframe_overlay_material(mat, path):
     try:
         if mat.get_editor_property("shading_model") != unreal.MaterialShadingModel.MSM_UNLIT:
             diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected MSM_UNLIT")
-        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_OPAQUE:
-            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_OPAQUE")
+        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_TRANSLUCENT:
+            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_TRANSLUCENT")
     except Exception as exc:
         diffs.append(f"could not read shading_model/blend_mode ({exc!r})")
     try:
@@ -750,17 +762,19 @@ def validate_wireframe_overlay_material(mat, path):
 
 
 def create_or_update_wireframe_overlay_material():
-    """M_WireframeOverlay: unlit, OPAQUE, two-sided, Wireframe=True, cyan
-    emissive (`LineColor`), plus a camera-ward World Position Offset
-    (`DepthBiasFraction`, see WIREFRAME_OVERLAY_SCALARS). Set with
+    """M_WireframeOverlay: unlit, TRANSLUCENT (`LineOpacity` 0.35), two-sided,
+    Wireframe=True, depth test ON, cyan emissive (`LineColor`), plus a
+    camera-ward World Position Offset (`DepthBiasFraction`, see
+    WIREFRAME_OVERLAY_SCALARS). Set with
     USkeletalMeshComponent::SetOverlayMaterial() while Wireframe is on
     (APortfolioCharacterActor, EViewerWireframeMode::Overlay): the engine
     draws the overlay as an extra mesh pass of the same sections (any blend
     mode is accepted; only the skeletal-mesh usage flag is checked), so the
     shaded surface stays visible with cyan lines on top -- unlike M_Wireframe,
     which replaces every slot and turns a 92k-triangle mesh into a solid cyan
-    silhouette. Opaque so the lines are written like normal geometry (no
-    translucency sorting).
+    silhouette. Translucent (not opaque) since the 2026-10-01 review: at 720p
+    the edges of a dense mesh cover almost every pixel, so only partially
+    transparent lines keep the shading readable.
 
     CREATE-MISSING-ONLY like the materials above: an existing
     M_WireframeOverlay is validated read-only and never touched."""
@@ -777,9 +791,10 @@ def create_or_update_wireframe_overlay_material():
     log(f"[CreatePortfolioAssets] Created {WIREFRAME_OVERLAY_MAT_NAME} at {WIREFRAME_OVERLAY_MAT_PATH}")
 
     mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
-    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
     mat.set_editor_property("two_sided", True)
     mat.set_editor_property("wireframe", True)
+    mat.set_editor_property("disable_depth_test", False)
     # Required: the skeletal mesh scene proxy drops an overlay material
     # without this usage flag ("Overlay material with missing usage flag").
     mat.set_editor_property("used_with_skeletal_mesh", True)
@@ -795,7 +810,14 @@ def create_or_update_wireframe_overlay_material():
     if not MEL.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR):
         errors.append(f"[CreatePortfolioAssets] FAILED: connect emissive on {WIREFRAME_OVERLAY_MAT_NAME}")
 
-    camera_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionCameraPositionWS, -800, 200)
+    opacity = MEL.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, -400, 50)
+    opacity.set_editor_property("parameter_name", "LineOpacity")
+    opacity.set_editor_property("default_value", WIREFRAME_OVERLAY_SCALARS["LineOpacity"])
+    opacity.set_editor_property("group", "Wireframe")
+    if not MEL.connect_material_property(opacity, "", unreal.MaterialProperty.MP_OPACITY):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect opacity on {WIREFRAME_OVERLAY_MAT_NAME}")
+
+    camera_pos =MEL.create_material_expression(mat, unreal.MaterialExpressionCameraPositionWS, -800, 200)
     world_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionWorldPosition, -800, 320)
     to_camera = MEL.create_material_expression(mat, unreal.MaterialExpressionSubtract, -600, 250)
     bias = MEL.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, -600, 400)
@@ -812,6 +834,79 @@ def create_or_update_wireframe_overlay_material():
 
     MEL.recompile_material(mat)
     save(WIREFRAME_OVERLAY_MAT_PATH)
+    return mat
+
+
+BONE_MARKER_COLOR = unreal.LinearColor(1.0, 0.0, 0.8, 1.0)  # same magenta as the part highlight
+BONE_MARKER_OPACITY = 0.85
+
+
+def validate_bone_marker_material(mat, path):
+    """Read-only check for an existing M_ViewerBoneMarker: translucent, unlit,
+    two-sided, depth test DISABLED (the markers must show through the mesh).
+    Never writes to `mat`."""
+    diffs = []
+    expected = (
+        ("disable_depth_test", True, "disable_depth_test is not True"),
+        ("two_sided", True, "two_sided is not True"),
+    )
+    for prop, value, message in expected:
+        try:
+            if mat.get_editor_property(prop) is not value:
+                diffs.append(message)
+        except Exception as exc:
+            diffs.append(f"could not read {prop} ({exc!r})")
+    try:
+        if mat.get_editor_property("shading_model") != unreal.MaterialShadingModel.MSM_UNLIT:
+            diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected MSM_UNLIT")
+        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_TRANSLUCENT:
+            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_TRANSLUCENT")
+    except Exception as exc:
+        diffs.append(f"could not read shading_model/blend_mode ({exc!r})")
+    report_keep(path, diffs)
+
+
+def create_or_update_bone_marker_material():
+    """M_ViewerBoneMarker: unlit, TRANSLUCENT (opacity 0.85), two-sided,
+    Disable Depth Test = True, magenta emissive. Used only on the bone marker
+    spheres (APortfolioCharacterActor::BoneMarkerMaterial, BoneMarkers
+    highlight mode). Joints such as head/neck sit INSIDE the character's
+    geometry, so a depth-tested marker is fully hidden (2026-10-01 -game
+    capture); Disable Depth Test is a translucent-only flag, which is why this
+    is a separate material from the opaque slot highlight M_ViewerPartHighlight.
+    Static mesh spheres need no usage flag.
+
+    CREATE-MISSING-ONLY like the materials above."""
+    if EAL.does_asset_exist(BONE_MARKER_MAT_PATH):
+        mat = EAL.load_asset(BONE_MARKER_MAT_PATH)
+        log(f"[CreatePortfolioAssets] {BONE_MARKER_MAT_NAME} already exists, preserving (read-only): {BONE_MARKER_MAT_PATH}")
+        validate_bone_marker_material(mat, BONE_MARKER_MAT_PATH)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    mat = asset_tools.create_asset(BONE_MARKER_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {BONE_MARKER_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created {BONE_MARKER_MAT_NAME} at {BONE_MARKER_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("disable_depth_test", True)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, -50)
+    color_node.set_editor_property("constant", BONE_MARKER_COLOR)
+    if not MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect emissive on {BONE_MARKER_MAT_NAME}")
+    opacity_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 100)
+    opacity_node.set_editor_property("r", BONE_MARKER_OPACITY)
+    if not MEL.connect_material_property(opacity_node, "", unreal.MaterialProperty.MP_OPACITY):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect opacity on {BONE_MARKER_MAT_NAME}")
+    MEL.recompile_material(mat)
+
+    save(BONE_MARKER_MAT_PATH)
     return mat
 
 
@@ -2116,7 +2211,8 @@ def main():
         STUDIO_FLOOR_VECTORS, STUDIO_FLOOR_SCALARS)
     create_or_update_part_highlight_material()
     create_or_update_wireframe_overlay_material()
-    profile = create_or_update_character_profile()
+    create_or_update_bone_marker_material()
+    profile =create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     manny_profile = create_or_update_character_profile_manny()
     wbp = create_or_update_widget_blueprint()

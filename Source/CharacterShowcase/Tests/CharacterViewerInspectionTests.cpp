@@ -9,6 +9,7 @@
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerController.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Materials/Material.h"
@@ -431,6 +432,31 @@ bool FCharacterViewerPartHighlightBonesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("upperarm_l has at least one child bone (elbow)"), ExpectedBones.Num() >= 2);
 	TestTrue(TEXT("Markers include the part bone"), MarkerBones.Contains(ArmBone));
 	TestTrue(TEXT("Markers include the elbow (lowerarm_l)"), MarkerBones.Contains(FName(TEXT("lowerarm_l"))));
+
+	// Markers use the see-through marker material (joints sit inside the mesh).
+	TestEqual(TEXT("Default BoneMarkerDiameter is 12 cm"), Actor->BoneMarkerDiameter, 12.f);
+	if (TestNotNull(TEXT("BoneMarkerMaterial (M_ViewerBoneMarker) is loaded by default"), Actor->BoneMarkerMaterial.Get()))
+	{
+		if (const UMaterial* MarkerBase = Actor->BoneMarkerMaterial->GetMaterial())
+		{
+			TestEqual(TEXT("M_ViewerBoneMarker is translucent"), (int32)MarkerBase->BlendMode, (int32)BLEND_Translucent);
+			TestTrue(TEXT("M_ViewerBoneMarker disables the depth test (drawn through the mesh)"), (bool)MarkerBase->bDisableDepthTest);
+		}
+		int32 MarkerComponents = 0;
+		int32 MarkersWithMarkerMaterial = 0;
+		TArray<UStaticMeshComponent*> StaticMeshComponents;
+		Actor->GetComponents(StaticMeshComponents);
+		for (const UStaticMeshComponent* Component : StaticMeshComponents)
+		{
+			if (Component && Component->GetAttachParent() == Mesh && Component->IsVisible())
+			{
+				++MarkerComponents;
+				MarkersWithMarkerMaterial += Component->GetMaterial(0) == Actor->BoneMarkerMaterial ? 1 : 0;
+			}
+		}
+		TestEqual(TEXT("Every visible marker component is found"), MarkerComponents, ExpectedBones.Num());
+		TestEqual(TEXT("Every marker uses BoneMarkerMaterial (not the opaque slot highlight)"), MarkersWithMarkerMaterial, MarkerComponents);
+	}
 	TestNull(TEXT("No whole-mesh overlay with bone markers (opt-in tint is off)"), Mesh->GetOverlayMaterial());
 	TestTrue(TEXT("Custom Depth on with bone markers"), Mesh->bRenderCustomDepth != 0);
 	TestEqual(TEXT("Slot 0 keeps its own material in BoneMarkers mode"), Mesh->GetMaterial(0), Default0);
@@ -669,7 +695,9 @@ bool FCharacterViewerWireframeOverlayTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("M_WireframeOverlay has Wireframe on"), (bool)OverlayBase->Wireframe);
 		TestTrue(TEXT("M_WireframeOverlay is usable on skeletal meshes"), (bool)OverlayBase->bUsedWithSkeletalMesh);
-		TestEqual(TEXT("M_WireframeOverlay is opaque"), (int32)OverlayBase->BlendMode, (int32)BLEND_Opaque);
+		// Translucent since the 2026-10-01 review: opaque lines covered a dense mesh completely.
+		TestEqual(TEXT("M_WireframeOverlay is translucent"), (int32)OverlayBase->BlendMode, (int32)BLEND_Translucent);
+		TestFalse(TEXT("M_WireframeOverlay keeps the depth test (only visible edges)"), (bool)OverlayBase->bDisableDepthTest);
 	}
 
 	UMaterial* LegacyWireframe = NewObject<UMaterial>(World);

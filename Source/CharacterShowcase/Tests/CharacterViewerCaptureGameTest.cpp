@@ -211,11 +211,10 @@ bool FCharacterViewerCaptureGameTest::RunTest(const FString& Parameters)
 		Test->TestNotEqual(TEXT("Inspect capture: a highlight mode is active"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::None);
 		if (UCharacterViewerWidget* Widget = State->Widget.Get())
 		{
+			// Selecting a new part with Inspection on already requests a
+			// multi-tick scroll-to-end (RefreshUI); request it explicitly too.
 			Widget->NotifySelectionChanged();
-			if (Widget->ListsScroll)
-			{
-				Widget->ListsScroll->ScrollToEnd();
-			}
+			Widget->RequestListsScrollToEnd(10);
 		}
 		Test->AddInfo(FString::Printf(TEXT("Inspect capture: part '%s', highlight %s, visible bone markers %d (%s)."),
 			*PartId.ToString(), *UEnum::GetValueAsString(Actor->GetActiveHighlightMode()), Actor->GetVisibleBoneMarkerCount(),
@@ -225,6 +224,22 @@ bool FCharacterViewerCaptureGameTest::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
 	{
+		if (const UCharacterViewerWidget* Widget = State->Widget.Get())
+		{
+			if (Widget->ListsScroll)
+			{
+				// The selected-part block is the last rows of ListsScroll: it is
+				// on screen only if the lists are scrolled to their end.
+				const float Offset = Widget->ListsScroll->GetScrollOffset();
+				const float EndOffset = Widget->ListsScroll->GetScrollOffsetOfEnd();
+				const FGeometry ListsGeometry = Widget->ListsScroll->GetCachedGeometry();
+				Test->AddInfo(FString::Printf(TEXT("Inspect capture: ListsScroll offset %.1f of end %.1f, visible height %.1f Slate units (%.0f px)."),
+					Offset, EndOffset, ListsGeometry.GetLocalSize().Y, ListsGeometry.GetAbsoluteSize().Y));
+				Test->TestTrue(FString::Printf(TEXT("Inspect capture: lists scrolled to the end (offset %.1f, end %.1f) so the selected-part block is visible"), Offset, EndOffset),
+					EndOffset <= 0.f || FMath::Abs(EndOffset - Offset) <= 1.f);
+			}
+			Test->AddInfo(FString::Printf(TEXT("Inspect capture: INSPECTION body: %s"), *Widget->GetFallbackInspectionBodyText().ToString()));
+		}
 		CaptureWindow(Test, TEXT("Inspect"), State->ViewportSize);
 		ACharacterViewerController* Controller = State->Controller.Get();
 		APortfolioCharacterActor* Actor = State->Actor.Get();
