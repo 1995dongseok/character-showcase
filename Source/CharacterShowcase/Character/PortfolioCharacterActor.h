@@ -2,11 +2,34 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Character/ViewerMeshStats.h"
 #include "PortfolioCharacterActor.generated.h"
 
 class UCharacterProfileData;
 class USkeletalMeshComponent;
+class USkeletalMesh;
+class USkeleton;
+class UStaticMesh;
+class UStaticMeshComponent;
 class UMaterialInterface;
+struct FViewerPartInfo;
+
+// How the currently selected part is shown (GetActiveHighlightMode()).
+// Precedence per part: MaterialSlots (the part's MaterialSlotNames resolve on
+// the mesh) > BoneMarkers (the part's BoneNames exist in the mesh skeleton) >
+// WholeMesh (fallback overlay tint, so a selection is never invisible).
+UENUM(BlueprintType)
+enum class EViewerHighlightMode : uint8
+{
+	// No selection, or the highlight is hidden (Clean View).
+	None,
+	// PartHighlightMaterial replaces exactly the part's material slots.
+	MaterialSlots,
+	// Small spheres on the part's bones and their direct child bones.
+	BoneMarkers,
+	// Translucent overlay tint over the whole mesh (HighlightOverlayMaterial).
+	WholeMesh
+};
 
 UCLASS(Blueprintable)
 class CHARACTERSHOWCASE_API APortfolioCharacterActor : public AActor
@@ -22,8 +45,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character")
 	TObjectPtr<UCharacterProfileData> Profile = nullptr;
 
-	// P2-3: translucent tint applied via Mesh->SetOverlayMaterial() while a
-	// part is selected (see SetSelectedPart()). Defaults to
+	// P2-3: translucent tint applied via Mesh->SetOverlayMaterial() as the
+	// WholeMesh fallback highlight (a selected part with no resolvable
+	// MaterialSlotNames and no BoneNames found in the mesh). Defaults to
 	// /Game/Portfolio/Materials/M_ViewerHighlight (created by
 	// Scripts/CreatePortfolioAssets.py) if present at construction time; null
 	// is safe (no visible tint, Custom Depth still set). Not part of
@@ -31,6 +55,29 @@ public:
 	// authored character data.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
 	TObjectPtr<UMaterialInterface> HighlightOverlayMaterial = nullptr;
+
+	// Per-part highlight: opaque unlit emissive magenta material put on the
+	// selected part's material slots (EViewerHighlightMode::MaterialSlots) and
+	// on the bone marker spheres (BoneMarkers). Defaults to
+	// /Game/Portfolio/Materials/M_ViewerPartHighlight (created by
+	// Scripts/CreatePortfolioAssets.py) if present at construction time. Null
+	// disables both per-part modes; a selection then falls back to WholeMesh.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
+	TObjectPtr<UMaterialInterface> PartHighlightMaterial = nullptr;
+
+	// Static mesh used for bone markers (default /Engine/BasicShapes/Sphere,
+	// 100 cm diameter). Null disables BoneMarkers (falls back to WholeMesh).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
+	TObjectPtr<UStaticMesh> BoneMarkerMesh = nullptr;
+
+	// World-space diameter (cm) of one bone marker sphere.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection", meta = (ClampMin = "1"))
+	float BoneMarkerDiameter = 10.f;
+
+	// Opt-in: also keep the faint whole-mesh overlay tint while BoneMarkers
+	// are shown. Off by default: the markers are the indication.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
+	bool bWholeMeshTintWithBoneMarkers = false;
 
 	// Clears runtime state (turntable rotation, expression morphs, material
 	// overrides, animation) accumulated under the previous profile, then
@@ -57,12 +104,18 @@ public:
 	// Selects an Animation Sequence/pose by id (from Profile->Animations), or
 	// restores the profile default playback state for NAME_None. Returns
 	// false (no crash) for a null Profile/Mesh, an unknown id, or a
-	// skeleton-incompatible Sequence.
+	// skeleton-incompatible Sequence (see IsAnimationSkeletonCompatible()).
 	UFUNCTION(BlueprintCallable, Category = "Character|Animation")
 	bool SetAnimation(FName Id);
 
 	UFUNCTION(BlueprintPure, Category = "Character|Animation")
 	FName GetCurrentAnimationId() const { return CurrentAnimationId; }
+
+	// Runtime-safe (no editor-only API) check used by SetAnimation(): true if
+	// SequenceSkeleton is the mesh's own Skeleton, is listed in either
+	// skeleton's Compatible Skeletons, or its bone hierarchy matches the mesh
+	// (USkeleton::IsCompatibleMesh). False for null inputs.
+	static bool IsAnimationSkeletonCompatible(const USkeleton* SequenceSkeleton, const USkeletalMesh* MeshAsset);
 
 	// --- Expression (P1-4) ---
 
@@ -86,16 +139,16 @@ public:
 
 	// --- Inspection / part selection (P2-1/P2-3) ---
 
-	// Highlights PartId: component-level Custom Depth (stencil 1, see
-	// Docs/CHARACTER_VIEWER_SETUP.md section 13.11 for the single-component
-	// limitation) plus an OverlayMaterial tint (M_ViewerHighlight) so the
-	// selection is actually visible without a project-supplied post-process
-	// material. Both the tint and Custom Depth cover the whole mesh, not just
-	// PartId's region (single SkeletalMeshComponent). NAME_None clears the
-	// selection. A PartId not found in Profile->Parts (or a null Profile) is
-	// rejected: no-op, the current selection is kept. While highlight
-	// visibility is off (SetHighlightVisible(false), Clean View) the id is
-	// still recorded but no tint/Custom Depth is shown.
+	// Highlights PartId so the user can see WHICH part is selected, using the
+	// first mode that applies (EViewerHighlightMode): the part's
+	// MaterialSlotNames slots get PartHighlightMaterial; else marker spheres
+	// are attached to the part's BoneNames and their direct child bones; else
+	// the whole mesh gets the HighlightOverlayMaterial tint. Component-level
+	// Custom Depth (stencil 1) is also set in every mode. NAME_None clears the
+	// selection (markers destroyed). A PartId not found in Profile->Parts (or
+	// a null Profile) is rejected: no-op, the current selection is kept. While
+	// highlight visibility is off (SetHighlightVisible(false), Clean View) the
+	// id is still recorded but nothing is shown.
 	UFUNCTION(BlueprintCallable, Category = "Character|Inspection")
 	void SetSelectedPart(FName PartId);
 
@@ -106,23 +159,63 @@ public:
 	FName GetSelectedPartId() const { return SelectedPartId; }
 
 	// Clean View (section 4) hides the selection highlight without forgetting
-	// the selection: false removes the tint/Custom Depth and keeps them off
-	// for any later SetSelectedPart(); true re-applies them for the current
-	// selection. Not reset by ApplyProfile() (it mirrors a Controller-level
-	// UI mode that persists across a profile switch).
+	// the selection: false removes the highlight (slots restored, markers
+	// hidden, tint/Custom Depth off) and keeps it off for any later
+	// SetSelectedPart(); true re-applies it for the current selection. Not
+	// reset by ApplyProfile() (it mirrors a Controller-level UI mode that
+	// persists across a profile switch).
 	UFUNCTION(BlueprintCallable, Category = "Character|Inspection")
 	void SetHighlightVisible(bool bVisible);
 
 	UFUNCTION(BlueprintPure, Category = "Character|Inspection")
 	bool IsHighlightVisible() const { return bHighlightVisible; }
 
+	// The highlight currently shown: None when nothing is selected or the
+	// highlight is hidden (Clean View), otherwise the mode chosen for the
+	// selected part (see EViewerHighlightMode for the precedence).
+	UFUNCTION(BlueprintPure, Category = "Character|Inspection")
+	EViewerHighlightMode GetActiveHighlightMode() const { return ActiveHighlightMode; }
+
+	// Bone marker components currently alive (pooled; hidden ones included).
+	UFUNCTION(BlueprintPure, Category = "Character|Inspection")
+	int32 GetBoneMarkerCount() const { return BoneMarkers.Num(); }
+
+	// Bone marker components currently visible.
+	UFUNCTION(BlueprintPure, Category = "Character|Inspection")
+	int32 GetVisibleBoneMarkerCount() const;
+
+	// Bones the visible markers are attached to (the selected part's
+	// BoneNames found in the mesh plus their direct children), in marker order.
+	UFUNCTION(BlueprintPure, Category = "Character|Inspection")
+	TArray<FName> GetBoneMarkerBoneNames() const;
+
+	// --- Measured mesh info (replaces hand-authored guesses) ---
+
+	// Measured stats for the current mesh (LOD0 render data, skeleton,
+	// materials). bValid is false without a mesh or render data.
+	UFUNCTION(BlueprintPure, Category = "Character|Stats")
+	FViewerMeshStats GetMeshStats() const;
+
+	// One entry per material slot of the current mesh (empty without a mesh).
+	UFUNCTION(BlueprintPure, Category = "Character|Stats")
+	TArray<FViewerSlotStats> GetSlotStats() const;
+
+	// Measured stats summed over PartId's MaterialSlotNames (unique textures
+	// across those slots). False (Out reset) if the part is unknown or none of
+	// its MaterialSlotNames resolve on the current mesh -- the UI then shows
+	// the part's authored notes (TriangleCount/MaterialName/TextureResolution).
+	UFUNCTION(BlueprintPure, Category = "Character|Stats")
+	bool GetPartMeasuredStats(FName PartId, FViewerSlotStats& Out) const;
+
 	// --- Wireframe (P2-4) ---
 
-	// true: applies Profile->WireframeMaterial to every material slot (keeping
-	// the current OverlayMaterial highlight, if any). false: restores the
-	// current material variant (CurrentVariantId) to every slot -- never the
-	// stale override array -- so Variant -> Wireframe -> Variant round-trips
-	// exactly. Returns false (no-op) if Profile or Profile->WireframeMaterial is null.
+	// true: applies Profile->WireframeMaterial to every material slot except
+	// the selected part's highlighted slots (MaterialSlots mode). false:
+	// restores the current material variant (CurrentVariantId) to every slot
+	// -- never the stale override array -- and re-applies the part highlight,
+	// so Variant -> Wireframe -> Variant round-trips exactly (all slots are
+	// recomputed by ApplyMaterialState()). Returns false (no-op) if Profile or
+	// Profile->WireframeMaterial is null.
 	UFUNCTION(BlueprintCallable, Category = "Character|Wireframe")
 	bool SetWireframeEnabled(bool bEnabled);
 
@@ -141,8 +234,9 @@ protected:
 	virtual void BeginPlay() override;
 
 	// Resets turntable rotation (not the enabled state, which persists across
-	// a profile switch), expression morphs, material overrides and tracked
-	// selection ids to a clean slate. Called before a new profile is applied.
+	// a profile switch), expression morphs, material overrides, bone markers
+	// and tracked selection ids to a clean slate. Called before a new profile
+	// is applied.
 	void ClearRuntimeState();
 
 	// Restores the default playback state: Profile->DefaultAnimClass if set,
@@ -150,13 +244,15 @@ protected:
 	// empty AnimationSingleNode state.
 	void RestoreDefaultAnimationState();
 
-	// Re-applies CurrentVariantId's slot overrides (or plain defaults for
-	// NAME_None) to every mesh slot. Shared by SetMaterialVariant() and by
-	// SetWireframeEnabled(false)'s restore path, per
-	// Docs/CHARACTER_VIEWER_SETUP.md section 7's "do not copy the override
-	// array blindly" pitfall: re-selecting the variant by id is what actually
-	// restores it correctly instead of snapshotting/restoring the override array.
-	void ApplyMaterialsForCurrentVariant();
+	// Recomputes every mesh slot from scratch from (CurrentVariantId,
+	// bWireframeEnabled, SelectedPartId, bHighlightVisible): defaults, then the
+	// variant's overrides, then the wireframe material on every slot if on,
+	// then PartHighlightMaterial on the selected part's slots (MaterialSlots
+	// mode). It never layers on the previous override array (the
+	// Docs/CHARACTER_VIEWER_SETUP.md "do not copy the override array blindly"
+	// pitfall), so every round-trip (Variant/Wireframe/selection/Clean View)
+	// is exact.
+	void ApplyMaterialState();
 
 private:
 	// Rotation captured in PostInitializeComponents(), used to reset the
@@ -181,7 +277,36 @@ private:
 	bool bWireframeEnabled = false;
 	bool bHighlightVisible = true;
 
-	// Applies (or removes) the overlay tint + Custom Depth for SelectedPartId
-	// according to bHighlightVisible.
+	EViewerHighlightMode ActiveHighlightMode = EViewerHighlightMode::None;
+
+	// Pooled marker spheres (BoneMarkers mode). Reused across part
+	// selections, hidden while the highlight is hidden, destroyed when the
+	// selection is cleared or the profile changes.
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> BoneMarkers;
+
+	// Bone each pooled marker is currently attached to (parallel to BoneMarkers).
+	TArray<FName> BoneMarkerBones;
+
+	// Applies CurrentVariantId's slot overrides on top of the current slots.
+	// Only called by ApplyMaterialState() after EmptyOverrideMaterials().
+	void ApplyVariantOverrides();
+
+	// Mode that would show Part on the current mesh, with the resolved slot
+	// indices (MaterialSlots) or marker bones (BoneMarkers). Does not look at
+	// bHighlightVisible.
+	EViewerHighlightMode ResolveHighlightMode(const FViewerPartInfo* Part, TArray<int32>& OutSlotIndices, TArray<FName>& OutMarkerBones) const;
+
+	// Part.MaterialSlotNames -> unique valid slot indices on the current mesh.
+	void ResolvePartSlotIndices(const FViewerPartInfo& Part, TArray<int32>& OutSlotIndices) const;
+
+	// Applies the whole selection highlight (slots via ApplyMaterialState(),
+	// markers, overlay tint, Custom Depth) for SelectedPartId according to
+	// bHighlightVisible, and updates ActiveHighlightMode.
 	void ApplyHighlightState();
+
+	void UpdateBoneMarkers(const TArray<FName>& MarkerBones, bool bVisible);
+	void DestroyBoneMarkers();
+
+	FViewerSlotStats ComputeSlotStats(int32 SlotIndex) const;
 };

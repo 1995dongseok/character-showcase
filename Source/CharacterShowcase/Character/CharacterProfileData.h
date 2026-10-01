@@ -145,10 +145,14 @@ struct FViewerMaterialVariant
 // P2-1/P2-2: one selectable/inspectable part. Identified either by one or more
 // bone names (a line-trace hit's BoneName, matched exactly here; the parent-
 // bone walk that maps e.g. a finger bone to "Arm" is done by the Controller,
-// not here -- see Docs/CHARACTER_VIEWER_SETUP.md section 13.11) or, for a
+// not here -- see Docs/CHARACTER_VIEWER_SETUP.md section 2 (7)) or, for a
 // structure with separate Components (not this placeholder), a ComponentTag.
-// TriangleCount/TextureResolution are authored data measured once from the
-// LOD0/material at content-creation time, never inferred per frame (section 7).
+// How a selected part is highlighted is decided by APortfolioCharacterActor
+// (MaterialSlotNames first, then BoneNames, then a whole-mesh tint; see
+// EViewerHighlightMode). TriangleCount/MaterialName/TextureResolution are
+// optional authored notes; when MaterialSlotNames resolve on the mesh, the
+// values measured by APortfolioCharacterActor::GetPartMeasuredStats()
+// supersede them.
 USTRUCT(BlueprintType)
 struct FViewerPartInfo
 {
@@ -179,14 +183,29 @@ struct FViewerPartInfo
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
 	FName ComponentTag;
 
-	// Authored data: LOD0 triangle count for this part's mesh region, measured once.
+	// Optional: the material slots (by slot name, as shown in the Skeletal
+	// Mesh editor) that make up this part, for characters whose parts are
+	// separate material slots/sections (e.g. Body/Head/Hair/Jacket). When at
+	// least one name resolves on the mesh, the selection highlight replaces
+	// exactly these slots' materials (EViewerHighlightMode::MaterialSlots) and
+	// the part's triangle/material/texture info is measured from these slots
+	// (APortfolioCharacterActor::GetPartMeasuredStats). Leave empty for a
+	// single-slot mesh: BoneNames are then used for bone markers instead.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
+	TArray<FName> MaterialSlotNames;
+
+	// Optional authored note: LOD0 triangle count for this part. Superseded by
+	// the measured value (GetPartMeasuredStats) when MaterialSlotNames resolve.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
 	int32 TriangleCount = 0;
 
+	// Optional authored note. Superseded by the measured slot material name
+	// when MaterialSlotNames resolve.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
 	FText MaterialName;
 
-	// Authored data, e.g. "2048x2048" or "N/A (no texture)"; measured once from the material's textures.
+	// Optional authored note, e.g. "2048x2048" or "N/A (no texture)".
+	// Superseded by the measured texture summary when MaterialSlotNames resolve.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Part")
 	FText TextureResolution;
 };

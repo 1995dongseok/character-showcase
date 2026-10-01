@@ -9,9 +9,10 @@
 - **에셋 자동 생성**: `Scripts/CreatePortfolioAssets.py`가 없는 에셋만 만들고, 이미 있는 에셋은 절대 덮어쓰지 않는다(읽기 전용 검증만 함, `[keep] ... OK/DIFFERS`). `Scripts/CreateViewerWidgetLayout.py`는 `WBP_CharacterViewer`에 디자이너 트리가 없을 때만 최소 트리를 만든다. **일상적인 캐릭터 등록(2절)에는 두 스크립트 모두 다시 실행할 필요가 없다** — Editor GUI에서 Data Asset/Blueprint/Level을 직접 편집하면 된다(1절 "언제 스크립트를 실행하지 않는가" 참고).
 - **검증된 것(숫자 있음, 4절 표)**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation 6/6 통과(2026-09-29), Win64 Development 패키지 빌드/실행 스모크 통과, Win64 Shipping 패키지 빌드 성공 + 프로세스 정상 기동/종료 확인(자동화 테스트 미포함), 두 Python 스크립트의 "기존 자산 보존" 동작을 해시 비교로 검증.
 - **2026-09-30 추가 검증(4절 표)**: `-game` 합성 포인터 스모크가 활성 전면 창에서 1/1 통과(이전 실패 3건 해소). Shipping 패키지에 OS 수준 실제 마우스/키보드 입력(SendInput)을 넣어 드래그 Orbit, 휠 Zoom, R, Space와 드래그 정지, H, I/파츠 클릭/빈 공간 해제, W, 패널 위 휠·드래그 차단, 포커스 상실 복귀를 화면 캡처 25장으로 확인. 증거는 `Docs/Evidence/2026-09-30-shipping-real-input/`.
-- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위(부분) 강조 표시.
-- **현재 파츠 강조는 메시 전체에 적용된다.** Custom Depth와 Overlay Material은 둘 다 Component 단위로 적용되므로, 어느 파츠를 클릭해도 SkeletalMeshComponent 전체가 강조된다. 선택된 파츠 자체는 INSPECTION 패널의 텍스트로만 구분된다(2절 ⑦, 6.9절).
-- **placeholder 데이터 주의**: 현재 `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개)와 `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진이 기본 제공하는 튜토리얼/기본 도형 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
+- **2026-10-01 추가(4절 표, 6.11절)**: 파츠 단위 강조, 메시 수치 실측 API, 스켈레톤 호환 검사 완화, 실제 ProjectID. Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation **11/11 통과**(신규 4개 포함), `CreatePortfolioAssets.py` 2회 실행(1차 `M_ViewerPartHighlight` 생성 + 기존 7개 `[keep] OK`, 2차 `[keep] OK` ×8). `-game` 스모크는 이 변경 후 아직 실행하지 않았다.
+- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), 측정 수치의 INSPECTION 패널 표시(API만 있음).
+- **파츠 강조는 파츠 단위로 표시된다(2026-10-01, 6.11절).** 우선순위: ⓐ Part의 **Material Slot Names**가 메시 슬롯과 일치하면 그 슬롯만 마젠타 불투명 재질(`M_ViewerPartHighlight`)로 바뀐다. ⓑ 아니면 **Bone Names**의 본과 그 직계 자식 본에 작은 마젠타 구체 마커가 붙는다(예: 팔 → 어깨·팔꿈치·손목). ⓒ 둘 다 해당 없으면 예전처럼 메시 전체에 반투명 마젠타 Overlay가 덮인다(선택이 안 보이는 경우가 없도록). 현재 placeholder(`TutorialTPP`)는 Material Slot이 1개라 ⓑ 본 마커로 표시된다.
+- **placeholder 데이터 주의**: 현재 `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개)와 `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진이 기본 제공하는 튜토리얼/기본 도형 에셋이다. **이 수치는 실제 캐릭터 정보가 아니다.** 2026-10-01부터 메시 수치(삼각형/정점/본/슬롯/LOD/Morph/텍스처)는 `PortfolioCharacterActor`가 LOD0 렌더 데이터에서 직접 측정한다. Part에 Material Slot Names를 채우면 그 파츠의 삼각형/재질/텍스처도 측정값이 손으로 적은 `Triangle Count`/`Material Name`/`Texture Resolution`보다 우선한다(2절 ⑦). 단 INSPECTION 패널은 아직 손으로 적은 값을 표시한다(패널 연결은 후속 작업).
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
 ## 1. 실행 방법
@@ -92,7 +93,7 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
     -unattended -nosplash -nop4 -log
 ```
 
-- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight` **7개가 존재하지 않을 때만** 새로 만든다. 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
+- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight`, `M_ViewerPartHighlight`(2026-10-01 추가) **8개 중 존재하지 않는 것만** 새로 만든다. 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
 - **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 5~7개 중 일부가 삭제되어 없어졌을 때"에만 쓴다.
 - 스크립트가 만든 에셋을 최신 생성 로직으로 다시 만들고 싶을 때만, 그 에셋을 Editor에서 직접 삭제한 뒤 재실행한다(스크립트가 "없는 에셋"으로 인식해 새로 만든다). 기존 값을 스크립트로 되돌리는 용도로 쓰지 않는다.
 - **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 최소 7위젯 트리를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
@@ -141,12 +142,14 @@ Neutral 표정은 **Morphs를 빈 배열로 둔 행**으로 등록한다. 메시
 
 ### ⑦ 본·충돌 기반 파츠 매핑과 기술정보 등록
 
-`Part` 카테고리의 **Parts** 배열(`FViewerPartInfo`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Part Type**, **Description**, **Bone Names**(배열), **Component Tag**, **Triangle Count**, **Material Name**, **Texture Resolution**.
+`Part` 카테고리의 **Parts** 배열(`FViewerPartInfo`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Part Type**, **Description**, **Bone Names**(배열), **Component Tag**, **Material Slot Names**(배열, 선택), **Triangle Count**, **Material Name**, **Texture Resolution**(마지막 셋은 선택 메모).
 
 - 현재 구조(단일 `SkeletalMeshComponent`)에서는 **Bone Names**로 파츠를 식별한다. 클릭 지점의 `BoneName`이 어느 Part의 Bone Names와도 정확히 일치하지 않으면 부모 본을 최대 10단계까지 걸어 올라가며 다시 찾는다(예: 손가락 본 → `hand_l` → "왼팔"). 여기 적는 본 이름은 **메시의 Physics Asset에 실제로 존재하는 본 이름과 정확히 같아야** 하며, 파츠 클릭이 되려면 **메시에 Physics Asset이 할당되어 있어야 한다**(Physics Asset이 없으면 그 캐릭터의 파츠는 클릭되지 않는다 — 지금의 `DA_Character_Cube`가 이 경우다).
 - 파츠가 별도 Component(예: Face/Hair/Jacket이 각각 다른 SkeletalMeshComponent)로 구성된 캐릭터라면 **Component Tag**로 식별 방식을 바꿀 수 있다(스키마는 이미 지원, 현재 placeholder는 미사용).
-- **Triangle Count / Material Name / Texture Resolution은 매 프레임 계산하는 값이 아니라 아티스트가 한 번 측정해서 적어 넣는 authored 데이터다.** 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 파츠마다 다른 값을 적어야 한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 그대로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.**
-- **파츠 강조(선택 시 색이 덮이는 효과)는 현재 메시 전체에 적용된다.** 어느 파츠를 클릭해도 Custom Depth와 Overlay Material이 전체 메시에 걸리므로, 실제로 어느 파츠가 선택됐는지는 INSPECTION 패널의 텍스트(Display Name 등)로만 알 수 있다. 파츠 단위로만 강조하려면 별도 Component 구조이거나 Stencil 기반 Post Process 작업이 추가로 필요하다(5절).
+- **Material Slot Names**: 캐릭터의 파츠가 별도 Material Slot/섹션으로 나뉘어 있으면(예: Body/Head/Hair/Jacket) 그 파츠를 이루는 슬롯 이름을 Skeletal Mesh 에디터에 보이는 이름 그대로 적는다. 하나라도 메시 슬롯과 일치하면 ① 선택 시 정확히 그 슬롯들만 마젠타로 바뀌고 ② 그 파츠의 삼각형 수/재질 이름/텍스처 요약을 Viewer가 직접 측정한다. 슬롯이 1개뿐인 메시(지금의 `TutorialTPP`)는 비워 둔다 — 그러면 Bone Names의 본 위치에 구체 마커가 표시된다.
+- **선택 강조 우선순위**: Material Slot Names(일치하는 슬롯만 교체) → Bone Names(본과 직계 자식 본에 지름 10cm 마젠타 구체, 충돌/그림자 없음) → 둘 다 없으면 메시 전체 반투명 Overlay. Wireframe이 켜져 있어도 선택된 슬롯은 마젠타로 남고, Wireframe/Variant를 바꾸거나 선택을 풀면 나머지 슬롯은 정확히 원래 상태로 돌아온다. Clean View(H) 중에는 강조가 전부 숨겨진다.
+- **Triangle Count / Material Name / Texture Resolution은 선택 메모(authored)다.** Material Slot Names가 메시 슬롯과 일치하는 파츠는 측정값(`GetPartMeasuredStats`)이 이 메모보다 우선한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 메모로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.** (현재 INSPECTION 패널은 이 메모를 표시한다. 측정값 표시 연결은 후속 작업, 4.1절.)
+- 본 마커는 불투명 구체라 굵은 메시 안쪽에 있는 관절에서는 일부가 메시에 묻혀 보일 수 있다. 크기는 `PortfolioCharacterActor`의 **Bone Marker Diameter**(기본 10cm)로 조정한다. 마커와 함께 예전의 메시 전체 틴트도 원하면 **Whole Mesh Tint With Bone Markers**를 켠다(기본 꺼짐).
 
 ### ⑧ Default Profile / Profile Library 등록
 
@@ -200,23 +203,27 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Win64 Development 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 16초. 09-30에 실제 입력 재생으로 기동·조작 확인(키 홀드 실험 포함) | `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe` |
 | Win64 Shipping 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 33초 |
 | **Shipping 실제 입력·시각 검증** (`ViewerInputDriver.ps1`이 user32 SendInput으로 실제 마우스/키보드 이벤트를 게임 창에 전달, 단계마다 창 캡처) | 2026-09-30 | 실행 2회, 캡처 25장 육안 확인: ① 드래그 Orbit 회전 ② 휠 4틱 Zoom out ③ R Reset으로 Full Body 복귀 ④ Space Turntable On 후 회전, 짧은 드래그로 Off 정지(2.5초 간격 2장 동일) ⑤ H로 패널 숨김, 숨긴 상태에서 드래그 Orbit 동작, H로 복원 ⑥ I On, 몸통 클릭 시 마젠타 강조 전신 적용, 빈 공간 클릭 시 해제 ⑦ W On 청록 Wireframe, W Off 기본 재질 복원 ⑧ 패널 위 휠 6틱: Zoom 없음, 패널 목록만 스크롤(설명 영역 스크롤 확인). 캔버스 휠 대조군은 Zoom 됨 ⑨ 패널에서 시작한 드래그: Orbit 없음 ⑩ 마우스 누른 채 포커스 상실 후 복귀·이동: Orbit 없음, 버튼 잔류 없음 | `Docs/Evidence/2026-09-30-shipping-real-input/` (PNG 25장 + 드라이버 + 단계 JSON) | `Saved/PackagedShipping/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
+| Editor 빌드 (파츠 단위 강조/실측 수치 변경, 6.11절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(최종 증분 빌드 4개 액션) | 6.11절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(27개 액션, 93초) | 6.11절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **11/11 통과**, 실패 0(신규 `Viewer.PartHighlightMaterialSlots`/`PartHighlightBoneMarkers`/`MeshStats`/`AnimationSkeletonCompatibility`) | `Saved/Automation/A/index.json`(작업 worktree) |
+| `CreatePortfolioAssets.py` (`M_ViewerPartHighlight` 추가) | 2026-10-01 | 1차: `Created M_ViewerPartHighlight` + 기존 7개 `[keep] ... OK`, `DONE, NO ERRORS`, 종료 코드 0. 2차: `[keep] ... OK` ×8, 종료 코드 0. 기존 `.uasset` 변경 없음(`git status`) | 6.11절 |
 
 ### 4.1 미검증·대기 항목
 
 - **사람이 손으로 직접 조작한 확인**: 2026-09-30 검증은 OS 수준 실제 입력 이벤트(SendInput)를 자동 재생한 것이다. 게임 입장에서는 실제 마우스/키보드와 구분되지 않지만, 사람이 손으로 조작한 기록은 아직 없다. 패널 버튼을 마우스로 직접 클릭하는 경로는 키보드 단축키 경로로만 확인했다(합성 Slate 클릭 테스트는 `-game` 스모크에서 통과). **대기(선택)**.
 - **Expression(표정)의 실제 시각 검증**: `TutorialTPP`/`SkeletalCube` 모두 Morph Target이 없다. Expression 스키마/무충돌만 확인됐고, 실제 Morph 적용 후 얼굴이 바뀌는 모습은 **미검증**이며 Morph가 있는 메시가 들어오기 전까지는 검증할 수 없다.
 - **사람이 만든 디자이너 WBP 레이아웃의 hover 동작**: 지금 존재하는 `WBP_CharacterViewer` 트리는 C++ 에디터 툴이 자동 생성한 것이다. 아티스트가 디자이너에서 직접 커스터마이즈한 레이아웃에서 `IsPointerOverPanel()`/패널 클릭 소비가 그대로 동작하는지는 **미검증**.
-- **파츠 단위(개별) 강조 표시**: 현재 메시 전체 강조만 구현되어 있다(0절/2절 ⑦). 파츠별 강조는 구현되어 있지 않다.
+- **파츠 단위 강조의 실제 화면 확인**: 2026-10-01 구현(슬롯 교체/본 마커/전체 Overlay 폴백, 6.11절). 상태·재질 값은 Editor Automation(NullRHI)으로 검증했지만, 렌더링된 화면에서 마커/슬롯 색이 실제로 보이는지는 **미검증**이다(`-game` 스모크와 패키지 캡처로 확인 필요). `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`)의 강조 관련 assertion을 새 동작(본 마커)에 맞게 고쳤으나 이 세션에서는 실행하지 않았다.
+- **측정 수치의 UI 표시**: `GetMeshStats()`/`GetSlotStats()`/`GetPartMeasuredStats()` API와 Editor 테스트만 있다. INSPECTION 패널은 아직 Part의 손으로 적은 메모 값을 표시한다(패널 연결은 후속 작업). 쿡된 빌드에서 측정값이 나오는지도 **미검증**(코드상 렌더 데이터가 없으면 `bValid=false` + 0 반환).
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
 
 ## 5. 남은 작업·위험
 
 - `ApplyProfile` 순서(`PostLogin`이 `BeginPlay`보다 먼저 실행됨)에 맞춘 방어 코드는 정적으로만 점검했고, 이 UE 버전의 PIE로 최종 확인하지 않았다.
-- `SetAnimation`의 스켈레톤 호환성 검사는 포인터 비교(`Sequence->GetSkeleton() == Mesh->GetSkeletalMeshAsset()->GetSkeleton()`)만 사용한다. 리타겟/호환 스켈레톤 조합에서 지나치게 엄격할 수 있다.
-- 파츠별 Triangle Count/Material Name은 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 섹션을 가지면 재측정이 필요하다.
-- `Config/DefaultGame.ini`의 `ProjectID`는 실제 GUID가 아닌 placeholder 문자열이다.
+- `SetAnimation`의 스켈레톤 호환성 검사(2026-10-01, 6.11절)는 같은 Skeleton, 양방향 Compatible Skeletons 목록, 본 계층 일치(`USkeleton::IsCompatibleMesh`) 중 하나면 허용한다. 계층은 맞지만 비율이 다른 리그의 애니메이션은 허용되며 화면상 리타겟 품질은 보장하지 않는다(IK Retargeter로 미리 리타겟한 Sequence 사용 권장).
+- 파츠별 Triangle Count/Material Name 메모는 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 슬롯을 가지면 Material Slot Names를 채워 측정값을 쓰는 것이 맞다(패널 표시 연결은 후속).
+- 본 마커 강조는 관절 위치를 점으로 보여 줄 뿐 파츠 표면 전체를 칠하지 않는다. 표면 단위 강조가 필요하면 파츠를 별도 Material Slot으로 나누거나(가장 간단), 별도 Component 구조 또는 Custom Stencil 기반 Post Process 작업이 필요하다.
 - `-game` 스모크의 합성 포인터 단계는 게임 창이 활성·비가려짐 전면 창일 때만 유효하다(원인 확정, 6.10절). 무인 실행 환경에서는 이 조건을 보장할 수 없으므로 실패 시 전제 조건 오류 메시지를 먼저 확인한다.
-- 파츠 단위 강조가 필요하면 별도 Component 구조 또는 Custom Stencil 기반 Post Process Material 작업이 추가로 필요하다.
 - `Scripts/CreatePortfolioAssets.py`의 예전 "레벨 재생성" 로직이 유발하던 간헐적 크래시는 원인을 특정해 제거했지만(6.10절), 대규모 반복 재현 테스트는 하지 않았다.
 
 ## 6. 과거 기록 (참고)
@@ -311,3 +318,16 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - **큐브 프레이밍 조정**: `DA_Character_Cube`의 `DefaultFraming.Distance`를 half-extent × 2.3으로 계산했더니 스크린샷에서 큐브가 화면을 뒤덮어(근접 샷) 형태를 알아볼 수 없었다. × 6.0으로 올려 재확인, 정상 프레이밍 확인. 절대 크기가 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요함을 기록.
 - **Material usage flag 경고**: `bUsedWithSkeletalMesh=True`를 빠뜨리면 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(`LogMaterial` 경고) — 두 신규 Material 모두 명시적으로 설정해 해결.
 - **비쿠킹 `-game`에서 강조/Wireframe이 안 보이던 현상**: 값 자체(`GetOverlayMaterial()`, 슬롯 재질)는 테스트가 프로그램적으로 확인해 통과했지만, 화면에는 "Preparing Shaders" 오버레이가 뜬 채 기본 셰이딩으로 찍혔다(셰이더 프리컴파일이 끝나지 않음). 셰이더를 미리 컴파일해 두는 **쿡된 패키지에서는 두 효과 모두 정상 표시**되어 코드 결함이 아닌 것으로 판단했다. 비쿠킹 `-game`으로 확인하려면 먼저 Editor에서 해당 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장(미검증).
+
+### 6.11 파츠 단위 강조, 메시 수치 실측, 스켈레톤 호환 검사, ProjectID (2026-10-01)
+
+**무엇/왜**: 기존 선택 강조는 `SetOverlayMaterial(M_ViewerHighlight)` + Custom Depth를 SkeletalMeshComponent 전체에 걸어서, 어느 파츠를 클릭했는지 화면으로는 알 수 없었다. 파츠 기술정보(삼각형/재질/텍스처)도 손으로 적은 값이라 6개 Part가 모두 6,118을 공유했다.
+
+- **파츠 단위 강조**(`APortfolioCharacterActor`): `FViewerPartInfo`에 선택 필드 `MaterialSlotNames`를 추가했다. 선택 시 우선순위 ⓐ 슬롯 이름이 `Mesh->GetMaterialIndex()`로 해석되면 그 슬롯에만 신규 `M_ViewerPartHighlight`(unlit/opaque/two-sided, 마젠타 emissive)를 적용 ⓑ 아니면 Bone Names 중 메시 Reference Skeleton에 있는 본과 그 직계 자식 본마다 `/Engine/BasicShapes/Sphere` 마커(지름 10cm, 절대 스케일, 충돌·그림자 없음, Transient, 같은 재질)를 소켓에 붙임 ⓒ 둘 다 없으면 예전 메시 전체 Overlay. 현재 모드는 `GetActiveHighlightMode()`(`EViewerHighlightMode`: None/MaterialSlots/BoneMarkers/WholeMesh, 강조가 숨겨져 있으면 None)로 조회한다. Custom Depth(stencil 1)는 모든 모드에서 유지한다.
+- **정확한 왕복 복원**: 슬롯 재질은 매번 `ApplyMaterialState()`가 (현재 Variant, Wireframe, 선택 파츠, 강조 표시 여부)에서 처음부터 다시 계산한다(기본값 → Variant override → Wireframe 전 슬롯 → 선택 슬롯 강조). 이전 override 배열 위에 덧칠하지 않으므로 Wireframe on/off, Variant 변경, 선택 해제, Clean View 왕복이 정확히 복원된다. 마커는 파츠 사이 전환 시 재사용(pool), Clean View 중 숨김, 선택 해제/프로필 교체(`ClearRuntimeState()`) 시 파괴된다.
+- **메시 수치 실측**: `GetMeshStats()`(LOD0 삼각형/정점, 본, 슬롯, LOD, Morph, Skeleton/Physics Asset 이름, 렌더 데이터가 없으면 `bValid=false`+0), `GetSlotStats()`(슬롯별 삼각형/재질/텍스처 요약), `GetPartMeasuredStats(PartId)`(Part의 MaterialSlotNames 합산). 텍스처는 `GetUsedTextures()`를 우선 쓰고, 컴파일된 머티리얼 리소스가 없으면(-NullRHI Editor) 머티리얼 그래프 참조 텍스처 + Material Instance 텍스처 파라미터 override로 대체한다. Editor에서 플랫폼 데이터가 아직 없으면 원본(Source) 해상도를 쓴다. 손으로 적던 Triangle Count/Material Name/Texture Resolution은 호환을 위해 남기되 "선택 메모"로 바꿨다. **INSPECTION 패널은 아직 이 API를 쓰지 않는다**(위젯은 다른 작업 범위).
+- **스켈레톤 호환**: `SetAnimation`이 포인터 동일성 대신 `IsAnimationSkeletonCompatible()`을 쓴다 — 같은 Skeleton, 양방향 Compatible Skeletons(런타임 데이터), `USkeleton::IsCompatibleMesh()`(본 계층 일치) 중 하나. Editor 전용 `IsCompatibleForEditor()`는 쓰지 않는다. UE5 마네킹(SK_Mannequin) 스켈레톤 ↔ UE4 TutorialTPP 메시는 쇄골의 부모 본이 달라 거부된다.
+- **ProjectID**: `Config/DefaultGame.ini`의 placeholder를 무작위 GUID `E380E637D98F4E00ACE5440D4FEFA3EE`로 교체.
+- `-game` 스모크(`CharacterViewerGameSmokeTest.cpp`)의 "Torso 선택 후 OverlayMaterial이 설정됨" assertion 3곳은 이제 틀린 기대값이라 "BoneMarkers 모드 + 마커 표시"로 바꾸고, 해제/Clean View 단계에 마커 0개 확인을 추가했다(주석 표기). 이 스모크는 이 세션에서 실행하지 않았다.
+
+**어떻게 검증했나**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고(27개 액션). Editor Automation(NullRHI) 11/11 통과 — 신규 4개: `Viewer.PartHighlightMaterialSlots`(SKM_Manny_Simple 슬롯 `M_Torso`만 강조, Wireframe/선택 해제/재선택/Wireframe 중 Variant/Wireframe off/Clean View/Variant 해제/선택 해제/프로필 교체의 각 단계에서 두 슬롯 재질 정확 비교), `Viewer.PartHighlightBoneMarkers`(TutorialTPP `upperarm_l` → 마커 3개 `upperarm_l, lowerarm_l, upperarm_twist_01_l`, Clean View 숨김/재표시, 없는 본 → WholeMesh, 재사용, 해제·프로필 교체 시 0개), `Viewer.MeshStats`(TutorialTPP 6,118 삼각형/3,924 정점/본 68/슬롯 1/텍스처 0, SKM_Manny_Simple 92,178 삼각형/48,705 정점/본 89/슬롯 2/LOD 3, 슬롯 `M_HeadLegs` 38,166 + `M_Torso` 54,012 = 합계 일치, 각 4 텍스처 최대 1024/4096), `Viewer.AnimationSkeletonCompatibility`(null 안전, 같은 스켈레톤 허용, UE5↔UE4 리그 거부 + SetAnimation이 이전 id 유지). 개발 중 1회 실패: 텍스처 해상도가 -NullRHI에서 0x0으로 나와(플랫폼 데이터 미생성) Source 해상도 대체를 추가한 뒤 통과. `CreatePortfolioAssets.py` 2회 실행 결과는 4절 표. 화면 렌더링(마커/슬롯 색이 실제로 보이는지)은 **미검증**(4.1절).
