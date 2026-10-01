@@ -17,6 +17,7 @@
 - **2026-10-01 검증(4절 표)**: `CreatePortfolioAssets.py` 신규 5개 생성 + 재실행 `[keep] OK` ×12, `-game` 스모크 2회 — 커서가 게임 창 밖이라 합성 포인터 전제 조건 1건으로 Fail, 나머지 assertion 오류 0(Manny Torso 클릭 포함), 화면 측정으로 바닥 중간 회색·가슴 클리핑 0 확인. 비쿠킹 실행이라 Manny의 강조/Wireframe 셰이더는 화면에 아직 안 나왔다(4.1절).
 - **기본 프로필 = `DA_Character_Manny` (2026-10-01)**: 엔진 3인칭 템플릿 마네킹 `SKM_Manny_Simple`(본 89개, LOD0 92,178 삼각형, Material Slot 2개 `M_HeadLegs`/`M_Torso`, 텍스처 1024²·Torso 노멀만 4096², Physics Asset `PA_Mannequin`, Morph 0)을 쓰는 placeholder 프로필이다. 시작 시 Idle(`MM_Idle`)로 서 있고 Full Body 구도로 보인다. `ProfileLibrary` 순서는 Manny → Tutorial Mannequin(`DA_Character`) → Skeletal Cube(`DA_Character_Cube`)이며, 기존 두 프로필은 변경 없이 남아 있다(2절 ⑧).
 - **스튜디오 룩 (2026-10-01)**: `LV_Portfolio`는 Key/Fill/Rim 3점 조명(전부 Directional, Movable), 고정 노출 `StudioPostProcess`(Manual, 보정 0), 어두운 그라데이션 배경 구(`MI_StudioBackdrop`), 18% 중간 회색 바닥(`MI_StudioFloor`, 멀어질수록 배경으로 페이드)으로 바뀌었다. 배경/바닥은 NoCollision이라 파츠 클릭을 가로채지 않는다. 값과 조정 위치는 2절 ⑨, 변경 이력은 6.13절.
+- **프로필 검증 도구 (2026-10-01, 2.10절)**: `Scripts/ValidateProfiles.py`가 모든 `CharacterProfileData`를 메시와 대조해 틀린 본/슬롯/Morph 이름, 잘못된 카메라 범위, 없는 기본 애니메이션, 호환 안 되는 Skeleton, Physics Asset 누락 등을 필드 위치와 고치는 방법까지 한국어로 출력한다(Error가 있으면 종료 코드 ≠ 0). 현재 3개 프로필: Manny·Tutorial **E=0 W=0 I=0**, Cube **E=0 W=2**(Physics Asset 없음 → 파츠 클릭 불가, 높이 25 cm 스케일 확인).
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
 ## 1. 실행 방법
@@ -242,6 +243,67 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **DPI 배율**: `Config/DefaultEngine.ini`의 `[/Script/Engine.UserInterfaceSettings]`에서 `UIScaleRule=ShortestSide`, 짧은 변 기준 720 → 0.8, 1080 → 1.0, 1440 → 1.25(사이 값은 선형). 엔진 기본값(720p = 0.666)일 때 패널이 약 213px로 줄어 글자가 잘렸다. 결과적으로 패널은 1280×720에서 384 Slate 단위(약 307px), 1920×1080에서 460px이다. 이 곡선은 프로젝트의 모든 UMG에 적용된다.
 - 1.2~1.3절의 방법으로 실행해 캐릭터가 보이는지, 우측 패널에 새 캐릭터 이름/목록이 뜨는지 확인한다.
 
+### 2.10 프로필 검증 도구
+
+새 `CharacterProfileData`를 만들었거나 고쳤으면 실행 전에 검증 스크립트를 돌린다. 메시와 프로필을 대조해 "무엇이, 어디서(필드), 어떻게 고치는지"를 한국어로 출력한다. **읽기 전용**이라 에셋을 저장하거나 바꾸지 않는다. Editor를 닫은 상태에서 실행한다(열려 있으면 같은 프로젝트를 두 번 여는 것이 된다).
+
+```powershell
+# 기본: /Game/Portfolio/Data 아래 모든 프로필. Error가 하나라도 있으면 종료 코드가 0이 아니다.
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<프로젝트 절대경로>\CharacterShowcase.uproject" -run=pythonscript "-script=<프로젝트 절대경로>\Scripts\ValidateProfiles.py" -unattended -nosplash -nop4 -NullRHI -log
+# 특정 프로필(또는 폴더)만: -ProfilePath= 를 추가(여러 개면 반복하거나 쉼표로 구분)
+... -ProfilePath=/Game/Portfolio/Data/DA_Character_Manny
+```
+
+- `-ExecutePythonScript="<절대경로>\Scripts\ValidateProfiles.py"`(1.6절 스크립트와 같은 방식)로도 같은 보고서가 나오지만, 이 방식은 Error가 있어도 프로세스 종료 코드가 0이다(로그 끝에 `Python script executed with errors`). 종료 코드로 판단하려면 위의 `-run=pythonscript`를 쓴다.
+- Editor 안에서 바로 보려면 Output Log의 Python 입력줄에 `print(unreal.CharacterProfileValidator.format_report(unreal.CharacterProfileValidator.validate_profile(unreal.load_asset('/Game/Portfolio/Data/DA_Character_Manny'))))`.
+- Viewer 실행 중에도 시작 프로필(`PostLogin`)과 CHARACTER 전환(`SwitchProfile`) 때마다 같은 보고서가 로그(`LogTemp`, `[ProfileValidator]`)에 찍힌다. 경고/오류 등급이 아닌 일반 로그로만 남기므로 실행이나 자동화 테스트를 멈추지 않는다.
+
+**출력 읽는 법**(로그의 `LogPython:` 줄):
+
+```
+[ValidateProfiles] /Game/Portfolio/Data/DA_Character_Cube: E=0 W=2 I=0
+[ValidateProfiles]   [Warning][Mesh] Skeletal Mesh 'SkeletalCube'에 Physics Asset이 없어 파츠 1개를 클릭으로 선택할 수 없습니다... (SkeletalMesh.PhysicsAsset)
+[ValidateProfiles] TOTAL profiles=3 E=0 W=2 I=0 load_failures=0 RESULT=PASS
+```
+
+- `E/W/I` = Error / Warning / Info 개수. **Error**는 기능이 실제로 안 되는 것(버튼이 아무 일도 안 함, 애니메이션 거부, 슬롯이 안 바뀜) — 포트폴리오에 쓰기 전에 반드시 고친다. **Warning**은 동작은 하지만 의도와 다를 가능성이 큰 것(대체값 사용, 파츠 클릭 불가, 이상한 값). **Info**는 참고(기능이 꺼져 있음, 큰 텍스처).
+- `[Mesh]` 등은 분류(Mesh/Camera/Animation/Expression/Material/Part/Play), 마지막 괄호는 Details 패널의 위치다. 예: `Parts[2].BoneNames[0]` = Parts 배열 3번째 행의 Bone Names 첫 칸(배열 번호는 0부터).
+- 본/슬롯/Morph/프리셋/애니메이션 Id 이름 비교는 엔진과 같이 **대소문자를 구분하지 않는다**(`Head` = `head`). 밑줄·좌우 표기 차이(`spine01`, `hand`, `upperarm_left`)는 오류로 잡고 메시에 있는 가장 가까운 이름을 제안한다.
+
+| 검사 항목 | 심각도 | 고치는 방법 |
+| --- | --- | --- |
+| Skeletal Mesh가 비어 있음 | Error | Character → Skeletal Mesh 지정. 비어 있으면 메시를 쓰는 검사(본·슬롯·Morph·텍스처)는 건너뛴다 |
+| 메시에 Skeleton이 없음 | Error | Skeleton을 만들거나 지정해 다시 Import |
+| 메시에 Physics Asset이 없음 | Warning(Parts가 있을 때, 파츠 클릭 불가) / Info(Parts가 비었을 때) | 메시 우클릭 → Create → Physics Asset, 메시 에디터의 Physics Asset 칸에 지정 |
+| 메시 높이가 50 cm 미만 또는 300 cm 초과 (Editor에서만 검사) | Warning "스케일 확인: 높이 N cm" | FBX Import Uniform Scale(원본이 m 단위면 100) 확인 후 다시 Import. 의도한 크기면 무시 |
+| Display Name이 비어 있음 | Warning | Character → Display Name 입력 |
+| Camera Presets의 Id가 비어 있음 / 중복 | Warning | 고유한 Id 입력(중복이면 첫 번째만 선택됨) |
+| Default Preset Id가 Camera Presets에 없음 | Warning | 있는 Id 입력(메시지에 목록). 없으면 Reset(R)이 Default Framing으로 감 |
+| Min Distance ≥ Max Distance, Min Pitch ≥ Max Pitch, FOV가 10~120 밖 (Default Framing과 모든 프리셋) | Error | Min < Max로, FOV는 보통 30~60 |
+| Animations의 Id가 비어 있음 / 중복 | Error | 고유한 Id 입력(중복이면 두 번째 행은 재생되지 않음) |
+| Animations의 Sequence가 비어 있음 | Error | Sequence 지정 또는 행 삭제 |
+| Sequence의 Skeleton이 메시와 호환되지 않음(`IsAnimationSkeletonCompatible`, 2절 ③·5절과 같은 규칙) | Error | 같은 Skeleton의 애니메이션을 쓰거나 IK Retargeter로 리타겟한 Sequence 지정 |
+| Is Pose인데 Pose Time이 0~Sequence 길이 밖 | Warning | 범위 안의 초 입력 |
+| Default Animation Id가 Animations에 없음 | Error | 있는 Id 입력 또는 비우기 |
+| Default Anim Class와 Default Animation Id가 둘 다 있음 | Info | AnimBP가 우선, Id는 안 쓰임. 의도가 아니면 하나 비우기 |
+| Expression의 Morph Name이 메시에 없음 | Error(메시에 있는 Morph 이름 최대 10개를 함께 표시) | 목록에 있는 이름으로 수정 |
+| 메시에 Morph Target이 0개인데 Morph를 쓰는 Expression이 있음 | Warning(프로필당 1건, 위 Error 대신) | Morph Target이 포함된 메시를 Import(Import Morph Targets 체크)하거나 Morphs 비우기 |
+| Material Variant 슬롯: Slot Name이 메시에 없음 | Error(Slot Index도 유효하지 않을 때) / Warning(Slot Index로 대신 적용될 때) | 메시 슬롯 이름으로 수정(메시지에 `이름(번호)` 목록) |
+| Material Variant 슬롯: Slot Name 없이 Slot Index가 범위 밖 | Error | Slot Name으로 지정 권장 |
+| Material Variant 슬롯: Slot Name과 Slot Index가 모두 비어 있음 | Warning | Slot Name 입력 |
+| Material Variant 슬롯: Material이 비어 있음 | Warning | Material 지정 또는 행 삭제 |
+| 메시 재질이 쓰는 텍스처 크기가 2의 거듭제곱이 아님 | Warning | 1024·2048처럼 2의 거듭제곱으로 다시 저장해 Import |
+| 메시 재질이 쓰는 텍스처가 4096보다 큼 | Info | 필요하면 텍스처 에디터의 Maximum Texture Size로 축소 |
+| Wireframe Material이 비어 있음 | Info | `/Game/Portfolio/Materials/M_Wireframe` 지정(비우면 W 버튼 비활성) |
+| Parts의 Id가 비어 있음 / 중복 | Warning | 고유한 Id 입력 |
+| Bone Names의 본이 메시 Reference Skeleton에 없음 | Error(비슷한 본 이름을 제안: 밑줄·`left/right`·`L_` 접두사 차이, 좌우 접미사 누락 `hand` → `hand_l` 또는 `hand_r`) | Skeleton Tree의 이름으로 수정 |
+| Material Slot Names의 슬롯이 메시에 없음 | Error | 메시 슬롯 이름으로 수정 |
+| Bone Names·Material Slot Names·Component Tag가 모두 비어 있는 파츠 | Warning | 파츠를 이루는 본 이름 입력 |
+| 같은 본이 두 파츠에 들어 있음 | Warning | 한쪽에서 삭제(클릭 시 항상 앞쪽 파츠가 선택됨) |
+| Walk Speed ≥ Run Speed | Warning | Walk < Run(예: 300 / 600) |
+
+검사 코드는 `Source/CharacterShowcase/Character/CharacterProfileValidator.h/.cpp`(`UCharacterProfileValidator`, Blueprint/Python에서도 호출 가능), 테스트는 `Tests/CharacterProfileValidatorTests.cpp`다. 새 검사를 추가하면 이 표도 같이 고친다.
+
 ## 3. 설계 규칙
 
 | 책임 | 소유 클래스 | 원칙 |
@@ -293,6 +355,11 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | `CreatePortfolioAssets.py` 2차·3차 실행(편집 후) | 2026-10-01 | 둘 다 종료 코드 0, **`[keep] ... OK` ×12** + ini OK, DIFFERS 0. 실행 전후 에셋 해시 2차 11/11, 3차 12/12 동일(아무것도 다시 저장하지 않음) | 6.13절 |
 | `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`), Manny 기본 프로필 + 스튜디오 룩 | 2026-10-01 | 2회 실행, 둘 다 **Fail, 오류 1건(같은 내용)**: 합성 포인터 전제 조건 `IsActive()=1, IsCursorDirectlyOverSlateWindow()=0` — 실행 중 OS 커서가 게임 창 밖에 있었음(6.10절의 환경 조건, 커서를 움직이지 않는 규칙으로 실행). 그 외 assertion 오류 0, 경고 0 — Manny에서 Torso 클릭(액터+120 cm 지점 → `Torso`), 빈 공간 클릭 해제, Grid/Default 재질, Idle/Pose, Wireframe 토글, 프로필 전환(Cube → `DA_Character`) 포함. 스크린샷 6장 성공 | `Saved/Automation/AgentC/index.json`, `Saved/Automation/AgentC2/index.json`, `Saved/Screenshots/WindowsEditor/ViewerSmoke_*.png` |
 | 스튜디오 룩 화면 측정(위 스모크 2차 `ViewerSmoke_UI.png`, 1280×720) | 2026-10-01 | 바닥(캐릭터 앞) sRGB 평균 120(18% 회색 목표 118), Manny 가슴 영역 27,200픽셀 중 ≥250 **0개**, 캐릭터 전체 136,500픽셀 중 ≥250 6개(스페큘러 반짝임), 배경 지평선 48~53 / 위쪽 25~29, 먼 바닥 71 | 6.13절 |
+| Editor 빌드 (프로필 검증 도구, 6.15절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (10개 액션, 메시지 문구 수정 후 증분 4개 액션도 0/0) | 6.15절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (16개 액션, `CharacterProfileValidator.cpp` 포함, 118.6초) | 6.15절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **18/18 통과**, 실패 0, 테스트 오류/경고 0 (신규 `Validator.NullAndEmpty`/`DeliberateMistakes`/`MorphsTexturesSkeleton`/`ContentProfiles`) | `Saved/Automation/E/index.json`(작업 worktree) |
+| `ValidateProfiles.py` (`-run=pythonscript`, 기본 경로) | 2026-10-01 | 종료 코드 0. `DA_Character` E=0 W=0 I=0, `DA_Character_Cube` E=0 W=2 I=0(Physics Asset 없음, 높이 25 cm), `DA_Character_Manny` E=0 W=0 I=0, `TOTAL profiles=3 E=0 W=2 I=0 RESULT=PASS` | 6.15절 |
+| `ValidateProfiles.py` 실패 경로·다른 실행 방식 | 2026-10-01 | `-ProfilePath=/Game/Portfolio/Data/DoesNotExist` → `RuntimeError`, 종료 코드 **-1**. `-ExecutePythonScript="... -ProfilePath=/Game/Portfolio/Data/DA_Character_Manny"` → `profiles=1 E=0 W=0 I=0 RESULT=PASS`, 종료 코드 0 | 6.15절 |
 
 ### 4.1 미검증·대기 항목
 
@@ -306,6 +373,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **패키지(Development/Shipping) 재빌드·실행**: 스튜디오 룩/Manny 기본 프로필 상태로는 하지 않았다.
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
 - **2026-10-01 패널 레이아웃/촬영 패스의 `-game` 확인(대기)**: 이 패스는 NullRHI Editor 테스트와 빌드로만 검증됐다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerCapture`를 1280×720과 1920×1080에서 실행해 `ViewerCapture_UI_*.png`/`ViewerCapture_Clean_*.png`로 패널 폭(약 307px / 460px), 버튼 글자 잘림 없음, 설명 6줄 이상을 육안 확인 ② 같은 테스트에서 F12 파일이 실제로 생기고 크기가 뷰포트 × 2인지(로그의 `F12 capture method`가 `HighResScreenshot`인지 `SlateTakeScreenshot` 폴백인지 기록) ③ Shift+F12 2프레임 저장과 취소 후 회전/Turntable 복원 ④ `CharacterShowcase.Game.ViewerSmoke` 재실행(새 레이아웃에서 패널 경계 테스트 회귀 없음) ⑤ 실제 키 입력으로 F12, Shift+F12(코드 트리거가 일반 F12를 막는지), Esc 취소, 36장 전체 시퀀스 완주 — 이 항목들은 **미검증**이다.
+- **프로필 검증 도구(2.10절)의 런타임 로그**: `PostLogin`/`SwitchProfile`에서 `[ProfileValidator]` 보고서를 찍는 코드는 빌드만 확인했고 `-game`/패키지에서 실제 로그가 나오는지는 **미검증**이다. 또 지금 3개 프로필에는 Error가 없어서 "Error가 있는 실제 에셋 → 종료 코드 ≠ 0" 경로는 같은 예외 경로(없는 경로 지정 → -1)로만 확인했다. 검사 로직 자체는 Editor Automation 4개 테스트로 검증됐다.
 
 ## 5. 남은 작업·위험
 
@@ -458,3 +526,15 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - 이 엔진 빌드에서 **`-NullRHI`로 `StaticMeshActor`를 spawn하면 `EXCEPTION_INT_DIVIDE_BY_ZERO`로 Editor가 크래시**한다(재현 1/1, 실제 RHI에서는 정상). 레벨 편집 스크립트는 `-NullRHI` 없이 실행했다. 에셋 생성/검증(`CreatePortfolioAssets.py`, 기존 레벨이 있으면 Actor를 spawn하지 않음)은 `-NullRHI`로 정상.
 - `-NullRHI`에서 스켈레탈 메시 FBX 내보내기도 `Assertion failed: MeshObject`로 크래시 — 실제 RHI에서는 정상.
 - `MaterialEditingLibrary.set_material_instance_*_parameter_value`의 bool 반환값은 값이 적용됐는데도 False를 돌려줬다 → 스크립트는 반환값 대신 값을 다시 읽어 검사한다.
+
+### 6.15 프로필 검증 도구 (2026-10-01)
+
+**목적**: 주니어 아티스트가 `CharacterProfileData`를 잘못 채우면(본 이름 오타, 없는 슬롯, 다른 Skeleton의 애니메이션, Min/Max가 뒤집힌 카메라 등) 지금까지는 Viewer에서 "버튼이 아무 일도 안 함"으로만 드러났다. 무엇이 어디서 틀렸고 어떻게 고치는지 바로 알려 주는 읽기 전용 검사기를 추가했다(사용법·검사 표는 2.10절).
+
+- **`UCharacterProfileValidator`**(`Character/CharacterProfileValidator.h/.cpp`, `UBlueprintFunctionLibrary`, 런타임 모듈 — Editor·`-game`·패키지 모두 동작): `ValidateProfile(Profile)` → `TArray<FViewerProfileIssue>`(`Severity` Error/Warning/Info, `Category` Mesh/Camera/Animation/Expression/Material/Part/Play, 한국어 `Message`, Details 경로 `Field`), `FormatReport`, `CountBySeverity`, `CountByCategory`, `SeverityToString`, `LogProfileReport`. 구조체/열거형은 `BlueprintType`이라 Python에서 `unreal.CharacterProfileValidator.validate_profile()`로 그대로 호출된다. 에셋은 읽기만 한다.
+- **재사용한 규칙**: 애니메이션 호환은 `APortfolioCharacterActor::IsAnimationSkeletonCompatible()`(6.11절), Variant 슬롯 해석 순서(Slot Name → Slot Index)는 `ApplyVariantOverrides()`와 같다. 텍스처 수집은 Actor의 `CollectTextures`(private namespace) 로직을 검사기 안에 최소한으로 복사했다(Actor 파일은 다른 작업 범위라 수정하지 않음 — 두 곳을 같이 고쳐야 한다). Editor 전용 검사는 메시 높이(`GetImportedBounds`, 50 cm 미만/300 cm 초과 → "스케일 확인")만이며 `#if WITH_EDITOR`.
+- **판단 기준**: 엔진의 `FName` 비교가 대소문자를 구분하지 않으므로 `HEAD`는 `head`와 같은 본으로 통과시킨다(실제로 동작함). Expression은 메시에 Morph가 0개면 Morph마다 Error를 내지 않고 프로필당 Warning 1건만 낸다. Variant 슬롯 이름이 틀려도 Slot Index로 대신 적용되면 Warning, 적용되지 않으면 Error.
+- **런타임 로그**: `ACharacterViewerGameMode::PostLogin`(시작 프로필)과 `ACharacterViewerController::SwitchProfile`(CHARACTER 전환)에서 `LogProfileReport()` 1줄 호출 — `LogTemp` Display/Log 등급만 써서 Error가 있는 프로필로 전환해도 자동화 테스트가 실패하지 않는다. 위젯에는 아무것도 추가하지 않았다(상태 줄 연결은 후속 작업).
+- **`Scripts/ValidateProfiles.py`**: `/Game/Portfolio/Data`(또는 `-ProfilePath=`)의 모든 `CharacterProfileData`를 검사해 `[ValidateProfiles] <asset>: E=n W=n I=n` + 문제마다 1줄 + `TOTAL ... RESULT=PASS|FAIL`을 출력하고, Error(또는 로드 실패)가 있으면 예외를 던진다. `-ExecutePythonScript`로 실행한 Editor는 스크립트 예외와 관계없이 종료 코드 0으로 끝나므로(엔진 `EditorPythonExecuter.cpp`가 `QUIT_EDITOR`만 요청), 종료 코드가 필요한 경우를 위해 `-run=pythonscript` 커맨들릿 실행을 기본으로 문서화했다(커맨들릿은 예외 시 -1 반환).
+
+**검증**: Editor 빌드 0/0(10개 액션), Game 빌드 0/0(16개 액션, 118.6초). Editor Automation **18/18 통과** — 신규 4개: `Validator.NullAndEmpty`(null → Error 1, 빈 프로필 → Mesh E1 W1 + Material I1, 총 3건), `Validator.DeliberateMistakes`(TutorialTPP에 실수 28개: Camera E3 W3, Animation E5 W1 I1(`MM_Idle` ↔ TutorialTPP Skeleton 거부 포함), Expression W1, Material E2 W3 I1, Part E4 W3(`Spine01` → `'spine_01'`, `hand` → `'hand_l' 또는 'hand_r'`, `upperarm_left` → `'upperarm_l'` 제안 확인), Play W1, Mesh 0 — 카테고리·심각도별 개수와 필드 위치를 정확히 비교), `Validator.MorphsTexturesSkeleton`(임시 메시: Skeleton 없음 Error, Physics Asset 없음 + 파츠 없음 Info, 높이 0 cm Warning, Morph 12개 중 없는 이름 2개 → Error 2건 + "외 2개" 목록 잘림, `MI_Manny_01_New` 자식 MI에 300×200 텍스처 → Warning, 8192×16 → Info), `Validator.ContentProfiles`(Manny·Tutorial E=0 W=0 I=0, Cube E=0 W=2 — Physics Asset 경고 문구 확인). `ValidateProfiles.py` 실행 결과는 4절 표. 런타임 로그 훅은 **미실행**(4.1절). 빌드 중 다른 세션의 `-game` 프로세스가 Live Coding 뮤텍스를 잡고 있어 UBT가 거부했으므로 `-NoHotReloadFromIDE`를 붙여 빌드했다(이 worktree의 바이너리만 만들며 실행 중인 프로세스에는 영향 없음).

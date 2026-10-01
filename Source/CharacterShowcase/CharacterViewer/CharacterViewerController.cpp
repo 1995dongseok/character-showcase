@@ -1,6 +1,7 @@
 #include "CharacterViewer/CharacterViewerController.h"
 
 #include "Character/CharacterProfileData.h"
+#include "Character/CharacterProfileValidator.h"
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerGameMode.h"
@@ -780,6 +781,7 @@ void ACharacterViewerController::SwitchProfile(UCharacterProfileData* NewProfile
 	CancelCapture();
 
 	ViewerActor->ApplyProfile(NewProfile);
+	UCharacterProfileValidator::LogProfileReport(ViewerActor->Profile, TEXT("SwitchProfile"));
 	ApplyFramingForCurrentActor(true);
 
 	if (ViewerWidget)
