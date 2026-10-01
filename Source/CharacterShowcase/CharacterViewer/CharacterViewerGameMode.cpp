@@ -1,6 +1,7 @@
 #include "CharacterViewer/CharacterViewerGameMode.h"
 
 #include "Character/CharacterProfileData.h"
+#include "Character/CharacterProfileValidator.h"
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerController.h"
@@ -47,6 +48,13 @@ void ACharacterViewerGameMode::PostLogin(APlayerController* NewPlayer)
 		// (see the PostLogin-timing note above ApplyProfile(nullptr) here
 		// would otherwise clear it).
 		ViewerActor->ApplyProfile(DefaultProfile);
+	}
+
+	// Profile problems (wrong bone/slot/morph names, bad camera ranges, ...)
+	// are written to the log; see Docs/CHARACTER_VIEWER_SETUP.md section 2.10.
+	if (ViewerActor)
+	{
+		UCharacterProfileValidator::LogProfileReport(ViewerActor->Profile, TEXT("PostLogin"));
 	}
 
 	if (ACharacterViewerController* ViewerController = Cast<ACharacterViewerController>(NewPlayer))
