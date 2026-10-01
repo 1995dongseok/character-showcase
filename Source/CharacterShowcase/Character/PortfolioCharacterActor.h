@@ -260,6 +260,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Character|Stats")
 	bool GetPartMeasuredStats(FName PartId, FViewerSlotStats& Out) const;
 
+	// Measured size of the current mesh for the height ruler (G) and the
+	// INSPECTION "Height N cm": the Skeletal Mesh's imported bounds (the
+	// reference/bind pose as imported -- not the animated pose, and not the
+	// Physics Asset bodies) transformed by the Mesh component's world
+	// transform. OutHeightCm = top - bottom, OutBottomZ/OutTopZ are world Z,
+	// OutHalfWidthCm is the larger horizontal half-extent (arm span / 2 for an
+	// A/T pose), OutCenter the world centre of the bounds. False (outputs 0)
+	// without a mesh. Turntable yaw does not change the height.
+	UFUNCTION(BlueprintPure, Category = "Character|Stats")
+	bool GetMeshHeightInfo(float& OutHeightCm, float& OutBottomZ, float& OutTopZ, float& OutHalfWidthCm, FVector& OutCenter) const;
+
 	// --- Wireframe (P2-4) ---
 
 	// true: shows the wireframe in the mode GetActiveWireframeMode() reports:

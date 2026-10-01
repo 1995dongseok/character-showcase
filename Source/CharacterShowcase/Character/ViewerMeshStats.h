@@ -49,6 +49,12 @@ struct FViewerMeshStats
 	// NAME_None when the mesh has no Physics Asset (parts cannot be clicked then).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	FName PhysicsAssetName;
+
+	// Height in cm of the mesh's imported bounds (reference pose, every LOD
+	// alike) times the component's Z scale
+	// (APortfolioCharacterActor::GetMeshHeightInfo()); 0 without a mesh.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
+	float HeightCm = 0.f;
 };
 
 // Measured info for one material slot of the current mesh (GetSlotStats()),

@@ -71,6 +71,9 @@ enum class ECharacterViewerButtonKind : uint8
 	AnimationRateUp,
 	CycleLOD,
 	CycleBackdrop,
+	// DISPLAY rows "Ruler: Off (G)" / "Light: Studio (N)" (Docs/CHARACTER_VIEWER_SETUP.md 6.20).
+	ToggleHeightRuler,
+	CycleLighting,
 };
 
 // Raw pointers to the widgets UCharacterViewerWidget::BuildDefaultLayoutTree()
@@ -302,9 +305,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Viewer|Layout")
 	float GetAppliedPanelWidth() const { return AppliedPanelWidth; }
 
-	// Capture status line (StatusText). Empty text collapses it.
+	// Capture status line (StatusText). Empty text collapses it. Uses the
+	// status line's own colour (the green of the generated tree, or whatever
+	// a designer WBP gave StatusText).
 	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
 	void SetCaptureStatus(const FText& InStatus);
+
+	// Same line in an explicit colour (profile check result: red for errors,
+	// yellow for warnings). The next SetCaptureStatus() restores the default colour.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
+	void SetStatusLine(const FText& InStatus, FLinearColor InColor);
+
+	// Colour the status line is drawn in now (tests).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Capture")
+	FLinearColor GetStatusColor() const;
 
 	UFUNCTION(BlueprintPure, Category = "Viewer|Capture")
 	FText GetCaptureStatus() const { return CaptureStatus; }
@@ -413,7 +427,7 @@ public:
 	// The INSPECTION section body (both layouts; BuildInspectionSection() puts
 	// it into InspectionBodyText while Inspection is on), built from MEASURED
 	// data of the bound Actor:
-	//   mesh summary  "Triangles 92,178 · Verts 48,705 · Bones 89 · Slots 2 · LODs 3 · Morphs 0"
+	//   mesh summary  "Triangles 92,178 · Verts 48,705 · Bones 89 · Slots 2 · LODs 3 · Morphs 0 · Height 182 cm"
 	//                 "Skeleton SK_Mannequin · Physics PA_Mannequin" ("measured: n/a" if !bValid)
 	//   one line per slot "M_Torso: 54,012 tris · MI_Manny_02_New · 4 tex, max 4096x4096"
 	//   then "Click a part", or the selected part's authored DisplayName (PartType)
@@ -509,6 +523,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
 	void RequestCycleBackdrop();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void RequestToggleHeightRuler();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void RequestCycleLighting();
 
 	// "0.45 s / 1.20 s · frame 14 / 36" (unit-tested).
 	static FString FormatPlaybackTime(float Time, float Length, int32 Frame, int32 NumFrames);
@@ -635,7 +655,8 @@ private:
 	// or nothing playing). Rebuilt every RefreshUI().
 	void BuildPlaybackSection(UVerticalBox* Container);
 
-	// "LOD: Auto (L)" and "Backdrop: Studio (B)" rows inside DISPLAY.
+	// "LOD: Auto (L)", "Backdrop: Studio (B)", "Ruler: Off (G)" and
+	// "Light: Studio (N)" rows inside DISPLAY.
 	void BuildViewOptionRows(UVerticalBox* SectionBox);
 
 	// One equal-width button cell in a horizontal row (AddButtonRow() into a cell box).
@@ -658,6 +679,12 @@ private:
 
 	float AppliedPanelWidth = 0.f;
 	FText CaptureStatus;
+
+	// SetStatusLine() colour; unset = StatusText's own colour (captured once
+	// into DefaultStatusColor before the first override).
+	TOptional<FLinearColor> StatusColorOverride;
+	FSlateColor DefaultStatusColor;
+	bool bDefaultStatusColorCaptured = false;
 
 	// ApplyDescriptionLineFit() cache: re-measure only when one of these changes.
 	float AppliedDescriptionMaxHeight = 0.f;

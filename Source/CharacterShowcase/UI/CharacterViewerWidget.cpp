@@ -94,6 +94,12 @@ void UCharacterViewerButtonBinding::HandleClicked()
 	case ECharacterViewerButtonKind::CycleBackdrop:
 		OwnerWidget->RequestCycleBackdrop();
 		break;
+	case ECharacterViewerButtonKind::ToggleHeightRuler:
+		OwnerWidget->RequestToggleHeightRuler();
+		break;
+	case ECharacterViewerButtonKind::CycleLighting:
+		OwnerWidget->RequestCycleLighting();
+		break;
 	}
 }
 
@@ -687,6 +693,11 @@ FText UCharacterViewerWidget::BuildInspectionText() const
 				*FormatThousands(Mesh.MaterialSlots), *Dot,
 				*FormatThousands(Mesh.LODs), *Dot,
 				*FormatThousands(Mesh.MorphTargets)));
+			// Measured height (imported bounds, reference pose), same number as the G ruler.
+			if (Mesh.HeightCm > 0.f)
+			{
+				Lines.Last() += FString::Printf(TEXT("%sHeight %d cm"), *Dot, FMath::RoundToInt(Mesh.HeightCm));
+			}
 			Lines.Add(FString::Printf(TEXT("Skeleton %s%sPhysics %s"),
 				*NameOr(Mesh.SkeletonName, TEXT("none")), *Dot, *NameOr(Mesh.PhysicsAssetName, TEXT("none (parts not clickable)"))));
 		}
@@ -855,7 +866,28 @@ void UCharacterViewerWidget::RequestTurntableCapture()
 void UCharacterViewerWidget::SetCaptureStatus(const FText& InStatus)
 {
 	CaptureStatus = InStatus;
+	StatusColorOverride.Reset();
 	ApplyCaptureStatus();
+}
+
+void UCharacterViewerWidget::SetStatusLine(const FText& InStatus, FLinearColor InColor)
+{
+	CaptureStatus = InStatus;
+	StatusColorOverride = InColor;
+	ApplyCaptureStatus();
+}
+
+FLinearColor UCharacterViewerWidget::GetStatusColor() const
+{
+	if (StatusColorOverride.IsSet())
+	{
+		return StatusColorOverride.GetValue();
+	}
+	if (bDefaultStatusColorCaptured)
+	{
+		return DefaultStatusColor.GetSpecifiedColor();
+	}
+	return StatusText ? StatusText->GetColorAndOpacity().GetSpecifiedColor() : FLinearColor::White;
 }
 
 void UCharacterViewerWidget::ApplyCaptureStatus()
@@ -864,6 +896,14 @@ void UCharacterViewerWidget::ApplyCaptureStatus()
 	{
 		return;
 	}
+	// Remember the authored colour once (generated tree green, or a designer
+	// WBP's own), so an override can always be undone exactly.
+	if (!bDefaultStatusColorCaptured)
+	{
+		DefaultStatusColor = StatusText->GetColorAndOpacity();
+		bDefaultStatusColorCaptured = true;
+	}
+	StatusText->SetColorAndOpacity(StatusColorOverride.IsSet() ? FSlateColor(StatusColorOverride.GetValue()) : DefaultStatusColor);
 	StatusText->SetText(CaptureStatus);
 	StatusText->SetVisibility(CaptureStatus.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 }
@@ -1334,6 +1374,24 @@ void UCharacterViewerWidget::RequestCycleBackdrop()
 	RefreshUI();
 }
 
+void UCharacterViewerWidget::RequestToggleHeightRuler()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->ToggleHeightRuler();
+	}
+	RefreshUI();
+}
+
+void UCharacterViewerWidget::RequestCycleLighting()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->CycleLightingPreset();
+	}
+	RefreshUI();
+}
+
 FString UCharacterViewerWidget::FormatPlaybackTime(float Time, float Length, int32 Frame, int32 NumFrames)
 {
 	// U+00B7 middle dot, as in the INSPECTION text.
@@ -1480,4 +1538,13 @@ void UCharacterViewerWidget::BuildViewOptionRows(UVerticalBox* SectionBox)
 	const EViewerBackdropPreset Preset = Controller ? Controller->GetBackdropPreset() : EViewerBackdropPreset::Studio;
 	AddButtonRow(SectionBox, FText::FromString(FString::Printf(TEXT("Backdrop: %s (B)"), *ACharacterViewerController::GetBackdropPresetDisplayName(Preset))),
 		Controller != nullptr, Preset != EViewerBackdropPreset::Studio, NAME_None, ECharacterViewerButtonKind::CycleBackdrop);
+
+	// Height ruler (G) and lighting presets (N), section 6.20.
+	const bool bRulerOn = Controller && Controller->IsHeightRulerEnabled();
+	AddButtonRow(SectionBox, FText::FromString(bRulerOn ? TEXT("Ruler: On (G)") : TEXT("Ruler: Off (G)")),
+		Controller != nullptr && Actor != nullptr, bRulerOn, NAME_None, ECharacterViewerButtonKind::ToggleHeightRuler);
+
+	const EViewerLightingPreset Lighting = Controller ? Controller->GetLightingPreset() : EViewerLightingPreset::Studio;
+	AddButtonRow(SectionBox, FText::FromString(FString::Printf(TEXT("Light: %s (N)"), *ACharacterViewerController::GetLightingPresetDisplayName(Lighting))),
+		Controller != nullptr, Lighting != EViewerLightingPreset::Studio, NAME_None, ECharacterViewerButtonKind::CycleLighting);
 }

@@ -17,6 +17,8 @@ class UGameViewportClient;
 struct FInputActionValue;
 class UMaterialInstanceDynamic;
 class UMeshComponent;
+class ULightComponent;
+class AViewerHeightRuler;
 
 // Backdrop/floor colour presets for silhouette checks (B key, DISPLAY row
 // "Backdrop: <name> (B)"). Studio = the level as authored (the MI parameter
@@ -28,6 +30,61 @@ enum class EViewerBackdropPreset : uint8
 	Black,
 	White,
 	MidGrey
+};
+
+// Lighting presets for form/texture checks (N key, DISPLAY row
+// "Light: <name> (N)", Docs/CHARACTER_VIEWER_SETUP.md 6.20). Studio = the
+// level's three directional lights as authored (values captured the first
+// time a preset is applied); the others change only those three lights
+// (intensity/colour/rotation/shadows), never the Sky Light or post process.
+UENUM(BlueprintType)
+enum class EViewerLightingPreset : uint8
+{
+	Studio,
+	// Key/Fill/Rim all 1.5 lux, white, no shadows: albedo/texture check.
+	Flat,
+	// Key 0.3, Fill 0.1, Rim 3.0 lux: silhouette/edge check.
+	Rim,
+	// Key from above (pitch -80, same yaw) 2.5 lux, Fill 0.5, Rim 0: form/volume check.
+	Top
+};
+
+// Role of one studio directional light (see ACharacterViewerController::SetLightingPreset()).
+UENUM(BlueprintType)
+enum class EViewerLightRole : uint8
+{
+	Key,
+	Fill,
+	Rim
+};
+
+// Values a lighting preset sets on one directional light (world rotation).
+USTRUCT(BlueprintType)
+struct FViewerLightSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Lighting")
+	float Intensity = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Lighting")
+	FColor Color = FColor::White;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Lighting")
+	FRotator Rotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Lighting")
+	bool bCastShadows = false;
+};
+
+// One directional light driven by ACharacterViewerController::SetLightingPreset().
+// Runtime-only bookkeeping, not reflected.
+struct FViewerLightTarget
+{
+	TWeakObjectPtr<ULightComponent> Light;
+	EViewerLightRole Role = EViewerLightRole::Key;
+	// As authored (restored exactly by the Studio preset).
+	FViewerLightSettings Original;
 };
 
 // One material slot recoloured by ACharacterViewerController::SetBackdropPreset()
@@ -144,6 +201,23 @@ public:
 	// Bool: B -> CycleBackdropPreset().
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Display")
 	TObjectPtr<UInputAction> CycleBackdropAction;
+
+	// Bool: G -> ToggleHeightRuler().
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Display")
+	TObjectPtr<UInputAction> ToggleHeightRulerAction;
+
+	// Bool: N -> CycleLightingPreset().
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Display")
+	TObjectPtr<UInputAction> CycleLightingAction;
+
+	// How long the profile check result ("프로필 OK" / "프로필 검사: 오류 N ...")
+	// stays in the panel status line after a profile is applied.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI", meta = (ClampMin = "0.0"))
+	float ProfileStatusSeconds = 6.f;
+
+	// Gap (cm) between the mesh bounds' horizontal half-width and the height ruler.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Display", meta = (ClampMin = "0.0"))
+	float RulerSideGapCm = 30.f;
 
 	// Play rate change per -/= press (and per panel button).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Playback", meta = (ClampMin = "0.05", ClampMax = "1.0"))
@@ -376,6 +450,87 @@ public:
 	// False for Studio (the captured original values are restored instead).
 	static bool GetBackdropPresetColors(EViewerBackdropPreset Preset, FLinearColor& OutBackdropTop, FLinearColor& OutBackdropBottom, FLinearColor& OutFloorBase, FLinearColor& OutFloorEdge);
 
+	// --- Height ruler (G) / lighting presets (N) / profile check status (section 6.20) ---
+	// Implemented in CharacterViewer/CharacterViewerControllerStudio.cpp.
+
+	// Shows/hides the height reference ruler (AViewerHeightRuler, spawned on
+	// the first ON). It stands at the character's feet, offset to the
+	// screen-left of the mesh bounds (half-width + RulerSideGapCm), and is
+	// turned to face the camera every tick, so it stays beside the character
+	// at the character's depth while orbiting and does not follow the
+	// turntable. Hidden while Clean View is on; kept (and re-measured) across
+	// profile switches; visible in F12/turntable/batch captures when on.
+	// Ignored while a turntable capture runs.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void SetHeightRulerEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void ToggleHeightRuler();
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Display")
+	bool IsHeightRulerEnabled() const { return bHeightRulerEnabled; }
+
+	// Null until the ruler is first turned on.
+	UFUNCTION(BlueprintPure, Category = "Viewer|Display")
+	AViewerHeightRuler* GetHeightRuler() const { return HeightRuler; }
+
+	// Re-measures the character and re-places/re-faces the ruler (called
+	// every PlayerTick while it is shown; public so Editor tests can drive it).
+	void UpdateHeightRuler();
+
+	// Studio -> Flat -> Rim -> Top -> Studio.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Lighting")
+	void CycleLightingPreset();
+
+	// Applies Preset to the three studio directional lights, found once:
+	// in the editor by the Outliner labels KeyLight / FillLight / RimLight;
+	// otherwise (cooked builds have no labels) Key = the brightest
+	// shadow-casting directional light (the brightest one if none casts
+	// shadows), Rim = of the rest, the one whose horizontal direction is most
+	// opposite to the Key's (back light), Fill = the brightest remaining one.
+	// Each preset starts from the captured originals, so Studio restores
+	// exactly. No directional light: the preset is still recorded, nothing
+	// changes, one log line. Sky Light/post process untouched. Kept across
+	// Clean View and profile switches; ignored while a turntable capture or a
+	// batch capture runs.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Lighting")
+	void SetLightingPreset(EViewerLightingPreset Preset);
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Lighting")
+	EViewerLightingPreset GetLightingPreset() const { return LightingPreset; }
+
+	// Lights being driven (0 until the first SetLightingPreset(), or none found).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Lighting")
+	int32 GetLightingTargetCount() const { return LightingTargets.Num(); }
+
+	// The light resolved for Role (null if none).
+	ULightComponent* GetLightingTarget(EViewerLightRole LightRole) const;
+
+	// "Studio", "Flat", "Rim", "Top".
+	static FString GetLightingPresetDisplayName(EViewerLightingPreset Preset);
+
+	// What Preset sets on a light of Role whose authored values are Original (pure, unit-tested).
+	static FViewerLightSettings GetLightingPresetSettings(EViewerLightingPreset Preset, EViewerLightRole LightRole, const FViewerLightSettings& Original);
+
+	// Validates the viewer actor's profile (UCharacterProfileValidator, the
+	// same report LogProfileReport() writes) and shows the result in the
+	// panel status line for ProfileStatusSeconds: "프로필 OK" (0 errors and 0
+	// warnings), else "프로필 검사: 오류 N · 경고 M (로그/2.10절 참고)" in red
+	// (errors) or yellow (warnings only). Called after the start profile
+	// (ACharacterViewerGameMode::PostLogin) and every SwitchProfile(). Never
+	// blocks anything; skipped while a capture or batch capture is running
+	// (their status wins).
+	UFUNCTION(BlueprintCallable, Category = "Viewer")
+	void ShowProfileValidationStatus();
+
+	// The status text/colour for ErrorCount/WarningCount (pure, unit-tested).
+	static FString FormatProfileValidationStatus(int32 ErrorCount, int32 WarningCount);
+	static FLinearColor GetProfileValidationStatusColor(int32 ErrorCount, int32 WarningCount);
+
+	// For a host (or test) that creates the panel itself instead of through
+	// WidgetClass: binds InWidget like the controller's own widget.
+	void SetViewerWidget(UCharacterViewerWidget* InWidget);
+
 	// --- Batch portfolio capture (console Viewer.CaptureAll, Tools\CaptureAll.bat, section 1.8) ---
 	// Implemented in CharacterViewer/CharacterViewerControllerBatch.cpp; plan
 	// and state machine in CharacterViewer/ViewerBatchCapture.h.
@@ -466,7 +621,28 @@ private:
 	void HandleAnimationRateReset(const FInputActionValue& Value);
 	void HandleCycleLOD(const FInputActionValue& Value);
 	void HandleCycleBackdrop(const FInputActionValue& Value);
+	void HandleToggleHeightRuler(const FInputActionValue& Value);
+	void HandleCycleLighting(const FInputActionValue& Value);
 	void NotifyViewerWidget();
+
+	// --- Height ruler / lighting internals (CharacterViewerControllerStudio.cpp) ---
+
+	// Ruler shown = enabled, not Clean View, viewer actor has a mesh.
+	void ApplyHeightRulerVisibility();
+	void ResolveLightingTargets();
+
+	// Status line cleared after Seconds (0 = kept); Color null = the status
+	// line's default colour (as SetCaptureStatus()).
+	void SetStatusLine(const FString& Status, float Seconds, const FLinearColor* Color);
+
+	UPROPERTY(Transient)
+	TObjectPtr<AViewerHeightRuler> HeightRuler;
+
+	bool bHeightRulerEnabled = false;
+
+	EViewerLightingPreset LightingPreset = EViewerLightingPreset::Studio;
+	TArray<FViewerLightTarget> LightingTargets;
+	bool bLightingTargetsResolved = false;
 
 	// Finds the targets once (bBackdropTargetsResolved), creating the dynamic MIs.
 	void ResolveBackdropTargets();

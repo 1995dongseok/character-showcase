@@ -64,6 +64,8 @@ void ACharacterViewerGameMode::PostLogin(APlayerController* NewPlayer)
 			ViewerController->WidgetClass = ViewerWidgetClass;
 		}
 		ViewerController->SetViewerActor(ViewerActor);
+		// Same check result in the panel status line (section 6.20).
+		ViewerController->ShowProfileValidationStatus();
 	}
 }
 

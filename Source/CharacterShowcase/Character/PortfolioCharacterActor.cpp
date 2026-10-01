@@ -947,8 +947,42 @@ FViewerMeshStats APortfolioCharacterActor::GetMeshStats(int32 LODIndex) const
 	Stats.MorphTargets = MeshAsset->GetMorphTargets().Num();
 	Stats.SkeletonName = MeshAsset->GetSkeleton() ? MeshAsset->GetSkeleton()->GetFName() : NAME_None;
 	Stats.PhysicsAssetName = MeshAsset->GetPhysicsAsset() ? MeshAsset->GetPhysicsAsset()->GetFName() : NAME_None;
+	float BottomZ = 0.f;
+	float TopZ = 0.f;
+	float HalfWidth = 0.f;
+	FVector Center = FVector::ZeroVector;
+	GetMeshHeightInfo(Stats.HeightCm, BottomZ, TopZ, HalfWidth, Center);
 	Stats.bValid = true;
 	return Stats;
+}
+
+bool APortfolioCharacterActor::GetMeshHeightInfo(float& OutHeightCm, float& OutBottomZ, float& OutTopZ, float& OutHalfWidthCm, FVector& OutCenter) const
+{
+	OutHeightCm = 0.f;
+	OutBottomZ = 0.f;
+	OutTopZ = 0.f;
+	OutHalfWidthCm = 0.f;
+	OutCenter = GetActorLocation();
+	const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
+	if (!MeshAsset)
+	{
+		return false;
+	}
+
+	// Imported bounds are in mesh (component) space; the world box of their
+	// transformed corners gives world Z directly. Only the Z extent and the
+	// horizontal half-extent are used, so yaw (turntable) does not matter for
+	// the height; the half-width is measured in component space (yaw-free).
+	const FBoxSphereBounds Imported = MeshAsset->GetImportedBounds();
+	const FTransform& ComponentTransform = Mesh->GetComponentTransform();
+	const FBox WorldBox = Imported.GetBox().TransformBy(ComponentTransform);
+	const FVector Scale = ComponentTransform.GetScale3D().GetAbs();
+	OutBottomZ = static_cast<float>(WorldBox.Min.Z);
+	OutTopZ = static_cast<float>(WorldBox.Max.Z);
+	OutHeightCm = OutTopZ - OutBottomZ;
+	OutHalfWidthCm = static_cast<float>(FMath::Max(Imported.BoxExtent.X * Scale.X, Imported.BoxExtent.Y * Scale.Y));
+	OutCenter = WorldBox.GetCenter();
+	return true;
 }
 
 FViewerSlotStats APortfolioCharacterActor::ComputeSlotStats(int32 SlotIndex, int32 LODIndex) const
