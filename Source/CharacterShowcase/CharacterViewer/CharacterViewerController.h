@@ -14,6 +14,33 @@ class ACharacterViewerCameraPawn;
 class UCharacterProfileData;
 class UGameViewportClient;
 struct FInputActionValue;
+class UMaterialInstanceDynamic;
+class UMeshComponent;
+
+// Backdrop/floor colour presets for silhouette checks (B key, DISPLAY row
+// "Backdrop: <name> (B)"). Studio = the level as authored (the MI parameter
+// values captured the first time a preset is applied).
+UENUM(BlueprintType)
+enum class EViewerBackdropPreset : uint8
+{
+	Studio,
+	Black,
+	White,
+	MidGrey
+};
+
+// One material slot recoloured by ACharacterViewerController::SetBackdropPreset()
+// (backdrop sphere or floor). Runtime-only bookkeeping, not reflected.
+struct FViewerBackdropTarget
+{
+	TWeakObjectPtr<UMeshComponent> Component;
+	int32 SlotIndex = 0;
+	TWeakObjectPtr<UMaterialInstanceDynamic> Material;
+	bool bIsFloor = false;
+	// Parameter values as authored (restored by the Studio preset).
+	FLinearColor OriginalA = FLinearColor::Black;	// TopColor / BaseColor
+	FLinearColor OriginalB = FLinearColor::Black;	// BottomColor / EdgeColor
+};
 
 // P0-1/P0-4/P1-2/P1-6: owns input state, UI display, drag/click judgement and
 // forwards user intent to the Actor/Pawn/Widget. See
@@ -82,6 +109,44 @@ public:
 	// Bool: Escape -> CancelCapture() (no-op when nothing is being captured).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Capture")
 	TObjectPtr<UInputAction> CancelCaptureAction;
+
+	// --- Animation playback / LOD / backdrop input (section 1.7) ---
+
+	// Bool: P -> ToggleAnimationPaused().
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> ToggleAnimationPauseAction;
+
+	// Bool: [ -> StepAnimationFrames(-1) (pauses).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> StepAnimationBackAction;
+
+	// Bool: ] -> StepAnimationFrames(+1) (pauses).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> StepAnimationForwardAction;
+
+	// Bool: - (and numpad -) -> ChangeAnimationPlayRate(-AnimationRateStep).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> AnimationRateDownAction;
+
+	// Bool: = (and numpad +) -> ChangeAnimationPlayRate(+AnimationRateStep).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> AnimationRateUpAction;
+
+	// Bool: 0 -> ResetAnimationPlayRate() (1.0).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Playback")
+	TObjectPtr<UInputAction> AnimationRateResetAction;
+
+	// Bool: L -> CycleForcedLOD().
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Display")
+	TObjectPtr<UInputAction> CycleLODAction;
+
+	// Bool: B -> CycleBackdropPreset().
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Display")
+	TObjectPtr<UInputAction> CycleBackdropAction;
+
+	// Play rate change per -/= press (and per panel button).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Playback", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float AnimationRateStep = 0.25f;
 
 	// --- Portfolio capture settings ---
 
@@ -254,6 +319,62 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Viewer|Capture")
 	FString GetLastCaptureMethod() const { return LastCaptureMethod; }
 
+	// --- Animation playback / LOD / backdrop (P, [, ], -, =, 0, L, B) ---
+	// Each forwards to the viewer actor and refreshes the widget; false when
+	// there is no viewer actor or the actor rejected it (e.g. an Animation
+	// Blueprint drives the mesh -- APortfolioCharacterActor::IsAnimationPlaybackControllable()).
+	// All of them (backdrop included) are ignored while a turntable capture
+	// runs, so every frame of a sequence shares one look.
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	bool ToggleAnimationPaused();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	bool StepAnimationFrames(int32 Frames);
+
+	// Current rate + Delta (clamped 0.1..2.0 by the actor).
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	bool ChangeAnimationPlayRate(float Delta);
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	bool ResetAnimationPlayRate();
+
+	// Auto -> LOD0 -> LOD1 -> ... -> last LOD -> Auto (actor's SetForcedLOD 0, 1, 2, ...).
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	bool CycleForcedLOD();
+
+	// Studio -> Black -> White -> MidGrey -> Studio.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void CycleBackdropPreset();
+
+	// Recolours the studio backdrop sphere (MI_StudioBackdrop TopColor/
+	// BottomColor) and floor (MI_StudioFloor BaseColor/EdgeColor) through
+	// dynamic material instances created once (lights/post process untouched;
+	// no level asset is modified). Targets are found on first use: static mesh
+	// components whose material (or its parent chain) is MI_StudioBackdrop/
+	// M_StudioBackdrop or MI_StudioFloor/M_StudioFloor (works in cooked builds
+	// where Outliner labels are gone), or, in the editor, actors labelled
+	// StudioBackdrop/PlatformCylinder. Studio restores the values captured
+	// then. Missing actors: the preset is still recorded, nothing is
+	// recoloured, one log line. Kept across Clean View and profile switches.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void SetBackdropPreset(EViewerBackdropPreset Preset);
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Display")
+	EViewerBackdropPreset GetBackdropPreset() const { return BackdropPreset; }
+
+	// Backdrop + floor material slots being recoloured (0 until the first
+	// SetBackdropPreset(), or when the level has no studio actors).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Display")
+	int32 GetBackdropTargetCount() const { return BackdropTargets.Num(); }
+
+	// "Studio", "Black", "White", "Mid Grey".
+	static FString GetBackdropPresetDisplayName(EViewerBackdropPreset Preset);
+
+	// Linear colours a preset applies (backdrop top/bottom, floor base/edge).
+	// False for Studio (the captured original values are restored instead).
+	static bool GetBackdropPresetColors(EViewerBackdropPreset Preset, FLinearColor& OutBackdropTop, FLinearColor& OutBackdropBottom, FLinearColor& OutFloorBase, FLinearColor& OutFloorEdge);
+
 	// --- Read-only accessors (mainly for automation tests; see Tests/CharacterViewerGameSmokeTest.cpp) ---
 
 	UFUNCTION(BlueprintPure, Category = "Viewer")
@@ -315,6 +436,25 @@ private:
 	FString LastCaptureOutputPath;
 	FString LastCaptureMethod;
 	int32 LastCaptureSavedFrames = 0;
+
+	// --- Animation playback / LOD / backdrop internals ---
+
+	void HandleToggleAnimationPause(const FInputActionValue& Value);
+	void HandleStepAnimationBack(const FInputActionValue& Value);
+	void HandleStepAnimationForward(const FInputActionValue& Value);
+	void HandleAnimationRateDown(const FInputActionValue& Value);
+	void HandleAnimationRateUp(const FInputActionValue& Value);
+	void HandleAnimationRateReset(const FInputActionValue& Value);
+	void HandleCycleLOD(const FInputActionValue& Value);
+	void HandleCycleBackdrop(const FInputActionValue& Value);
+	void NotifyViewerWidget();
+
+	// Finds the targets once (bBackdropTargetsResolved), creating the dynamic MIs.
+	void ResolveBackdropTargets();
+
+	EViewerBackdropPreset BackdropPreset = EViewerBackdropPreset::Studio;
+	TArray<FViewerBackdropTarget> BackdropTargets;
+	bool bBackdropTargetsResolved = false;
 
 	void EnsureFallbackInputAssets();
 	void EnsureWidgetCreated();

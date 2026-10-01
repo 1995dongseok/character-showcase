@@ -3,6 +3,8 @@
 #include "Character/CharacterProfileData.h"
 #include "Character/CharacterProfileValidator.h"
 #include "Character/PortfolioCharacterActor.h"
+#include "Components/MeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerGameMode.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -23,6 +25,8 @@
 #include "InputCoreTypes.h"
 #include "InputMappingContext.h"
 #include "InputTriggers.h"
+#include "Materials/MaterialInstance.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/DateTime.h"
 #include "Misc/Paths.h"
 #include "UI/CharacterViewerWidget.h"
@@ -172,6 +176,40 @@ void ACharacterViewerController::SetupInputComponent()
 		{
 			EnhancedInputComp->BindAction(CancelCaptureAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCancelCapture);
 		}
+
+		// Animation playback / LOD / backdrop (P, [, ], -, =, 0, L, B).
+		if (ToggleAnimationPauseAction)
+		{
+			EnhancedInputComp->BindAction(ToggleAnimationPauseAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleAnimationPause);
+		}
+		if (StepAnimationBackAction)
+		{
+			EnhancedInputComp->BindAction(StepAnimationBackAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleStepAnimationBack);
+		}
+		if (StepAnimationForwardAction)
+		{
+			EnhancedInputComp->BindAction(StepAnimationForwardAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleStepAnimationForward);
+		}
+		if (AnimationRateDownAction)
+		{
+			EnhancedInputComp->BindAction(AnimationRateDownAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleAnimationRateDown);
+		}
+		if (AnimationRateUpAction)
+		{
+			EnhancedInputComp->BindAction(AnimationRateUpAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleAnimationRateUp);
+		}
+		if (AnimationRateResetAction)
+		{
+			EnhancedInputComp->BindAction(AnimationRateResetAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleAnimationRateReset);
+		}
+		if (CycleLODAction)
+		{
+			EnhancedInputComp->BindAction(CycleLODAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCycleLOD);
+		}
+		if (CycleBackdropAction)
+		{
+			EnhancedInputComp->BindAction(CycleBackdropAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCycleBackdrop);
+		}
 	}
 }
 
@@ -259,6 +297,24 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		CancelCaptureAction->ValueType = EInputActionValueType::Boolean;
 	}
 
+	// Animation playback / LOD / backdrop.
+	auto EnsureBoolAction = [this](TObjectPtr<UInputAction>& Action, const TCHAR* Name)
+	{
+		if (!Action)
+		{
+			Action = NewObject<UInputAction>(this, Name);
+			Action->ValueType = EInputActionValueType::Boolean;
+		}
+	};
+	EnsureBoolAction(ToggleAnimationPauseAction, TEXT("IA_ViewerToggleAnimationPause_Fallback"));
+	EnsureBoolAction(StepAnimationBackAction, TEXT("IA_ViewerStepAnimationBack_Fallback"));
+	EnsureBoolAction(StepAnimationForwardAction, TEXT("IA_ViewerStepAnimationForward_Fallback"));
+	EnsureBoolAction(AnimationRateDownAction, TEXT("IA_ViewerAnimationRateDown_Fallback"));
+	EnsureBoolAction(AnimationRateUpAction, TEXT("IA_ViewerAnimationRateUp_Fallback"));
+	EnsureBoolAction(AnimationRateResetAction, TEXT("IA_ViewerAnimationRateReset_Fallback"));
+	EnsureBoolAction(CycleLODAction, TEXT("IA_ViewerCycleLOD_Fallback"));
+	EnsureBoolAction(CycleBackdropAction, TEXT("IA_ViewerCycleBackdrop_Fallback"));
+
 	if (MappingContext)
 	{
 		MappingContext->MapKey(OrbitPressAction, EKeys::LeftMouseButton);
@@ -284,6 +340,18 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		}
 		MappingContext->MapKey(ScreenshotAction, EKeys::F12);
 		MappingContext->MapKey(CancelCaptureAction, EKeys::Escape);
+
+		// Animation playback / LOD / backdrop: keys not used above.
+		MappingContext->MapKey(ToggleAnimationPauseAction, EKeys::P);
+		MappingContext->MapKey(StepAnimationBackAction, EKeys::LeftBracket);
+		MappingContext->MapKey(StepAnimationForwardAction, EKeys::RightBracket);
+		MappingContext->MapKey(AnimationRateDownAction, EKeys::Hyphen);
+		MappingContext->MapKey(AnimationRateDownAction, EKeys::Subtract);
+		MappingContext->MapKey(AnimationRateUpAction, EKeys::Equals);
+		MappingContext->MapKey(AnimationRateUpAction, EKeys::Add);
+		MappingContext->MapKey(AnimationRateResetAction, EKeys::Zero);
+		MappingContext->MapKey(CycleLODAction, EKeys::L);
+		MappingContext->MapKey(CycleBackdropAction, EKeys::B);
 	}
 }
 
@@ -1214,4 +1282,329 @@ void ACharacterViewerController::SetCaptureStatus(const FString& Status, bool bT
 	{
 		ViewerWidget->SetCaptureStatus(FText::FromString(Status));
 	}
+}
+
+// --- Animation playback / LOD / backdrop (P, [, ], -, =, 0, L, B; section 1.7) ---
+// Kept in one block, separate from the capture code above.
+
+void ACharacterViewerController::NotifyViewerWidget()
+{
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+}
+
+void ACharacterViewerController::HandleToggleAnimationPause(const FInputActionValue& Value)
+{
+	ToggleAnimationPaused();
+}
+
+void ACharacterViewerController::HandleStepAnimationBack(const FInputActionValue& Value)
+{
+	StepAnimationFrames(-1);
+}
+
+void ACharacterViewerController::HandleStepAnimationForward(const FInputActionValue& Value)
+{
+	StepAnimationFrames(1);
+}
+
+void ACharacterViewerController::HandleAnimationRateDown(const FInputActionValue& Value)
+{
+	ChangeAnimationPlayRate(-AnimationRateStep);
+}
+
+void ACharacterViewerController::HandleAnimationRateUp(const FInputActionValue& Value)
+{
+	ChangeAnimationPlayRate(AnimationRateStep);
+}
+
+void ACharacterViewerController::HandleAnimationRateReset(const FInputActionValue& Value)
+{
+	ResetAnimationPlayRate();
+}
+
+void ACharacterViewerController::HandleCycleLOD(const FInputActionValue& Value)
+{
+	CycleForcedLOD();
+}
+
+void ACharacterViewerController::HandleCycleBackdrop(const FInputActionValue& Value)
+{
+	CycleBackdropPreset();
+}
+
+bool ACharacterViewerController::ToggleAnimationPaused()
+{
+	if (!ViewerActor || IsTurntableCaptureRunning())
+	{
+		return false;
+	}
+	const bool bResult = ViewerActor->SetAnimationPaused(!ViewerActor->IsAnimationPaused());
+	NotifyViewerWidget();
+	return bResult;
+}
+
+bool ACharacterViewerController::StepAnimationFrames(int32 Frames)
+{
+	if (!ViewerActor || IsTurntableCaptureRunning())
+	{
+		return false;
+	}
+	const bool bResult = ViewerActor->StepAnimationFrames(Frames);
+	NotifyViewerWidget();
+	return bResult;
+}
+
+bool ACharacterViewerController::ChangeAnimationPlayRate(float Delta)
+{
+	if (!ViewerActor || IsTurntableCaptureRunning())
+	{
+		return false;
+	}
+	const bool bResult = ViewerActor->SetAnimationPlayRate(ViewerActor->GetAnimationPlayRate() + Delta);
+	NotifyViewerWidget();
+	return bResult;
+}
+
+bool ACharacterViewerController::ResetAnimationPlayRate()
+{
+	if (!ViewerActor || IsTurntableCaptureRunning())
+	{
+		return false;
+	}
+	const bool bResult = ViewerActor->SetAnimationPlayRate(1.f);
+	NotifyViewerWidget();
+	return bResult;
+}
+
+bool ACharacterViewerController::CycleForcedLOD()
+{
+	if (!ViewerActor || IsTurntableCaptureRunning())
+	{
+		return false;
+	}
+	const int32 NumLODs = ViewerActor->GetNumLODs();
+	if (NumLODs <= 0)
+	{
+		return false;
+	}
+	// 0 (Auto) -> 1 (LOD0) -> ... -> NumLODs (last LOD) -> 0.
+	const int32 Next = (ViewerActor->GetForcedLOD() + 1) % (NumLODs + 1);
+	const bool bResult = ViewerActor->SetForcedLOD(Next);
+	NotifyViewerWidget();
+	return bResult;
+}
+
+FString ACharacterViewerController::GetBackdropPresetDisplayName(EViewerBackdropPreset Preset)
+{
+	switch (Preset)
+	{
+	case EViewerBackdropPreset::Black:
+		return TEXT("Black");
+	case EViewerBackdropPreset::White:
+		return TEXT("White");
+	case EViewerBackdropPreset::MidGrey:
+		return TEXT("Mid Grey");
+	default:
+		return TEXT("Studio");
+	}
+}
+
+bool ACharacterViewerController::GetBackdropPresetColors(EViewerBackdropPreset Preset, FLinearColor& OutBackdropTop, FLinearColor& OutBackdropBottom, FLinearColor& OutFloorBase, FLinearColor& OutFloorEdge)
+{
+	// Flat colours (no gradient/fade) so the silhouette reads against one tone.
+	// White is 0.8 linear, not 1.0: the backdrop is unlit emissive at a fixed
+	// exposure, so 1.0 would clip and the lit floor would bloom.
+	float Value = 0.f;
+	switch (Preset)
+	{
+	case EViewerBackdropPreset::Black:
+		Value = 0.f;
+		break;
+	case EViewerBackdropPreset::White:
+		Value = 0.8f;
+		break;
+	case EViewerBackdropPreset::MidGrey:
+		Value = 0.18f;
+		break;
+	default:
+		return false;
+	}
+	const FLinearColor Color(Value, Value, Value, 1.f);
+	OutBackdropTop = Color;
+	OutBackdropBottom = Color;
+	OutFloorBase = Color;
+	OutFloorEdge = Color;
+	return true;
+}
+
+namespace CharacterViewerBackdropPrivate
+{
+	const FName TopColorName(TEXT("TopColor"));
+	const FName BottomColorName(TEXT("BottomColor"));
+	const FName BaseColorName(TEXT("BaseColor"));
+	const FName EdgeColorName(TEXT("EdgeColor"));
+
+	enum class ETargetKind : uint8 { None, Backdrop, Floor };
+
+	// Walks Material's instance parent chain for the studio materials made by
+	// Scripts/CreatePortfolioAssets.py (asset names survive cooking).
+	ETargetKind ClassifyMaterial(const UMaterialInterface* Material)
+	{
+		const UMaterialInterface* Current = Material;
+		for (int32 Depth = 0; Current && Depth < 16; ++Depth)
+		{
+			const FName Name = Current->GetFName();
+			if (Name == TEXT("MI_StudioBackdrop") || Name == TEXT("M_StudioBackdrop"))
+			{
+				return ETargetKind::Backdrop;
+			}
+			if (Name == TEXT("MI_StudioFloor") || Name == TEXT("M_StudioFloor"))
+			{
+				return ETargetKind::Floor;
+			}
+			const UMaterialInstance* Instance = Cast<UMaterialInstance>(Current);
+			Current = Instance ? Instance->Parent.Get() : nullptr;
+		}
+		return ETargetKind::None;
+	}
+
+	// Editor fallback for a studio actor whose material was swapped: the
+	// Outliner label apply_studio_setup() gives it (labels are not in cooked builds).
+	ETargetKind ClassifyLabel(const AActor& Actor)
+	{
+		const FString Label = Actor.GetActorNameOrLabel();
+		if (Label == TEXT("StudioBackdrop"))
+		{
+			return ETargetKind::Backdrop;
+		}
+		if (Label == TEXT("PlatformCylinder"))
+		{
+			return ETargetKind::Floor;
+		}
+		return ETargetKind::None;
+	}
+}
+
+void ACharacterViewerController::ResolveBackdropTargets()
+{
+	using namespace CharacterViewerBackdropPrivate;
+
+	BackdropTargets.RemoveAll([](const FViewerBackdropTarget& Target)
+	{
+		return !Target.Component.IsValid() || !Target.Material.IsValid();
+	});
+	if (BackdropTargets.Num() > 0)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor || Actor == ViewerActor)
+		{
+			continue;
+		}
+		TInlineComponentArray<UStaticMeshComponent*> Components(Actor);
+		const ETargetKind LabelKind = ClassifyLabel(*Actor);
+		for (UStaticMeshComponent* Component : Components)
+		{
+			if (!Component)
+			{
+				continue;
+			}
+			for (int32 SlotIndex = 0; SlotIndex < Component->GetNumMaterials(); ++SlotIndex)
+			{
+				UMaterialInterface* Material = Component->GetMaterial(SlotIndex);
+				ETargetKind Kind = ClassifyMaterial(Material);
+				if (Kind == ETargetKind::None && SlotIndex == 0)
+				{
+					Kind = LabelKind;
+				}
+				if (Kind == ETargetKind::None || !Material)
+				{
+					continue;
+				}
+
+				// Reuse a dynamic instance that is already there; otherwise
+				// create one parented to the authored material (set on the
+				// component only, the asset is never modified).
+				UMaterialInstanceDynamic* Dynamic = Cast<UMaterialInstanceDynamic>(Material);
+				if (!Dynamic)
+				{
+					Dynamic = Component->CreateDynamicMaterialInstance(SlotIndex, Material);
+				}
+				if (!Dynamic)
+				{
+					continue;
+				}
+
+				FViewerBackdropTarget Target;
+				Target.Component = Component;
+				Target.SlotIndex = SlotIndex;
+				Target.Material = Dynamic;
+				Target.bIsFloor = Kind == ETargetKind::Floor;
+				const FName NameA = Target.bIsFloor ? BaseColorName : TopColorName;
+				const FName NameB = Target.bIsFloor ? EdgeColorName : BottomColorName;
+				Dynamic->GetVectorParameterValue(FHashedMaterialParameterInfo(NameA), Target.OriginalA);
+				Dynamic->GetVectorParameterValue(FHashedMaterialParameterInfo(NameB), Target.OriginalB);
+				BackdropTargets.Add(Target);
+
+				UE_LOG(LogTemp, Log, TEXT("[CharacterViewer] Backdrop preset target: %s.%s slot %d (%s, %s=%s, %s=%s)"),
+					*Actor->GetActorNameOrLabel(), *Component->GetName(), SlotIndex, Target.bIsFloor ? TEXT("floor") : TEXT("backdrop"),
+					*NameA.ToString(), *Target.OriginalA.ToString(), *NameB.ToString(), *Target.OriginalB.ToString());
+			}
+		}
+	}
+}
+
+void ACharacterViewerController::SetBackdropPreset(EViewerBackdropPreset Preset)
+{
+	using namespace CharacterViewerBackdropPrivate;
+
+	if (IsTurntableCaptureRunning())
+	{
+		return;
+	}
+
+	BackdropPreset = Preset;
+	ResolveBackdropTargets();
+
+	if (BackdropTargets.Num() == 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[CharacterViewer] Backdrop preset '%s': no studio backdrop/floor found in this level (MI_StudioBackdrop / MI_StudioFloor); nothing recoloured."),
+			*GetBackdropPresetDisplayName(Preset));
+	}
+
+	FLinearColor Top, Bottom, Base, Edge;
+	const bool bFlat = GetBackdropPresetColors(Preset, Top, Bottom, Base, Edge);
+	for (const FViewerBackdropTarget& Target : BackdropTargets)
+	{
+		UMaterialInstanceDynamic* Dynamic = Target.Material.Get();
+		if (!Dynamic)
+		{
+			continue;
+		}
+		const FLinearColor A = bFlat ? (Target.bIsFloor ? Base : Top) : Target.OriginalA;
+		const FLinearColor B = bFlat ? (Target.bIsFloor ? Edge : Bottom) : Target.OriginalB;
+		Dynamic->SetVectorParameterValue(Target.bIsFloor ? BaseColorName : TopColorName, A);
+		Dynamic->SetVectorParameterValue(Target.bIsFloor ? EdgeColorName : BottomColorName, B);
+	}
+
+	NotifyViewerWidget();
+}
+
+void ACharacterViewerController::CycleBackdropPreset()
+{
+	const uint8 Next = (static_cast<uint8>(BackdropPreset) + 1) % (static_cast<uint8>(EViewerBackdropPreset::MidGrey) + 1);
+	SetBackdropPreset(static_cast<EViewerBackdropPreset>(Next));
 }

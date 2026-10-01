@@ -28,6 +28,11 @@ Unreal Engine 5.6.1로 만든 **캐릭터 전시용 뷰어**다. 캐릭터 한 �
 | F12 | 고해상도 스크린샷 1장 | Alt+F4 | 종료 |
 | Shift+F12 | 턴테이블 36장 연속 촬영 | | |
 | Esc | 촬영 취소 (Alt+F4 = 종료) | | |
+| P | 애니메이션 일시정지/재개 | | |
+| [ / ] | 한 프레임 뒤로/앞으로 | | |
+| - / = / 0 | 재생 속도 느리게/빠르게/1.0배 | | |
+| L | 표시 LOD 바꾸기 (Auto → LOD0 → LOD1 …) | | |
+| B | 배경색 바꾸기 (Studio → Black → White → Mid Grey) | | |
 
 패널 버튼(CHARACTER / VIEW / DISPLAY / ANIMATION / EXPRESSION …)으로도 같은 기능을 쓸 수 있다.
 
