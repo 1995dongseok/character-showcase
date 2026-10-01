@@ -82,6 +82,8 @@ void ACharacterViewerController::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	ReleaseDrag();
 
+	// Batch capture (Viewer.CaptureAll): stop without restoring the selection (the world is going away).
+	StopBatchCapture(false);
 	// Restores the actor rotation/turntable state of an interrupted turntable capture.
 	CancelCapture();
 	if (ScreenshotProcessedHandle.IsValid())
@@ -821,6 +823,8 @@ void ACharacterViewerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 
 	TickCapture();
+	// Batch capture (Viewer.CaptureAll), after TickCapture() so a shot finished this tick is seen at once.
+	BatchRunner.Tick(DeltaTime);
 
 	if (CaptureStatusExpireSeconds > 0.0 && FPlatformTime::Seconds() >= CaptureStatusExpireSeconds)
 	{
@@ -1150,6 +1154,16 @@ void ACharacterViewerController::TickCapture()
 
 void ACharacterViewerController::CancelCapture()
 {
+	// Esc during a batch (Viewer.CaptureAll) stops the whole batch; the
+	// runner then stops the running shot through this function again (no
+	// longer active). Not while the batch itself switches profiles
+	// (SwitchProfile() calls CancelCapture()).
+	if (BatchRunner.IsActive() && !BatchRunner.IsSwitchingProfile())
+	{
+		StopBatchCapture(true);
+		return;
+	}
+
 	if (!CaptureSequence.IsActive())
 	{
 		return;
@@ -1187,7 +1201,7 @@ void ACharacterViewerController::FinishCapture()
 	{
 	case EViewerCapturePhase::Finished:
 		Status = (Mode == EViewerCaptureMode::Turntable)
-			? FString::Printf(TEXT("Saved: %s (%d frames)"), *DisplayPath, LastCaptureSavedFrames)
+			? FString::Printf(TEXT("Saved: %s (%d frames) - video: Tools\\MakeTurntableVideo.bat"), *DisplayPath, LastCaptureSavedFrames)
 			: FString::Printf(TEXT("Saved: %s"), *DisplayPath);
 		break;
 	case EViewerCapturePhase::Cancelled:

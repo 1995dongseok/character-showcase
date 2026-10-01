@@ -85,7 +85,9 @@ Unreal을 처음 여는 캐릭터 아티스트를 위한 순서다. 위에서부
 | **Esc** | 촬영 취소(이미 찍은 장은 남는다) |
 
 - 찍기 전에 구도(VIEW)·애니메이션(Pose 추천)·Variant를 고르고, 강조를 빼려면 I를 끈다. 패키지 실행 파일에서는 `<압축 푼 폴더>\CharacterShowcase\Saved\Screenshots\Portfolio\`에 저장된다.
-- 프레임 → 영상/GIF(ffmpeg 별도 설치, 턴테이블 폴더에서):
+- **한 번에 전부 찍기**: **`Tools\CaptureAll.bat`** 더블클릭 → 뷰어가 열려 시작 캐릭터의 모든 구도(VIEW) × Variant를 UI 없이 찍고 창이 저절로 닫힌다. 결과는 `Saved/Screenshots/Portfolio/Batch_<프로필>_<시각>/<프로필>_<구도>_<Variant>.png`(Manny 6장). 모든 캐릭터는 `--all`, 포즈 컷 추가는 `--poses`, 표정별은 `--expressions`. 도는 동안 창을 건드리지 않는다(Esc = 취소). 자세히는 [CHARACTER_VIEWER_SETUP.md](CHARACTER_VIEWER_SETUP.md) 1.8절.
+- **턴테이블 → 영상**: Shift+F12 다음 **`Tools\MakeTurntableVideo.bat`** 더블클릭 → 가장 최근 턴테이블 폴더에 `turntable.mp4`(12fps, 3초에 한 바퀴). GIF도 원하면 명령창에서 `Tools\MakeTurntableVideo.bat --gif`. ffmpeg가 없으면 설치 명령(`winget install --id Gyan.FFmpeg --scope user ...`)을 보여 준다.
+- ffmpeg를 직접 쓰려면(턴테이블 폴더에서):
 
 ```powershell
 ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p -crf 18 turntable.mp4
@@ -94,7 +96,7 @@ ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=720:-1:flags=lanczos,split[a][
 
 ![Clean View 화면 — F12 결과도 이렇게 UI 없이 저장된다](Images/viewer_clean_1280x720.png)
 
-**확인 방법**: 탐색기에서 위 폴더에 PNG가 생겼고, 열어 보면 오른쪽 패널이 없다. 턴테이블은 `frame_035.png`까지 36장.
+**확인 방법**: 탐색기에서 위 폴더에 PNG가 생겼고, 열어 보면 오른쪽 패널이 없다. 턴테이블은 `frame_035.png`까지 36장. `CaptureAll.bat`은 끝에 `New folders: 1, new files: 6`처럼 개수를 출력한다.
 
 ## 6. 패키지 (보낼 실행 파일 만들기)
 

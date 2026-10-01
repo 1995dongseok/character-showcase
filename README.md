@@ -39,6 +39,8 @@ FBX 내보내기·가져오기 규칙은 [Docs/FBX_IMPORT_GUIDE.md](Docs/FBX_IMP
 
 - **F12** → UI 없이 화면 해상도 × 2로 저장: `Saved/Screenshots/Portfolio/<프로필>_<구도>_<날짜-시각>.png`
 - **Shift+F12** → 캐릭터를 10°씩 돌려 36장: `Saved/Screenshots/Portfolio/Turntable_<프로필>_<날짜-시각>/frame_000.png … frame_035.png`. 영상/GIF로 바꾸는 ffmpeg 명령은 ARTIST_QUICKSTART 5단계.
+- **한 번에 전부**: `Tools\CaptureAll.bat` → 모든 구도 × Variant를 UI 없이 `Saved/Screenshots/Portfolio/Batch_<프로필>_<날짜-시각>/`에 저장하고 창이 저절로 닫힌다(`--all` 모든 캐릭터, `--poses` 포즈 컷 추가).
+- **턴테이블 영상**: Shift+F12 다음 `Tools\MakeTurntableVideo.bat` → 그 폴더에 `turntable.mp4`(`--gif`면 GIF도, ffmpeg 필요 — 없으면 설치 명령을 알려 준다).
 - 남에게 보낼 실행 파일: `Tools\PackageViewer.bat` → `Saved\Packaged\CharacterShowcase-Win64-<yyyyMMdd>.zip` (뷰어만 포함, 플레이 데모 제외).
 
 ## 하드웨어 참고
