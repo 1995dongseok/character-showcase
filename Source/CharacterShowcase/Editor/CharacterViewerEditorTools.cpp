@@ -51,6 +51,9 @@ namespace
 		};
 		return Required;
 	}
+
+	// 8th, optional name: reported as a note (never a problem) when absent.
+	static const FName OptionalStatusTextName(TEXT("StatusText"));
 }
 
 #endif // WITH_EDITOR
@@ -109,140 +112,37 @@ ECharacterViewerWidgetLayoutResult UCharacterViewerEditorTools::BuildDefaultView
 			}
 		}
 
+		const UWidget* StatusWidget = WidgetTree->FindWidget(OptionalStatusTextName);
+		const bool bStatusOk = StatusWidget && StatusWidget->IsA(UTextBlock::StaticClass()) && StatusWidget->bIsVariable;
+		const TCHAR* StatusNote = bStatusOk
+			? TEXT("Optional StatusText present.")
+			: TEXT("Optional StatusText missing/not a variable TextBlock (capture status line will not be shown; everything else works).");
+
 		if (Problems.Num() > 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[keep] %s already has a designer tree; not modified. %d of 7 required widgets have a problem: %s."),
-				*WidgetBlueprint->GetName(), Problems.Num(), *FString::Join(Problems, TEXT("; ")));
+			UE_LOG(LogTemp, Warning, TEXT("[keep] %s already has a designer tree; not modified. %d of 7 required widgets have a problem: %s. %s"),
+				*WidgetBlueprint->GetName(), Problems.Num(), *FString::Join(Problems, TEXT("; ")), StatusNote);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("[keep] %s already has a designer tree; not modified. All 7 required widgets present, correctly typed, and marked 'Is Variable'."),
-				*WidgetBlueprint->GetName());
+			UE_LOG(LogTemp, Log, TEXT("[keep] %s already has a designer tree; not modified. All 7 required widgets present, correctly typed, and marked 'Is Variable'. %s"),
+				*WidgetBlueprint->GetName(), StatusNote);
 		}
 		return ECharacterViewerWidgetLayoutResult::Kept;
 	}
 
-	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
-	if (!RootCanvas)
+	// Same builder as the runtime C++ fallback (UCharacterViewerWidget::
+	// BuildFallbackUI()), so the generated designer tree and the fallback are
+	// identical: right-anchored PanelRoot (auto width, see bAutoPanelWidth),
+	// fonts, 6-line description, ListsScroll slot = Fill, the 7 required
+	// names + optional StatusText, all marked "Is Variable".
+	FCharacterViewerLayoutWidgets Built;
+	if (!UCharacterViewerWidget::BuildDefaultLayoutTree(WidgetTree, Built))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct the root CanvasPanel for '%s'."), *WidgetBlueprint->GetName());
+		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct the default widget tree for '%s'."), *WidgetBlueprint->GetName());
+		WidgetTree->RootWidget = nullptr;
 		return ECharacterViewerWidgetLayoutResult::Failed;
 	}
-	WidgetTree->RootWidget = RootCanvas;
-
-	// Right-edge, full-height, 320px-wide dark panel -- same anchors/offsets as
-	// the C++ fallback (UCharacterViewerWidget::BuildFallbackUI()), so the
-	// designer layout and the fallback look the same until an artist tweaks it.
-	UBorder* PanelRoot = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelRoot"));
-	if (!PanelRoot)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct PanelRoot for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	PanelRoot->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.02f, 0.85f));
-	PanelRoot->SetPadding(FMargin(16.f));
-	PanelRoot->SetVisibility(ESlateVisibility::Visible);
-	PanelRoot->bIsVariable = true;
-
-	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(PanelRoot))
-	{
-		BorderSlot->SetAnchors(FAnchors(1.f, 0.f, 1.f, 1.f));
-		BorderSlot->SetAlignment(FVector2D(1.f, 0.f));
-		BorderSlot->SetOffsets(FMargin(0.f, 0.f, 320.f, 0.f));
-	}
-
-	UVerticalBox* PanelContent = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelContent"));
-	if (!PanelContent)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct PanelContent for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	PanelRoot->SetContent(PanelContent);
-
-	// Priority order (section 4/13.10.1): NameText -> ControlsBox (CHARACTER/
-	// VIEW/DISPLAY) -> DescriptionScroll (limited-height) -> ListsScroll
-	// (ANIMATION/EXPRESSION/APPEARANCE/INSPECTION).
-	UTextBlock* NameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
-	if (!NameText)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct NameText for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	{
-		FSlateFontInfo NameFont = NameText->GetFont();
-		NameFont.Size = 20;
-		NameFont.TypefaceFontName = TEXT("Bold");
-		NameText->SetFont(NameFont);
-	}
-	NameText->SetAutoWrapText(true);
-	NameText->bIsVariable = true;
-	PanelContent->AddChildToVerticalBox(NameText);
-
-	UVerticalBox* ControlsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ControlsBox"));
-	if (!ControlsBox)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct ControlsBox for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	ControlsBox->bIsVariable = true;
-	PanelContent->AddChildToVerticalBox(ControlsBox);
-
-	UScrollBox* DescriptionScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("DescriptionScroll"));
-	if (!DescriptionScroll)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct DescriptionScroll for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	DescriptionScroll->bIsVariable = true;
-	DescriptionScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-
-	if (USizeBox* DescriptionSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("DescriptionSizeBox")))
-	{
-		DescriptionSizeBox->SetMaxDesiredHeight(110.f);
-		DescriptionSizeBox->SetContent(DescriptionScroll);
-		PanelContent->AddChildToVerticalBox(DescriptionSizeBox);
-	}
-	else
-	{
-		PanelContent->AddChildToVerticalBox(DescriptionScroll);
-	}
-
-	UTextBlock* DescriptionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DescriptionText"));
-	if (!DescriptionText)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct DescriptionText for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	DescriptionText->SetAutoWrapText(true);
-	DescriptionText->bIsVariable = true;
-	DescriptionScroll->AddChild(DescriptionText);
-
-	UScrollBox* ListsScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ListsScroll"));
-	if (!ListsScroll)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct ListsScroll for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	ListsScroll->bIsVariable = true;
-	ListsScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	// Without an explicit Fill slot size, a VerticalBox gives every child only
-	// its own desired (content) height, so ListsScroll never got a bounded
-	// height to scroll within and just kept growing off the bottom of the
-	// screen instead of scrolling (section 13.10/6.8). Fill makes it take the
-	// remaining space in PanelContent, which is what actually makes it scroll.
-	if (UVerticalBoxSlot* ListsScrollSlot = Cast<UVerticalBoxSlot>(PanelContent->AddChildToVerticalBox(ListsScroll)))
-	{
-		ListsScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
-
-	UVerticalBox* ListsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ListsBox"));
-	if (!ListsBox)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerEditorTools] Failed to construct ListsBox for '%s'."), *WidgetBlueprint->GetName());
-		return ECharacterViewerWidgetLayoutResult::Failed;
-	}
-	ListsBox->bIsVariable = true;
-	ListsScroll->AddChild(ListsBox);
 
 	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
 	if (WidgetBlueprint->Status == EBlueprintStatus::BS_Error)
@@ -265,7 +165,8 @@ ECharacterViewerWidgetLayoutResult UCharacterViewerEditorTools::BuildDefaultView
 		return ECharacterViewerWidgetLayoutResult::Failed;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[build] %s: built PanelRoot/NameText/ControlsBox/DescriptionScroll/DescriptionText/ListsScroll/ListsBox, compiled, and saved."), *WidgetBlueprint->GetName());
+	UE_LOG(LogTemp, Log, TEXT("[build] %s: built PanelRoot/NameText/ControlsBox/StatusText/DescriptionScroll/DescriptionText/ListsScroll/ListsBox (panel width %.0f, auto), compiled, and saved."),
+		*WidgetBlueprint->GetName(), UCharacterViewerWidget::DefaultPanelWidth);
 	return ECharacterViewerWidgetLayoutResult::Built;
 
 #else // !WITH_EDITOR

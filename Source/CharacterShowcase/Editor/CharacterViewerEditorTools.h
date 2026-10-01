@@ -19,8 +19,10 @@ enum class ECharacterViewerWidgetLayoutResult : uint8
 // Editor-only helper (Docs/CHARACTER_VIEWER_SETUP.md section 13.10.1): builds
 // the minimal, designer-editable WBP_CharacterViewer widget tree
 // (PanelRoot/NameText/ControlsBox/DescriptionScroll/DescriptionText/
-// ListsScroll/ListsBox -- the exact 7 names/hierarchy in section 13.10.1's
-// table) directly through the Editor C++ API. Exists because the Editor
+// ListsScroll/ListsBox -- the 7 required names -- plus the optional
+// StatusText; the tree itself comes from UCharacterViewerWidget::
+// BuildDefaultLayoutTree(), shared with the runtime C++ fallback) directly
+// through the Editor C++ API. Exists because the Editor
 // Python API cannot reach UWidgetBlueprint::WidgetTree in this engine
 // version (see Scripts/CreateViewerWidgetLayout.py's history note):
 // UBaseWidgetBlueprint::WidgetTree has no CPF_Edit-granting UPROPERTY
@@ -69,8 +71,8 @@ public:
 	// are missing, the wrong type, or not marked "Is Variable" -- still
 	// without modifying anything -- and returns Kept.
 	//
-	// Otherwise (empty tree) it constructs the 7-widget tree, marks each of
-	// those 7 widgets bIsVariable=true (so UCharacterViewerWidget's
+	// Otherwise (empty tree) it constructs the default tree, marks the 7
+	// required widgets and StatusText bIsVariable=true (so UCharacterViewerWidget's
 	// BindWidgetOptional members resolve them), compiles the Blueprint, and
 	// saves the package -- but only if the compile did not leave the
 	// Blueprint in an error state (WidgetBlueprint->Status == BS_Error); an
