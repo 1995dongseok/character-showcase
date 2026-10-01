@@ -180,6 +180,14 @@ APortfolioCharacterActor::APortfolioCharacterActor()
 		PartHighlightMaterial = PartHighlightMaterialFinder.Object;
 	}
 
+	// Bone marker spheres: translucent, depth test disabled (visible through
+	// the mesh). Missing -> markers use PartHighlightMaterial.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BoneMarkerMaterialFinder(TEXT("/Game/Portfolio/Materials/M_ViewerBoneMarker.M_ViewerBoneMarker"));
+	if (BoneMarkerMaterialFinder.Succeeded())
+	{
+		BoneMarkerMaterial = BoneMarkerMaterialFinder.Object;
+	}
+
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> BoneMarkerMeshFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (BoneMarkerMeshFinder.Succeeded())
 	{
@@ -632,7 +640,7 @@ EViewerHighlightMode APortfolioCharacterActor::ResolveHighlightMode(const FViewe
 	// b. Bone markers: the part's bones plus their direct children, so e.g.
 	// an arm shows shoulder -> elbow -> wrist (-> finger roots).
 	const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
-	if (PartHighlightMaterial && BoneMarkerMesh && MeshAsset)
+	if ((BoneMarkerMaterial || PartHighlightMaterial) && BoneMarkerMesh && MeshAsset)
 	{
 		const FReferenceSkeleton& RefSkeleton = MeshAsset->GetRefSkeleton();
 		TArray<int32> ChildBoneIndices;
@@ -758,7 +766,7 @@ void APortfolioCharacterActor::UpdateBoneMarkers(const TArray<FName>& MarkerBone
 
 		Marker->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
 		Marker->SetRelativeScale3D(FVector(Scale));
-		Marker->SetMaterial(0, PartHighlightMaterial);
+		Marker->SetMaterial(0, BoneMarkerMaterial ? BoneMarkerMaterial.Get() : PartHighlightMaterial.Get());
 		Marker->SetVisibility(bVisible);
 	}
 

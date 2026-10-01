@@ -226,11 +226,30 @@ public:
 	// Lines whole lines and none of the next one. Measured with a temporary
 	// STextBlock (SlatePrepass) through the Slate font measure service; falls
 	// back to Lines * EstimateLineHeight() when Slate is not initialized.
-	static float MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0));
+	// SampleText: characters the measured lines must contain besides Latin
+	// ("Ag"); a line's height is the tallest font run in it, and e.g. Hangul
+	// comes from a fallback font taller than Roboto (a Korean description
+	// measured with Latin-only lines lost the bottom of its 6th line in the
+	// 2026-10-01 -game capture). Pass GetLineHeightSample(the actual text).
+	static float MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0), const FString& SampleText = FString());
 
 	// DescriptionSizeBox max height that shows exactly Lines whole lines
 	// (= MeasureTextLinesHeight; the ScrollBox/TextBlock add no vertical padding).
-	static float ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0));
+	static float ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0), const FString& SampleText = FString());
+
+	// Up to 16 distinct non-ASCII characters of Text, in order of appearance
+	// (empty for pure ASCII text): enough to pull every fallback font the text
+	// uses into a measured probe line.
+	static FString GetLineHeightSample(const FString& Text);
+
+	// Scrolls ListsScroll to its end on each of the next Ticks NativeTicks
+	// (newly built rows -- wrapped text in particular -- only report their
+	// final height after a layout pass or two, so a single ScrollToEnd() can
+	// stop short). RefreshUI() requests this whenever a NEW part becomes
+	// selected while Inspection is on, so the selected-part block (the last
+	// rows of the INSPECTION section) comes into view.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Inspection")
+	void RequestListsScrollToEnd(int32 Ticks = 5);
 
 	// When true (default), DescriptionScroll's parent SizeBox (DescriptionSizeBox
 	// in the generated tree) gets a max height of exactly DescriptionVisibleLines
@@ -579,4 +598,10 @@ private:
 	int32 LastDescriptionFitLines = 0;
 	FVector2D LastDescriptionFitShadow = FVector2D::ZeroVector;
 	FSlateFontInfo LastDescriptionFitFont;
+	FString LastDescriptionFitSample;
+
+	// RequestListsScrollToEnd() countdown, and the part the lists were last
+	// auto-scrolled for (so a plain RefreshUI() does not yank the scroll).
+	int32 PendingListsScrollToEndTicks = 0;
+	FName LastAutoScrolledPartId = NAME_None;
 };

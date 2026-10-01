@@ -54,12 +54,12 @@ namespace CharacterViewerLayoutCaptureTests
 	// Whole-line rule (2026-10-01): a description box of Height Slate units at
 	// LayoutScale shows exactly DescriptionMinVisibleLines (>= 6) WHOLE lines
 	// of Font and nothing of the next line (the old 134-unit box showed ~6.5).
-	static void CheckWholeLineHeight(FAutomationTestBase& Test, const FString& Label, float Height, const FSlateFontInfo& Font, FVector2D Shadow, float LayoutScale)
+	static void CheckWholeLineHeight(FAutomationTestBase& Test, const FString& Label, float Height, const FSlateFontInfo& Font, FVector2D Shadow, float LayoutScale, const FString& Sample = FString())
 	{
 		const int32 Lines = UCharacterViewerWidget::DescriptionMinVisibleLines;
-		const float OneLine = UCharacterViewerWidget::MeasureTextLinesHeight(Font, 1, LayoutScale, Shadow);
-		const float NLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines, LayoutScale, Shadow);
-		const float NextLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines + 1, LayoutScale, Shadow);
+		const float OneLine = UCharacterViewerWidget::MeasureTextLinesHeight(Font, 1, LayoutScale, Shadow, Sample);
+		const float NLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines, LayoutScale, Shadow, Sample);
+		const float NextLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines + 1, LayoutScale, Shadow, Sample);
 		const bool bMeasured = FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer() != nullptr;
 		uint16 FontMaxHeightPx = 0;
 		if (bMeasured)
@@ -247,6 +247,24 @@ bool FCharacterViewerPanelLayoutTest::RunTest(const FString& Parameters)
 					TestEqual(*FString::Printf(TEXT("Line fit at scale %.2f: getter matches the SizeBox"), Scale), Widget->GetAppliedDescriptionMaxHeight(), Applied, 0.01f);
 					CheckWholeLineHeight(*this, FString::Printf(TEXT("Fallback runtime fit @%.2f"), Scale), Applied, Font, Shadow, Scale);
 				}
+
+				// Korean description (Hangul comes from a fallback font taller than
+				// Roboto): the fit must measure with the text's own characters.
+				const FString Korean = TEXT("\uC5B8\uB9AC\uC5BC \uC5D4\uC9C4 3\uC778\uCE6D \uD15C\uD50C\uB9BF\uC758 \uAE30\uBCF8 \uB9C8\uB124\uD0B9 (SKM_Manny_Simple)");
+				const FString KoreanSample = UCharacterViewerWidget::GetLineHeightSample(Korean);
+				TestTrue(FString::Printf(TEXT("Korean text yields a non-empty line-height sample (%d chars)"), KoreanSample.Len()), KoreanSample.Len() > 0 && KoreanSample.Len() <= 16);
+				TestTrue(TEXT("ASCII text yields an empty sample"), UCharacterViewerWidget::GetLineHeightSample(TEXT("Plain ASCII text")).IsEmpty());
+				Widget->DescriptionText->SetText(FText::FromString(Korean));
+				for (const float Scale : { 0.8f, 1.0f })
+				{
+					Widget->ApplyDescriptionLineFit(Scale);
+					const float Applied = FallbackDescriptionBox->GetMaxDesiredHeight();
+					const float LatinHeight = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Widget->DescriptionVisibleLines, Scale, Shadow);
+					AddInfo(FString::Printf(TEXT("Korean description fit @%.2f: %.2f units (Latin-only lines: %.2f)"), Scale, Applied, LatinHeight));
+					TestTrue(FString::Printf(TEXT("Korean fit @%.2f is at least the Latin-only height"), Scale), Applied + 0.01f >= LatinHeight);
+					CheckWholeLineHeight(*this, FString::Printf(TEXT("Korean runtime fit @%.2f"), Scale), Applied, Font, Shadow, Scale, KoreanSample);
+				}
+				Widget->DescriptionText->SetText(FText::GetEmpty());
 
 				Widget->bFitDescriptionToWholeLines = false;
 				const float Before = FallbackDescriptionBox->GetMaxDesiredHeight();
