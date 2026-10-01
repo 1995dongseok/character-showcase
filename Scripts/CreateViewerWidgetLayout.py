@@ -4,6 +4,12 @@ via the Editor C++ helper unreal.CharacterViewerEditorTools
 .build_default_viewer_widget_layout() (Docs/CHARACTER_VIEWER_SETUP.md section
 13.10.1, deliverable A).
 
+Create-missing-only: if WBP_CharacterViewer does not exist at all (e.g. it was
+deleted on purpose to regenerate the default layout), an empty Widget Blueprint
+with parent CharacterViewerWidget is created first and then filled. The tree
+itself comes from UCharacterViewerWidget::BuildDefaultLayoutTree() (shared with
+the runtime C++ fallback): 7 required names + optional StatusText.
+
 Idempotent by design: if WBP_CharacterViewer already has a non-empty designer
 tree (widget_tree.root_widget is not None), the C++ helper changes nothing,
 logs one "[keep] ... already has a designer tree; not modified." line (plus,
@@ -70,11 +76,29 @@ log_err = unreal.log_error
 def main():
     log("[CreateViewerWidgetLayout] ==== START ====")
 
-    if not unreal.EditorAssetLibrary.does_asset_exist(WBP_ASSET_PATH):
-        log_err(f"[CreateViewerWidgetLayout] {WBP_ASSET_PATH} does not exist. "
-                f"Run Scripts/CreatePortfolioAssets.py first to create it.")
+    if not hasattr(unreal, "CharacterViewerWidget"):
+        log_err("[CreateViewerWidgetLayout] unreal.CharacterViewerWidget is not exposed to Python -- "
+                "the CharacterShowcase Editor module is not built/loaded. Nothing was created or modified.")
         log("[CreateViewerWidgetLayout] ==== BLOCKED ====")
         return 1
+
+    # Create-missing-only (2026-10-01): the documented way to regenerate the
+    # default layout is "delete WBP_CharacterViewer, re-run this script", so a
+    # missing asset is created here (same factory/parent class as
+    # Scripts/CreatePortfolioAssets.py) instead of requiring that script. An
+    # existing asset is never re-created.
+    if not unreal.EditorAssetLibrary.does_asset_exist(WBP_ASSET_PATH):
+        package_path, asset_name = WBP_ASSET_PATH.rsplit("/", 1)
+        factory = unreal.WidgetBlueprintFactory()
+        factory.set_editor_property("parent_class", unreal.CharacterViewerWidget)
+        created = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            asset_name, package_path, unreal.WidgetBlueprint, factory)
+        if created is None:
+            log_err(f"[CreateViewerWidgetLayout] {WBP_ASSET_PATH} was missing and could not be created.")
+            log("[CreateViewerWidgetLayout] ==== FAILED ====")
+            return 1
+        log(f"[CreateViewerWidgetLayout] [create] {WBP_ASSET_PATH}: missing, created an empty "
+            f"Widget Blueprint (parent CharacterViewerWidget).")
 
     wbp = unreal.load_asset(WBP_ASSET_PATH)
     if wbp is None:

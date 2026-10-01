@@ -1196,7 +1196,7 @@ def main():
     create_or_update_wireframe_material()
     create_or_update_highlight_material()
     create_or_update_part_highlight_material()
-    profile =create_or_update_character_profile()
+    profile = create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     wbp = create_or_update_widget_blueprint()
     gamemode_bp = create_or_update_gamemode_blueprint(profile, cube_profile, wbp)

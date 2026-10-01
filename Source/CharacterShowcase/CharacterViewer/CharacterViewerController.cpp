@@ -10,14 +10,23 @@
 #include "Engine/HitResult.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/FileManager.h"
+#include "HighResScreenshot.h"
+#include "ImageUtils.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "InputMappingContext.h"
+#include "InputTriggers.h"
+#include "Misc/DateTime.h"
+#include "Misc/Paths.h"
 #include "UI/CharacterViewerWidget.h"
+#include "UnrealClient.h"
+#include "Widgets/SWindow.h"
 
 ACharacterViewerController::ACharacterViewerController()
 {
@@ -48,6 +57,11 @@ void ACharacterViewerController::BeginPlay()
 	{
 		ApplicationActivationStateChangedHandle = FSlateApplication::Get().OnApplicationActivationStateChanged().AddUObject(this, &ACharacterViewerController::HandleApplicationActivationStateChanged);
 	}
+
+	// Portfolio capture: completion signal for FScreenshotRequest/high-res
+	// shots (fired by UGameViewportClient::ProcessScreenShots after it wrote,
+	// or failed to write, the file).
+	ScreenshotProcessedHandle = FScreenshotRequest::OnScreenshotRequestProcessed().AddUObject(this, &ACharacterViewerController::HandleScreenshotRequestProcessed);
 }
 
 void ACharacterViewerController::OnPossess(APawn* InPawn)
@@ -66,6 +80,14 @@ void ACharacterViewerController::OnPossess(APawn* InPawn)
 void ACharacterViewerController::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	ReleaseDrag();
+
+	// Restores the actor rotation/turntable state of an interrupted turntable capture.
+	CancelCapture();
+	if (ScreenshotProcessedHandle.IsValid())
+	{
+		FScreenshotRequest::OnScreenshotRequestProcessed().Remove(ScreenshotProcessedHandle);
+		ScreenshotProcessedHandle.Reset();
+	}
 
 	if (FSlateApplication::IsInitialized() && ApplicationActivationStateChangedHandle.IsValid())
 	{
@@ -137,6 +159,18 @@ void ACharacterViewerController::SetupInputComponent()
 		{
 			EnhancedInputComp->BindAction(ToggleWireframeAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleWireframe);
 		}
+		if (ScreenshotAction)
+		{
+			EnhancedInputComp->BindAction(ScreenshotAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleScreenshot);
+		}
+		if (TurntableCaptureAction)
+		{
+			EnhancedInputComp->BindAction(TurntableCaptureAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleTurntableCapture);
+		}
+		if (CancelCaptureAction)
+		{
+			EnhancedInputComp->BindAction(CancelCaptureAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCancelCapture);
+		}
 	}
 }
 
@@ -203,6 +237,26 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		ToggleWireframeAction = NewObject<UInputAction>(this, TEXT("IA_ToggleWireframe_Fallback"));
 		ToggleWireframeAction->ValueType = EInputActionValueType::Boolean;
 	}
+	if (!ScreenshotAction)
+	{
+		ScreenshotAction = NewObject<UInputAction>(this, TEXT("IA_ViewerScreenshot_Fallback"));
+		ScreenshotAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!TurntableCaptureAction)
+	{
+		TurntableCaptureAction = NewObject<UInputAction>(this, TEXT("IA_ViewerTurntableCapture_Fallback"));
+		TurntableCaptureAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!CaptureShiftAction)
+	{
+		CaptureShiftAction = NewObject<UInputAction>(this, TEXT("IA_ViewerCaptureShift_Fallback"));
+		CaptureShiftAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!CancelCaptureAction)
+	{
+		CancelCaptureAction = NewObject<UInputAction>(this, TEXT("IA_ViewerCancelCapture_Fallback"));
+		CancelCaptureAction->ValueType = EInputActionValueType::Boolean;
+	}
 
 	if (MappingContext)
 	{
@@ -214,6 +268,21 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		MappingContext->MapKey(ToggleCleanViewAction, EKeys::H);
 		MappingContext->MapKey(ToggleInspectionAction, EKeys::I);
 		MappingContext->MapKey(ToggleWireframeAction, EKeys::W);
+
+		// Portfolio capture. Order matters: Enhanced Input injects a chord
+		// blocker only into mappings AFTER the chorded one (and evaluates the
+		// chord action best when it is mapped earlier), so Shift, then
+		// Shift+F12, then plain F12.
+		MappingContext->MapKey(CaptureShiftAction, EKeys::LeftShift);
+		MappingContext->MapKey(CaptureShiftAction, EKeys::RightShift);
+		{
+			FEnhancedActionKeyMapping& TurntableCaptureMapping = MappingContext->MapKey(TurntableCaptureAction, EKeys::F12);
+			UInputTriggerChordAction* ShiftChord = NewObject<UInputTriggerChordAction>(MappingContext);
+			ShiftChord->ChordAction = CaptureShiftAction;
+			TurntableCaptureMapping.Triggers.Add(ShiftChord);
+		}
+		MappingContext->MapKey(ScreenshotAction, EKeys::F12);
+		MappingContext->MapKey(CancelCaptureAction, EKeys::Escape);
 	}
 }
 
@@ -315,7 +384,7 @@ void ACharacterViewerController::HandleApplicationActivationStateChanged(bool bI
 
 void ACharacterViewerController::HandleOrbitPressStarted(const FInputActionValue& Value)
 {
-	if (!bInputEnabled)
+	if (!bInputEnabled || IsTurntableCaptureRunning())
 	{
 		return;
 	}
@@ -402,7 +471,7 @@ void ACharacterViewerController::HandleOrbitAxis(const FInputActionValue& Value)
 
 void ACharacterViewerController::HandleZoom(const FInputActionValue& Value)
 {
-	if (!bInputEnabled || !CameraPawn)
+	if (!bInputEnabled || !CameraPawn || IsTurntableCaptureRunning())
 	{
 		return;
 	}
@@ -433,7 +502,7 @@ void ACharacterViewerController::HandleToggleCleanView(const FInputActionValue& 
 
 void ACharacterViewerController::SelectCameraPreset(FName Id)
 {
-	if (!bInputEnabled || !ViewerActor || !CameraPawn || !ViewerActor->Profile)
+	if (!bInputEnabled || !ViewerActor || !CameraPawn || !ViewerActor->Profile || IsTurntableCaptureRunning())
 	{
 		return;
 	}
@@ -474,6 +543,11 @@ void ACharacterViewerController::SelectMaterialVariant(FName Id)
 
 void ACharacterViewerController::SetTurntableEnabled(bool bEnabled)
 {
+	if (IsTurntableCaptureRunning())
+	{
+		return;
+	}
+
 	if (ViewerActor)
 	{
 		ViewerActor->SetTurntableEnabled(bEnabled);
@@ -492,6 +566,11 @@ void ACharacterViewerController::SetTurntableEnabled(bool bEnabled)
 
 void ACharacterViewerController::ToggleTurntable()
 {
+	if (IsTurntableCaptureRunning())
+	{
+		return;
+	}
+
 	if (ViewerActor)
 	{
 		ViewerActor->SetTurntableEnabled(!ViewerActor->IsTurntableEnabled());
@@ -662,7 +741,7 @@ void ACharacterViewerController::HandleToggleWireframe(const FInputActionValue& 
 
 void ACharacterViewerController::ResetCamera()
 {
-	if (!CameraPawn)
+	if (!CameraPawn || IsTurntableCaptureRunning())
 	{
 		return;
 	}
@@ -696,6 +775,10 @@ void ACharacterViewerController::SwitchProfile(UCharacterProfileData* NewProfile
 		return;
 	}
 
+	// A running capture belongs to the previous profile (file names, actor
+	// rotation): stop it (restoring rotation/turntable) before switching.
+	CancelCapture();
+
 	ViewerActor->ApplyProfile(NewProfile);
 	ApplyFramingForCurrentActor(true);
 
@@ -726,5 +809,407 @@ void ACharacterViewerController::SelectCharacterProfile(FName ProfileAssetName)
 			SwitchProfile(LibraryProfile);
 			return;
 		}
+	}
+}
+
+// --- Portfolio capture (F12 / Shift+F12, Docs/CHARACTER_VIEWER_SETUP.md section 1.7) ---
+
+void ACharacterViewerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	TickCapture();
+
+	if (CaptureStatusExpireSeconds > 0.0 && FPlatformTime::Seconds() >= CaptureStatusExpireSeconds)
+	{
+		SetCaptureStatus(FString(), false);
+	}
+}
+
+void ACharacterViewerController::HandleScreenshot(const FInputActionValue& Value)
+{
+	// Defensive: with an Editor-authored mapping that lacks the Shift chord
+	// blocker, Shift+F12 would otherwise also take a single screenshot.
+	if (IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift))
+	{
+		return;
+	}
+	TakePortfolioScreenshot();
+}
+
+void ACharacterViewerController::HandleTurntableCapture(const FInputActionValue& Value)
+{
+	StartTurntableCapture();
+}
+
+void ACharacterViewerController::HandleCancelCapture(const FInputActionValue& Value)
+{
+	CancelCapture();
+}
+
+UGameViewportClient* ACharacterViewerController::GetCaptureViewportClient() const
+{
+	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	return LocalPlayer ? LocalPlayer->ViewportClient.Get() : nullptr;
+}
+
+bool ACharacterViewerController::IsCapturing() const
+{
+	return CaptureSequence.IsActive();
+}
+
+FString ACharacterViewerController::GetCaptureProfileName() const
+{
+	return (ViewerActor && ViewerActor->Profile) ? ViewerActor->Profile->GetName() : FString(TEXT("NoProfile"));
+}
+
+FString ACharacterViewerController::GetCapturePresetId() const
+{
+	FName PresetId = ViewerWidget ? ViewerWidget->GetCurrentCameraPresetId() : NAME_None;
+	if (PresetId == NAME_None && ViewerActor && ViewerActor->Profile)
+	{
+		PresetId = ViewerActor->Profile->DefaultPresetId;
+	}
+	return PresetId == NAME_None ? FString(TEXT("Default")) : PresetId.ToString();
+}
+
+bool ACharacterViewerController::TakePortfolioScreenshot()
+{
+	if (IsCapturing())
+	{
+		return false;
+	}
+
+	const FString Directory = ViewerCapture::GetPortfolioDirectory();
+	const FString FileName = ViewerCapture::MakeScreenshotFileName(GetCaptureProfileName(), GetCapturePresetId(), FDateTime::Now());
+	FString FilePath = Directory / FileName;
+	// Two shots within the same second must not overwrite each other.
+	for (int32 Suffix = 2; IFileManager::Get().FileExists(*FilePath) && Suffix < 1000; ++Suffix)
+	{
+		FilePath = Directory / FString::Printf(TEXT("%s_%d.png"), *FPaths::GetBaseFilename(FileName), Suffix);
+	}
+
+	return BeginCapture(EViewerCaptureMode::Single, FilePath, 1);
+}
+
+bool ACharacterViewerController::StartTurntableCapture()
+{
+	if (IsCapturing() || !ViewerActor)
+	{
+		return false;
+	}
+
+	const FString Folder = ViewerCapture::GetPortfolioDirectory() / ViewerCapture::MakeTurntableFolderName(GetCaptureProfileName(), FDateTime::Now());
+
+	// Captured before the turntable is paused so the sequence starts exactly
+	// at the pose on screen and is restored to it afterwards.
+	CaptureStartRotation = ViewerActor->GetActorRotation();
+	bCaptureRestoreTurntable = ViewerActor->IsTurntableEnabled();
+	ReleaseDrag();
+
+	if (!BeginCapture(EViewerCaptureMode::Turntable, Folder, ViewerCapture::GetTurntableFrameCount(TurntableStepDegrees)))
+	{
+		bCaptureRestoreTurntable = false;
+		return false;
+	}
+
+	if (bCaptureRestoreTurntable)
+	{
+		ViewerActor->SetTurntableEnabled(false);
+	}
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+	return true;
+}
+
+bool ACharacterViewerController::BeginCapture(EViewerCaptureMode Mode, const FString& OutputPath, int32 NumFrames)
+{
+	const UGameViewportClient* ViewportClient = GetCaptureViewportClient();
+	if (!ViewportClient || !ViewportClient->Viewport)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[CharacterViewerCapture] No game viewport; capture not started."));
+		return false;
+	}
+
+	const FString Directory = (Mode == EViewerCaptureMode::Turntable) ? OutputPath : FPaths::GetPath(OutputPath);
+	if (!IFileManager::Get().MakeDirectory(*Directory, true))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[CharacterViewerCapture] Could not create '%s'; capture not started."), *Directory);
+		return false;
+	}
+
+	CaptureOutputPath = OutputPath;
+	LastCaptureOutputPath = OutputPath;
+	LastCaptureSavedFrames = 0;
+	LastCaptureMethod.Reset();
+	PendingCaptureFile.Reset();
+	bPendingCaptureProcessed = false;
+
+	// A single shot needs one settle tick (nothing moves); turntable frames
+	// wait CaptureSettleFrames after each rotation.
+	CaptureSequence.Begin(Mode, NumFrames, Mode == EViewerCaptureMode::Single ? 1 : CaptureSettleFrames);
+	SetCaptureStatus(CaptureSequence.GetProgressText(), false);
+
+	UE_LOG(LogTemp, Log, TEXT("[CharacterViewerCapture] Started %s capture: %d frame(s) -> %s"),
+		Mode == EViewerCaptureMode::Turntable ? TEXT("turntable") : TEXT("single"), CaptureSequence.GetNumFrames(), *OutputPath);
+
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+	return true;
+}
+
+FString ACharacterViewerController::GetCaptureFramePath(int32 FrameIndex) const
+{
+	return CaptureSequence.GetMode() == EViewerCaptureMode::Turntable
+		? CaptureOutputPath / ViewerCapture::MakeTurntableFrameFileName(FrameIndex)
+		: CaptureOutputPath;
+}
+
+void ACharacterViewerController::PrepareCaptureFrame(int32 FrameIndex)
+{
+	if (CaptureSequence.GetMode() == EViewerCaptureMode::Turntable && ViewerActor)
+	{
+		FRotator FrameRotation = CaptureStartRotation;
+		FrameRotation.Yaw += ViewerCapture::GetTurntableYawOffset(FrameIndex, TurntableStepDegrees);
+		ViewerActor->SetActorRotation(FrameRotation);
+	}
+	SetCaptureStatus(CaptureSequence.GetProgressText(), false);
+}
+
+void ACharacterViewerController::RequestCaptureFrame(int32 FrameIndex)
+{
+	PendingCaptureFile = GetCaptureFramePath(FrameIndex);
+	bPendingCaptureProcessed = false;
+	bPendingUsesHighRes = false;
+	PendingCaptureStartSeconds = FPlatformTime::Seconds();
+	PendingCaptureMultiplier = FMath::Clamp(CaptureSequence.GetMode() == EViewerCaptureMode::Turntable ? TurntableResolutionMultiplier : ScreenshotResolutionMultiplier, 1, 4);
+
+	// A stale file at this path would make the "written" check meaningless.
+	IFileManager::Get().Delete(*PendingCaptureFile, false, true, true);
+
+	// Primary path: the engine screenshot request, read from the SCENE
+	// viewport before Slate draws the panel (bShowUI=false), so the UI is
+	// never in the image while the panel can keep showing "Capturing n/N".
+	// For a multiplier > 1 the high-resolution path renders the scene at
+	// viewport size x multiplier; FilenameOverride gives it the exact file name.
+	const UGameViewportClient* ViewportClient = GetCaptureViewportClient();
+	const FViewport* Viewport = ViewportClient ? ViewportClient->Viewport : nullptr;
+	if (PendingCaptureMultiplier > 1 && Viewport)
+	{
+		const FIntPoint ViewportSize = Viewport->GetSizeXY();
+		GetHighResScreenshotConfig().SetFilename(PendingCaptureFile);
+		bPendingUsesHighRes = ViewportSize.X > 0 && ViewportSize.Y > 0
+			&& GetHighResScreenshotConfig().SetResolution(ViewportSize.X, ViewportSize.Y, static_cast<float>(PendingCaptureMultiplier));
+		if (!bPendingUsesHighRes)
+		{
+			GetHighResScreenshotConfig().SetFilename(FString());
+			UE_LOG(LogTemp, Warning, TEXT("[CharacterViewerCapture] High-resolution x%d not available for %dx%d; using viewport size."), PendingCaptureMultiplier, ViewportSize.X, ViewportSize.Y);
+		}
+	}
+	FScreenshotRequest::RequestScreenshot(PendingCaptureFile, /*bInShowUI*/ false, /*bAddFilenameSuffix*/ false);
+}
+
+void ACharacterViewerController::HandleScreenshotRequestProcessed()
+{
+	if (!PendingCaptureFile.IsEmpty())
+	{
+		bPendingCaptureProcessed = true;
+	}
+}
+
+void ACharacterViewerController::ClearPendingEngineScreenshot()
+{
+	FScreenshotRequest::Reset();
+	if (bPendingUsesHighRes)
+	{
+		GIsHighResScreenshot = false;
+	}
+	GetHighResScreenshotConfig().SetFilename(FString());
+	bPendingUsesHighRes = false;
+}
+
+bool ACharacterViewerController::CaptureFrameWithSlate(const FString& FilePath)
+{
+	// Fallback (same API the -game smoke test uses for its window captures):
+	// a synchronous Slate draw of the game window into a bitmap, with the
+	// panel collapsed for exactly that draw so the UI is not in the image.
+	UGameViewportClient* ViewportClient = GetCaptureViewportClient();
+	const TSharedPtr<SWindow> Window = ViewportClient ? ViewportClient->GetWindow() : nullptr;
+	if (!Window.IsValid() || !FSlateApplication::IsInitialized())
+	{
+		return false;
+	}
+
+	ESlateVisibility PreviousVisibility = ESlateVisibility::Visible;
+	const bool bHidePanel = ViewerWidget && ViewerWidget->GetVisibility() != ESlateVisibility::Collapsed;
+	if (bHidePanel)
+	{
+		PreviousVisibility = ViewerWidget->GetVisibility();
+		ViewerWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	TArray<FColor> Bitmap;
+	FIntVector Size(0, 0, 0);
+	const bool bTaken = FSlateApplication::Get().TakeScreenshot(Window.ToSharedRef(), Bitmap, Size);
+
+	if (bHidePanel)
+	{
+		ViewerWidget->SetVisibility(PreviousVisibility);
+	}
+
+	if (!bTaken || Size.X <= 0 || Size.Y <= 0 || Bitmap.Num() < Size.X * Size.Y)
+	{
+		return false;
+	}
+
+	for (FColor& Pixel : Bitmap)
+	{
+		Pixel.A = 255;
+	}
+	return FImageUtils::SaveImageByExtension(*FilePath, FImageView(Bitmap.GetData(), Size.X, Size.Y));
+}
+
+void ACharacterViewerController::TickCapture()
+{
+	if (!CaptureSequence.IsActive())
+	{
+		return;
+	}
+
+	switch (CaptureSequence.Tick())
+	{
+	case EViewerCaptureStep::PrepareFrame:
+		PrepareCaptureFrame(CaptureSequence.GetCurrentFrame());
+		return;
+	case EViewerCaptureStep::RequestCapture:
+		// The request is processed by this same engine frame's viewport draw.
+		RequestCaptureFrame(CaptureSequence.GetCurrentFrame());
+		return;
+	default:
+		break;
+	}
+
+	if (CaptureSequence.GetPhase() != EViewerCapturePhase::Capturing || PendingCaptureFile.IsEmpty())
+	{
+		return;
+	}
+
+	const bool bWritten = bPendingCaptureProcessed && IFileManager::Get().FileExists(*PendingCaptureFile);
+	const bool bTimedOut = (FPlatformTime::Seconds() - PendingCaptureStartSeconds) > CaptureTimeoutSeconds;
+	if (!bWritten && !bPendingCaptureProcessed && !bTimedOut)
+	{
+		return;
+	}
+
+	bool bSuccess = bWritten;
+	if (bWritten)
+	{
+		LastCaptureMethod = bPendingUsesHighRes ? TEXT("HighResScreenshot") : TEXT("RequestScreenshot");
+		GetHighResScreenshotConfig().SetFilename(FString());
+		bPendingUsesHighRes = false;
+	}
+	else
+	{
+		// Processed without a file (e.g. an OnScreenshotCaptured delegate took
+		// the bitmap) or never processed in time: cancel the engine request so
+		// it cannot fire later with a stale name, and take this frame via Slate.
+		UE_LOG(LogTemp, Warning, TEXT("[CharacterViewerCapture] Engine screenshot %s for '%s'; falling back to FSlateApplication::TakeScreenshot."),
+			bPendingCaptureProcessed ? TEXT("was processed but wrote no file") : TEXT("timed out"), *PendingCaptureFile);
+		ClearPendingEngineScreenshot();
+		bSuccess = CaptureFrameWithSlate(PendingCaptureFile) && IFileManager::Get().FileExists(*PendingCaptureFile);
+		if (bSuccess)
+		{
+			LastCaptureMethod = TEXT("SlateTakeScreenshot");
+		}
+	}
+
+	if (bSuccess)
+	{
+		++LastCaptureSavedFrames;
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[CharacterViewerCapture] Could not write '%s'."), *PendingCaptureFile);
+	}
+
+	PendingCaptureFile.Reset();
+	bPendingCaptureProcessed = false;
+	CaptureSequence.NotifyFrameCaptured(bSuccess);
+
+	if (!CaptureSequence.IsActive())
+	{
+		FinishCapture();
+	}
+}
+
+void ACharacterViewerController::CancelCapture()
+{
+	if (!CaptureSequence.IsActive())
+	{
+		return;
+	}
+
+	if (!PendingCaptureFile.IsEmpty())
+	{
+		ClearPendingEngineScreenshot();
+		PendingCaptureFile.Reset();
+		bPendingCaptureProcessed = false;
+	}
+	CaptureSequence.Cancel();
+	FinishCapture();
+}
+
+void ACharacterViewerController::FinishCapture()
+{
+	const EViewerCaptureMode Mode = CaptureSequence.GetMode();
+	const EViewerCapturePhase Phase = CaptureSequence.GetPhase();
+
+	if (Mode == EViewerCaptureMode::Turntable && ViewerActor)
+	{
+		ViewerActor->SetActorRotation(CaptureStartRotation);
+		if (bCaptureRestoreTurntable)
+		{
+			ViewerActor->SetTurntableEnabled(true);
+		}
+	}
+	bCaptureRestoreTurntable = false;
+	GetHighResScreenshotConfig().SetFilename(FString());
+
+	const FString DisplayPath = ViewerCapture::MakeDisplayPath(CaptureOutputPath);
+	FString Status;
+	switch (Phase)
+	{
+	case EViewerCapturePhase::Finished:
+		Status = (Mode == EViewerCaptureMode::Turntable)
+			? FString::Printf(TEXT("Saved: %s (%d frames)"), *DisplayPath, LastCaptureSavedFrames)
+			: FString::Printf(TEXT("Saved: %s"), *DisplayPath);
+		break;
+	case EViewerCapturePhase::Cancelled:
+		Status = FString::Printf(TEXT("Capture cancelled (%d/%d saved)"), LastCaptureSavedFrames, CaptureSequence.GetNumFrames());
+		break;
+	default:
+		Status = TEXT("Capture failed (see log)");
+		break;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[CharacterViewerCapture] %s [method=%s, path=%s]"), *Status, *LastCaptureMethod, *CaptureOutputPath);
+	SetCaptureStatus(Status, true);
+
+	if (ViewerWidget)
+	{
+		ViewerWidget->NotifySelectionChanged();
+	}
+}
+
+void ACharacterViewerController::SetCaptureStatus(const FString& Status, bool bTimed)
+{
+	CaptureStatusExpireSeconds = (bTimed && !Status.IsEmpty()) ? FPlatformTime::Seconds() + CaptureStatusSeconds : 0.0;
+	if (ViewerWidget)
+	{
+		ViewerWidget->SetCaptureStatus(FText::FromString(Status));
 	}
 }

@@ -10,7 +10,8 @@
 - **검증된 것(숫자 있음, 4절 표)**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation 6/6 통과(2026-09-29), Win64 Development 패키지 빌드/실행 스모크 통과, Win64 Shipping 패키지 빌드 성공 + 프로세스 정상 기동/종료 확인(자동화 테스트 미포함), 두 Python 스크립트의 "기존 자산 보존" 동작을 해시 비교로 검증.
 - **2026-09-30 추가 검증(4절 표)**: `-game` 합성 포인터 스모크가 활성 전면 창에서 1/1 통과(이전 실패 3건 해소). Shipping 패키지에 OS 수준 실제 마우스/키보드 입력(SendInput)을 넣어 드래그 Orbit, 휠 Zoom, R, Space와 드래그 정지, H, I/파츠 클릭/빈 공간 해제, W, 패널 위 휠·드래그 차단, 포커스 상실 복귀를 화면 캡처 25장으로 확인. 증거는 `Docs/Evidence/2026-09-30-shipping-real-input/`.
 - **2026-10-01 추가(4절 표, 6.11절)**: 파츠 단위 강조, 메시 수치 실측 API, 스켈레톤 호환 검사 완화, 실제 ProjectID. Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation **11/11 통과**(신규 4개 포함), `CreatePortfolioAssets.py` 2회 실행(1차 `M_ViewerPartHighlight` 생성 + 기존 7개 `[keep] OK`, 2차 `[keep] OK` ×8). `-game` 스모크는 이 변경 후 아직 실행하지 않았다.
-- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), 측정 수치의 INSPECTION 패널 표시(API만 있음).
+- **2026-10-01 패널 레이아웃·촬영 패스(6.12절)**: 패널 폭이 뷰포트의 24%(300~460 Slate 단위)로 바뀌고 DPI 곡선(720p = 0.8)을 프로젝트에 설정해 720p에서 버튼 글자가 잘리던 문제를 고쳤다. F12(고해상도 스크린샷)·Shift+F12(36장 턴테이블)·Esc(취소) 촬영 기능과 패널 상태 줄(`StatusText`)을 추가했다(1.7절). Editor 빌드/Game 빌드 0/0, Editor Automation 10/10. `-game` 시각 확인은 대기(4.1절).
+- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), 측정 수치의 INSPECTION 패널 표시(API만 있음), 패널 레이아웃·F12/Shift+F12 촬영의 `-game` 시각 확인(6.12절).
 - **파츠 강조는 파츠 단위로 표시된다(2026-10-01, 6.11절).** 우선순위: ⓐ Part의 **Material Slot Names**가 메시 슬롯과 일치하면 그 슬롯만 마젠타 불투명 재질(`M_ViewerPartHighlight`)로 바뀐다. ⓑ 아니면 **Bone Names**의 본과 그 직계 자식 본에 작은 마젠타 구체 마커가 붙는다(예: 팔 → 어깨·팔꿈치·손목). ⓒ 둘 다 해당 없으면 예전처럼 메시 전체에 반투명 마젠타 Overlay가 덮인다(선택이 안 보이는 경우가 없도록). 현재 placeholder(`TutorialTPP`)는 Material Slot이 1개라 ⓑ 본 마커로 표시된다.
 - **placeholder 데이터 주의**: 현재 `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개)와 `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진이 기본 제공하는 튜토리얼/기본 도형 에셋이다. **이 수치는 실제 캐릭터 정보가 아니다.** 2026-10-01부터 메시 수치(삼각형/정점/본/슬롯/LOD/Morph/텍스처)는 `PortfolioCharacterActor`가 LOD0 렌더 데이터에서 직접 측정한다. Part에 Material Slot Names를 채우면 그 파츠의 삼각형/재질/텍스처도 측정값이 손으로 적은 `Triangle Count`/`Material Name`/`Texture Resolution`보다 우선한다(2절 ⑦). 단 INSPECTION 패널은 아직 손으로 적은 값을 표시한다(패널 연결은 후속 작업).
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
@@ -60,7 +61,7 @@ $proj = 'C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Characte
 & "$ueRoot\Engine\Build\BatchFiles\Build.bat" CharacterShowcase Win64 Development "-Project=$proj" -WaitMutex
 ```
 
-Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.Viewer.*`):
+Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.Viewer.*` — 2026-10-01부터 `Viewer.PanelLayout`/`Viewer.CaptureNaming`/`Viewer.CaptureSequence` 포함, `CharacterShowcase.Game.*`는 NullRHI에서 실행되지 않음):
 
 ```powershell
 & "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" $proj -unattended -nop4 -nosound -NullRHI `
@@ -96,7 +97,49 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
 - **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight`, `M_ViewerPartHighlight`(2026-10-01 추가) **8개 중 존재하지 않는 것만** 새로 만든다. 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
 - **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 5~7개 중 일부가 삭제되어 없어졌을 때"에만 쓴다.
 - 스크립트가 만든 에셋을 최신 생성 로직으로 다시 만들고 싶을 때만, 그 에셋을 Editor에서 직접 삭제한 뒤 재실행한다(스크립트가 "없는 에셋"으로 인식해 새로 만든다). 기존 값을 스크립트로 되돌리는 용도로 쓰지 않는다.
-- **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 최소 7위젯 트리를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
+- **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 기본 트리(필수 7개 + 선택 `StatusText`)를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
+- 기본 레이아웃을 최신 생성 로직으로 다시 만들려면 `WBP_CharacterViewer`를 삭제하고 이 스크립트만 다시 실행한다(2026-10-01부터 에셋이 없으면 빈 WBP(부모 `CharacterViewerWidget`)부터 만든다 — `CreatePortfolioAssets.py`를 함께 돌릴 필요 없음). 트리는 런타임 C++ 폴백과 같은 함수(`UCharacterViewerWidget::BuildDefaultLayoutTree()`)로 만들어지므로 두 경로의 모양이 같다.
+
+### 1.7 조작 키 · 촬영(포트폴리오 캡처)
+
+| 키 | 동작 | 패널 버튼 |
+| --- | --- | --- |
+| 왼쪽 드래그 | Orbit (패널 위에서 시작한 드래그는 무시) | — |
+| 휠 | Zoom (패널 위에서는 패널 스크롤) | — |
+| R | 카메라 Reset (Default Preset) | Reset Camera (R) |
+| Space | Turntable On/Off | Turntable: On/Off (Space) |
+| H | Clean View (UI·강조·커서 숨김) | Clean View (H) |
+| I | Inspection On/Off | Inspection: On/Off (I) |
+| W | Wireframe On/Off | Wireframe: On/Off (W) |
+| **F12** | 고해상도 스크린샷 1장 | Screenshot (F12) |
+| **Shift+F12** | 턴테이블 연속 촬영(36장) | Turntable Shots (Shift+F12) |
+| **Esc** | 진행 중인 촬영 취소 | — |
+
+키는 전부 `ACharacterViewerController`의 런타임 폴백 Enhanced Input(`EnsureFallbackInputAssets`)으로 매핑된다. 기존 키는 그대로이고 F12/Shift+F12/Esc만 추가됐다(`IA_ViewerScreenshot`, `IA_ViewerTurntableCapture`(F12 + Shift 코드(chord) 트리거), `IA_ViewerCaptureShift`, `IA_ViewerCancelCapture`).
+
+**촬영 방법과 결과 위치**
+
+- **F12**: 현재 화면을 **UI 없이**, 선택 강조는 화면 그대로 둔 채 뷰포트 크기 × `ScreenshotResolutionMultiplier`(기본 2, `ACharacterViewerController`의 `Capture` 카테고리 — Editor에서 바꾸려면 이 클래스의 Blueprint 자식을 만들어 GameMode의 Player Controller Class로 지정)로 저장한다. 파일: `Saved/Screenshots/Portfolio/<프로필 에셋 이름>_<프리셋 Id>_<yyyyMMdd-HHmmss>.png` (예: `DA_Character_Full_20261001-142530.png`). 패널 아래 상태 줄에 `Saved: <상대 경로>`가 약 3초 표시된다.
+- **Shift+F12**: 캐릭터 Actor를 10°씩 돌리며 36장(`TurntableStepDegrees`)을 찍는다. 촬영 중에는 Turntable이 멈추고 카메라 Orbit/Zoom/R/Space는 무시되며, 끝나거나 취소되면 원래 회전·Turntable 상태로 돌아간다. 프레임마다 `CaptureSettleFrames`(기본 4) 틱을 기다린 뒤 1장씩 저장한다. 상태 줄에 `Capturing 12/36` 형태로 진행률이 보이고, **Esc**로 취소할 수 있다(이미 저장된 프레임은 남는다). 결과: `Saved/Screenshots/Portfolio/Turntable_<프로필>_<타임스탬프>/frame_000.png` … `frame_035.png`.
+- 이미지는 Slate가 패널을 그리기 전의 씬 뷰포트를 읽는 엔진 스크린샷 경로(`FScreenshotRequest::RequestScreenshot(..., bShowUI=false)`, 배율 > 1이면 `GetHighResScreenshotConfig().SetResolution`)로 저장되므로 패널은 이미지에 들어가지 않는다. 요청 후 `CaptureTimeoutSeconds`(6초) 안에 파일이 생기지 않으면 그 프레임만 스모크 테스트와 같은 `FSlateApplication::TakeScreenshot`(그 순간만 패널 숨김, 뷰포트 크기)으로 대신 저장하고 로그에 `falling back`을 남긴다.
+- 패키지 빌드에서는 `Saved`가 패키지 폴더 아래(`<패키지>/CharacterShowcase/Saved/Screenshots/Portfolio/`)에 생긴다.
+
+**프레임 → 영상/GIF (ffmpeg, 별도 설치)** — 턴테이블 폴더에서:
+
+```powershell
+# MP4 (12fps = 3초에 한 바퀴, 짝수 해상도 보정)
+ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p -crf 18 turntable.mp4
+# GIF (가로 720px, 팔레트 생성으로 색 손실 최소화, 무한 반복)
+ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=720:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -loop 0 turntable.gif
+```
+
+**레이아웃/촬영 `-game` 확인용 테스트** (`CharacterShowcase.Game.ViewerCapture`, 약 30~60초, 포인터 합성 없음): 해상도별 창 캡처(UI/Clean View)를 `Saved/Screenshots/ViewerCapture/ViewerCapture_<UI|Clean>_<W>x<H>.png`로 남기고, F12 경로 파일 생성·크기, Shift+F12 2프레임 저장 후 취소 시 회전/Turntable 복원을 확인한다. 1280×720과 1920×1080에서 각각 실행한다.
+
+```powershell
+& "$ueRoot\Engine\Binaries\Win64\UnrealEditor.exe" $proj /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1280 -ResY=720 `
+    -log -unattended -nosplash '-ExecCmds=Automation RunTests CharacterShowcase.Game.ViewerCapture' `
+    '-TestExit=Automation Test Queue Empty' "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation\ViewerCapture720"
+```
 
 ## 2. 아티스트 작업 절차
 
@@ -163,7 +206,9 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - 레벨 `LV_Portfolio`에서 `PortfolioCharacterActor`를 배치하고 `Character` 카테고리의 **Profile**에 새 `CharacterProfileData`를 지정한다. 씬에는 이 Actor가 정확히 1개 있어야 한다(0개/2개 이상이면 Controller가 입력을 안전하게 비활성화한다).
 - World Settings의 **GameMode Override**(또는 `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`)가 `BP_CharacterViewerGameMode`를 가리키는지 확인한다.
 - 조명은 레벨의 KeyLight/FillLight/SkyLight(전부 Movable, 라이트매스 빌드 불필요)를 직접 조정한다. 배경/플랫폼도 레벨/Blueprint에서 조정한다.
-- `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 더 이상 찾지 못해 자동으로 내장 폴백 패널로 전환된다(안전하지만 디자이너가 만든 스타일은 사라진다). **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
+- `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 필수 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 해당 위젯을 채우지 못한다(로그에 누락 이름 경고). 8번째 이름 **StatusText**(TextBlock, 촬영 상태 줄)는 **선택**이다 — 없으면 상태 줄만 안 보이고 나머지는 정상 동작한다. **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
+- **패널 폭 규칙**: `PanelRoot`가 오른쪽 가장자리에 고정된 Canvas 슬롯(앵커 X 최소/최대 = 1)에 있으면 C++가 매 틱 폭을 `clamp(뷰포트 폭 × 24%, 300, 460)` Slate 단위로 맞춘다(`bAutoPanelWidth`, `PanelWidthFraction`/`PanelMinWidth`/`PanelMaxWidth` — WBP의 Class Defaults → `Viewer|Layout`에서 조정). 디자이너가 직접 폭을 정하려면 `bAutoPanelWidth`를 끄거나 앵커를 바꾸면 C++가 손대지 않는다. 버튼 글자(`ButtonFontSize` 13)와 섹션 제목(`HeaderFontSize` 15)도 같은 곳에서 바꾼다. 버튼 글자는 자동 줄바꿈되므로 잘리지 않는다. 설명(Description)은 줄바꿈되며 최소 6줄이 보인 뒤 스크롤된다(`DescriptionSizeBox` 최대 높이).
+- **DPI 배율**: `Config/DefaultEngine.ini`의 `[/Script/Engine.UserInterfaceSettings]`에서 `UIScaleRule=ShortestSide`, 짧은 변 기준 720 → 0.8, 1080 → 1.0, 1440 → 1.25(사이 값은 선형). 엔진 기본값(720p = 0.666)일 때 패널이 약 213px로 줄어 글자가 잘렸다. 결과적으로 패널은 1280×720에서 384 Slate 단위(약 307px), 1920×1080에서 460px이다. 이 곡선은 프로젝트의 모든 UMG에 적용된다.
 - 1.2~1.3절의 방법으로 실행해 캐릭터가 보이는지, 우측 패널에 새 캐릭터 이름/목록이 뜨는지 확인한다.
 
 ## 3. 설계 규칙
@@ -207,6 +252,11 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(27개 액션, 93초) | 6.11절 |
 | Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **11/11 통과**, 실패 0(신규 `Viewer.PartHighlightMaterialSlots`/`PartHighlightBoneMarkers`/`MeshStats`/`AnimationSkeletonCompatibility`) | `Saved/Automation/A/index.json`(작업 worktree) |
 | `CreatePortfolioAssets.py` (`M_ViewerPartHighlight` 추가) | 2026-10-01 | 1차: `Created M_ViewerPartHighlight` + 기존 7개 `[keep] ... OK`, `DONE, NO ERRORS`, 종료 코드 0. 2차: `[keep] ... OK` ×8, 종료 코드 0. 기존 `.uasset` 변경 없음(`git status`) | 6.11절 |
+| Editor 빌드 (패널 레이아웃·촬영 패스) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (1차는 `const UGameViewportClient::GetWindow()` 컴파일 오류 1건 → 수정 후 재빌드) | 6.12절 |
+| Game 빌드 (패널 레이아웃·촬영 패스) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0, 30개 액션, 74.9초 | 6.12절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **10/10 통과**(기존 7 + `Viewer.PanelLayout`/`Viewer.CaptureNaming`/`Viewer.CaptureSequence`), 오류 0 / 경고 0. PanelLayout 로그: 1280×720에서 384 Slate 단위 = 307px, 1920×1080에서 460px | `Saved/Automation/B/index.json` |
+| `WBP_CharacterViewer` 재생성 (`CreateViewerWidgetLayout.py` 2회) | 2026-10-01 | 에셋 삭제 후 1차: `[create]` + `[build] ... compiled, and saved.`(SHA-256 `1bacf567…` → `4c49e99a…`). 2차: `[keep] ... All 7 required widgets present ... Optional StatusText present.`, 해시 1차와 동일, 로드 오류 없음 | 6.12절 |
+| `-game` `CharacterShowcase.Game.ViewerCapture` (1280×720 / 1920×1080) | — | **미실행**(NullRHI에서 실행 불가, 4.1절) | — |
 
 ### 4.1 미검증·대기 항목
 
@@ -216,6 +266,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **파츠 단위 강조의 실제 화면 확인**: 2026-10-01 구현(슬롯 교체/본 마커/전체 Overlay 폴백, 6.11절). 상태·재질 값은 Editor Automation(NullRHI)으로 검증했지만, 렌더링된 화면에서 마커/슬롯 색이 실제로 보이는지는 **미검증**이다(`-game` 스모크와 패키지 캡처로 확인 필요). `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`)의 강조 관련 assertion을 새 동작(본 마커)에 맞게 고쳤으나 이 세션에서는 실행하지 않았다.
 - **측정 수치의 UI 표시**: `GetMeshStats()`/`GetSlotStats()`/`GetPartMeasuredStats()` API와 Editor 테스트만 있다. INSPECTION 패널은 아직 Part의 손으로 적은 메모 값을 표시한다(패널 연결은 후속 작업). 쿡된 빌드에서 측정값이 나오는지도 **미검증**(코드상 렌더 데이터가 없으면 `bValid=false` + 0 반환).
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
+- **2026-10-01 패널 레이아웃/촬영 패스의 `-game` 확인(대기)**: 이 패스는 NullRHI Editor 테스트와 빌드로만 검증됐다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerCapture`를 1280×720과 1920×1080에서 실행해 `ViewerCapture_UI_*.png`/`ViewerCapture_Clean_*.png`로 패널 폭(약 307px / 460px), 버튼 글자 잘림 없음, 설명 6줄 이상을 육안 확인 ② 같은 테스트에서 F12 파일이 실제로 생기고 크기가 뷰포트 × 2인지(로그의 `F12 capture method`가 `HighResScreenshot`인지 `SlateTakeScreenshot` 폴백인지 기록) ③ Shift+F12 2프레임 저장과 취소 후 회전/Turntable 복원 ④ `CharacterShowcase.Game.ViewerSmoke` 재실행(새 레이아웃에서 패널 경계 테스트 회귀 없음) ⑤ 실제 키 입력으로 F12, Shift+F12(코드 트리거가 일반 F12를 막는지), Esc 취소, 36장 전체 시퀀스 완주 — 이 항목들은 **미검증**이다.
 
 ## 5. 남은 작업·위험
 
@@ -225,6 +276,9 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - 본 마커 강조는 관절 위치를 점으로 보여 줄 뿐 파츠 표면 전체를 칠하지 않는다. 표면 단위 강조가 필요하면 파츠를 별도 Material Slot으로 나누거나(가장 간단), 별도 Component 구조 또는 Custom Stencil 기반 Post Process 작업이 필요하다.
 - `-game` 스모크의 합성 포인터 단계는 게임 창이 활성·비가려짐 전면 창일 때만 유효하다(원인 확정, 6.10절). 무인 실행 환경에서는 이 조건을 보장할 수 없으므로 실패 시 전제 조건 오류 메시지를 먼저 확인한다.
 - `Scripts/CreatePortfolioAssets.py`의 예전 "레벨 재생성" 로직이 유발하던 간헐적 크래시는 원인을 특정해 제거했지만(6.10절), 대규모 반복 재현 테스트는 하지 않았다.
+- 촬영(1.7절): 고해상도 경로(`GetHighResScreenshotConfig().SetResolution`)가 이 PC의 `-game`에서 실제로 파일을 쓰는지 아직 모른다. 실패해도 6초 후 Slate 캡처(뷰포트 크기, 배율 미적용)로 대신 저장하도록 했지만, 그 경우 F12 결과가 2배 해상도가 아니다(로그와 `GetLastCaptureMethod()`로 구분). Windows는 디버거가 붙은 프로세스에서 F12를 디버그 중단 키로 쓴다(일반 실행에는 영향 없음). PIE에서는 Esc가 PIE 종료 키라 촬영 취소보다 먼저 처리될 수 있다.
+- DPI 곡선 변경(2절 ⑨)은 프로젝트 전체 UMG에 적용된다. 다른 UI(예: PlayDemo)가 생기면 그 화면도 720p에서 약 20% 커진다.
+- 턴테이블 촬영은 카메라는 고정하고 캐릭터 Actor만 돌린다. 조명은 월드에 고정이므로 프레임마다 조명 방향이 캐릭터 기준으로 바뀐다(일반적인 턴테이블과 같음).
 
 ## 6. 과거 기록 (참고)
 
@@ -331,3 +385,13 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - `-game` 스모크(`CharacterViewerGameSmokeTest.cpp`)의 "Torso 선택 후 OverlayMaterial이 설정됨" assertion 3곳은 이제 틀린 기대값이라 "BoneMarkers 모드 + 마커 표시"로 바꾸고, 해제/Clean View 단계에 마커 0개 확인을 추가했다(주석 표기). 이 스모크는 이 세션에서 실행하지 않았다.
 
 **어떻게 검증했나**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고(27개 액션). Editor Automation(NullRHI) 11/11 통과 — 신규 4개: `Viewer.PartHighlightMaterialSlots`(SKM_Manny_Simple 슬롯 `M_Torso`만 강조, Wireframe/선택 해제/재선택/Wireframe 중 Variant/Wireframe off/Clean View/Variant 해제/선택 해제/프로필 교체의 각 단계에서 두 슬롯 재질 정확 비교), `Viewer.PartHighlightBoneMarkers`(TutorialTPP `upperarm_l` → 마커 3개 `upperarm_l, lowerarm_l, upperarm_twist_01_l`, Clean View 숨김/재표시, 없는 본 → WholeMesh, 재사용, 해제·프로필 교체 시 0개), `Viewer.MeshStats`(TutorialTPP 6,118 삼각형/3,924 정점/본 68/슬롯 1/텍스처 0, SKM_Manny_Simple 92,178 삼각형/48,705 정점/본 89/슬롯 2/LOD 3, 슬롯 `M_HeadLegs` 38,166 + `M_Torso` 54,012 = 합계 일치, 각 4 텍스처 최대 1024/4096), `Viewer.AnimationSkeletonCompatibility`(null 안전, 같은 스켈레톤 허용, UE5↔UE4 리그 거부 + SetAnimation이 이전 id 유지). 개발 중 1회 실패: 텍스처 해상도가 -NullRHI에서 0x0으로 나와(플랫폼 데이터 미생성) Source 해상도 대체를 추가한 뒤 통과. `CreatePortfolioAssets.py` 2회 실행 결과는 4절 표. 화면 렌더링(마커/슬롯 색이 실제로 보이는지)은 **미검증**(4.1절).
+
+### 6.12 패널 레이아웃·포트폴리오 촬영 패스 (2026-10-01)
+
+**배경**: 2026-09-30 Shipping 캡처(`01_default.png`, `16_cursor_over_panel.png`)에서 1280×720 패널이 약 213px(320 Slate 단위 × 엔진 기본 DPI 0.666)로 좁아 버튼 글자가 잘렸고("Tutorial Mannequi", "Turntable: Off (Space"), 설명은 3줄만 보였다. 원인은 고정 폭 320 + UTextBlock 기본 글꼴(Roboto Bold 24) + 줄바꿈 없음 + 기본 DPI 곡선.
+
+**레이아웃**: 기본 트리 생성을 `UCharacterViewerWidget::BuildDefaultLayoutTree()` 하나로 합쳐 C++ 폴백(`BuildFallbackUI()`)과 Editor 툴(`BuildDefaultViewerWidgetLayout()`)이 같은 트리를 만든다(이전에는 배경 알파/이름 글꼴이 서로 달랐다). 패널 폭은 `NativeTick()`에서 `clamp(뷰포트 × 24%, 300, 460)`으로 맞추고(오른쪽 고정 앵커일 때만, `bAutoPanelWidth`로 끌 수 있음), 버튼 글자 13pt Regular + 자동 줄바꿈, 섹션 제목 15pt Bold, 설명 13pt·최소 6줄(`DescriptionSizeBox` 최대 높이 134), 8번째 선택 이름 `StatusText`를 추가했다. `Config/DefaultEngine.ini`에 DPI 곡선(ShortestSide 720 → 0.8, 1080 → 1.0, 1440 → 1.25)을 설정했다. `WBP_CharacterViewer`는 삭제 후 `CreateViewerWidgetLayout.py`로 재생성했다(이 스크립트가 이제 없는 WBP를 직접 만든다 — 생성 전용 규칙은 그대로). 재생성 첫 실행에서 시작 맵 로드 중 `BP_CharacterViewerGameMode`가 잠시 WBP를 찾지 못한다는 `LoadErrors` 경고가 한 번 나왔지만(그 순간 파일이 없었으므로 정상), GameMode는 저장되지 않았고(`git status` 무변경) 2차 실행에서는 경고가 없었다.
+
+**촬영**: `ACharacterViewerController`에 `TakePortfolioScreenshot()`(F12), `StartTurntableCapture()`(Shift+F12), `CancelCapture()`(Esc)를 추가했다. 순수 로직(파일 이름, 프레임 수/각도, 상태 머신 `FViewerCaptureSequence`)은 `CharacterViewer/ViewerCapture.h/.cpp`에 분리해 Editor 테스트로 검증했다. 한 프레임 = 준비(회전) → `CaptureSettleFrames` 틱 대기 → 요청 → 파일 확인 순서이며 `PlayerTick()`에서 진행한다. 저장 경로는 `FScreenshotRequest::RequestScreenshot(파일, bShowUI=false, 접미사 없음)`, 배율 > 1이면 `GetHighResScreenshotConfig().SetFilename()/SetResolution()`을 함께 쓴다(엔진은 고해상도 요청 시 `FilenameOverride`로 파일 이름을 정하므로 둘 다 필요). `FScreenshotRequest::OnScreenshotRequestProcessed()`와 파일 존재로 완료를 판정하고, 6초 안에 파일이 없으면 그 프레임만 `FSlateApplication::TakeScreenshot`(패널을 그 순간만 숨김)으로 저장한다. Shift+F12는 폴백 IMC에서 `F12` + `UInputTriggerChordAction`(Shift 액션) 매핑을 일반 F12보다 먼저 넣어 엔진의 자동 코드 차단기(chord blocker)가 일반 F12를 막게 했다.
+
+**검증**: Editor 빌드 1차 실패(`const` 포인터로 `UGameViewportClient::GetWindow()` 호출, C2662 1건) → 수정 1회 후 0/0. Game 빌드 0/0. Editor Automation 10/10(신규 `Viewer.PanelLayout`: 폭 계산·DPI 곡선 값·기본 트리 모양·폴백 위젯 버튼 글꼴/줄바꿈·자동 폭 적용·상태 줄·생성된 WBP 트리, `Viewer.CaptureNaming`, `Viewer.CaptureSequence`). `-game` 테스트 `CharacterShowcase.Game.ViewerCapture`는 작성만 했고 이 세션에서는 실행하지 않았다(4.1절).
