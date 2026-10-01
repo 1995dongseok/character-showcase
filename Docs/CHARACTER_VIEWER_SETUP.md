@@ -19,6 +19,7 @@
 - **기본 프로필 = `DA_Character_Manny` (2026-10-01)**: 엔진 3인칭 템플릿 마네킹 `SKM_Manny_Simple`(본 89개, LOD0 92,178 삼각형, Material Slot 2개 `M_HeadLegs`/`M_Torso`, 텍스처 1024²·Torso 노멀만 4096², Physics Asset `PA_Mannequin`, Morph 0)을 쓰는 placeholder 프로필이다. 시작 시 Idle(`MM_Idle`)로 서 있고 Full Body 구도로 보인다. `ProfileLibrary` 순서는 Manny → Tutorial Mannequin(`DA_Character`) → Skeletal Cube(`DA_Character_Cube`)이며, 기존 두 프로필은 변경 없이 남아 있다(2절 ⑧).
 - **스튜디오 룩 (2026-10-01)**: `LV_Portfolio`는 Key/Fill/Rim 3점 조명(전부 Directional, Movable), 고정 노출 `StudioPostProcess`(Manual, 보정 0), 어두운 그라데이션 배경 구(`MI_StudioBackdrop`), 18% 중간 회색 바닥(`MI_StudioFloor`, 멀어질수록 배경으로 페이드)으로 바뀌었다. 배경/바닥은 NoCollision이라 파츠 클릭을 가로채지 않는다. 값과 조정 위치는 2절 ⑨, 변경 이력은 6.13절.
 - **프로필 검증 도구 (2026-10-01, 2.10절)**: `Scripts/ValidateProfiles.py`가 모든 `CharacterProfileData`를 메시와 대조해 틀린 본/슬롯/Morph 이름, 잘못된 카메라 범위, 없는 기본 애니메이션, 호환 안 되는 Skeleton, Physics Asset 누락 등을 필드 위치와 고치는 방법까지 한국어로 출력한다(Error가 있으면 종료 코드 ≠ 0). 현재 3개 프로필: Manny·Tutorial **E=0 W=0 I=0**, Cube **E=0 W=2**(Physics Asset 없음 → 파츠 클릭 불가, 높이 25 cm 스케일 확인).
+- **재생 컨트롤·LOD 표시·배경 프리셋 (2026-10-01, 1.7절, 6.18절)**: 패널 ANIMATION 아래 **PLAYBACK**(P 일시정지/재개, `[`/`]` 한 프레임 이동, `-`/`=` 속도 0.25 단위 0.1~2.0배, `0` = 1.0배, 시간 줄 `0.10 s / 7.57 s · frame 3 / 227`), DISPLAY에 **`LOD: Auto (L)`**(Auto → LOD0 → LOD1 → LOD2, INSPECTION 삼각형 수가 표시 LOD 기준으로 바뀜 — Manny LOD0 92,178 / LOD1 26,998 / LOD2 12,998)와 **`Backdrop: Studio (B)`**(Studio → Black → White → Mid Grey 실루엣 확인, 런타임 Dynamic MI만 써서 레벨/에셋 무수정). Editor 빌드/Game 빌드 0/0, Editor Automation **24/24**(신규 4개). 화면 확인은 대기(4.1절).
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
 ## 1. 실행 방법
@@ -131,8 +132,20 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
 | **F12** | 고해상도 스크린샷 1장 | Screenshot (F12) |
 | **Shift+F12** | 턴테이블 연속 촬영(36장) | Turntable Shots (Shift+F12) |
 | **Esc** | 진행 중인 촬영 취소 | — |
+| **P** | 애니메이션 일시정지/재개 (Pose 항목은 항상 정지) | Pause (P) / Resume (P) — PLAYBACK |
+| **[** / **]** | 한 프레임 뒤로/앞으로 (자동 일시정지, 끝에서 처음으로 순환) | ◀ ([) / ▶ (]) — PLAYBACK |
+| **-** / **=** | 재생 속도 0.25씩 감소/증가 (0.1~2.0배, 숫자패드 -/+ 도 동작) | Slower (-) / Faster (=) — PLAYBACK |
+| **0** | 재생 속도 1.0배로 | Rate 1.00 (0) — PLAYBACK |
+| **L** | 표시 LOD 순환 Auto → LOD0 → LOD1 → … → Auto | LOD: Auto (L) |
+| **B** | 배경/바닥 색 순환 Studio → Black → White → Mid Grey | Backdrop: Studio (B) |
 
-키는 전부 `ACharacterViewerController`의 런타임 폴백 Enhanced Input(`EnsureFallbackInputAssets`)으로 매핑된다. 기존 키는 그대로이고 F12/Shift+F12/Esc만 추가됐다(`IA_ViewerScreenshot`, `IA_ViewerTurntableCapture`(F12 + Shift 코드(chord) 트리거), `IA_ViewerCaptureShift`, `IA_ViewerCancelCapture`).
+키는 전부 `ACharacterViewerController`의 런타임 폴백 Enhanced Input(`EnsureFallbackInputAssets`)으로 매핑된다. 기존 키는 그대로이고 F12/Shift+F12/Esc만 추가됐다(`IA_ViewerScreenshot`, `IA_ViewerTurntableCapture`(F12 + Shift 코드(chord) 트리거), `IA_ViewerCaptureShift`, `IA_ViewerCancelCapture`). 2026-10-01(6.18절)에 P / [ / ] / - / = / 0 / L / B가 추가됐다(`IA_ViewerToggleAnimationPause`, `IA_ViewerStepAnimationBack`/`Forward`, `IA_ViewerAnimationRateDown`/`Up`/`Reset`, `IA_ViewerCycleLOD`, `IA_ViewerCycleBackdrop`, 기존 키와 겹치지 않음).
+
+**재생 컨트롤·LOD·배경 프리셋 (6.18절)**
+
+- **PLAYBACK**(패널 ANIMATION 아래): 특정 프레임의 포즈·변형을 멈춰 놓고 보는 용도. 시간 줄 `0.45 s / 1.20 s · frame 14 / 36`(현재 시간 / 길이 · 현재 프레임 / 마지막 프레임 번호, 시퀀스의 샘플링 프레임레이트 기준)이 프레임이 바뀔 때만 갱신된다. 일시정지와 속도는 다른 애니메이션을 골라도 유지되고(일시정지 중이면 새 애니메이션은 0초에서 멈춘 채 시작), 캐릭터(프로필)를 바꾸면 재생·1.0배로 돌아간다. Pose 항목은 항상 정지 상태라 Pause 버튼이 비활성이고, 프레임 이동은 된다. 프로필이 Animation Blueprint(`DefaultAnimClass`)로 움직이면 버튼이 전부 비활성이고 시간 줄은 `Animation Blueprint drives this mesh`.
+- **LOD**: 기본 `Auto`는 엔진이 화면 크기로 LOD를 고른다. L을 누르면 그 LOD를 강제로 표시하고(`APortfolioCharacterActor::SetForcedLOD`, 엔진 규칙 1 = LOD0), INSPECTION의 `Triangles`/`Verts`와 슬롯별 삼각형 수가 **그 LOD 기준**으로 바뀐다(Auto일 때는 LOD0 기준). 캐릭터를 바꾸면 Auto로 돌아간다.
+- **Backdrop**: 실루엣 확인용. `Black`(0), `White`(0.8 Linear — 1.0이면 고정 노출에서 흰색이 날아간다), `Mid Grey`(0.18)는 배경 구(`MI_StudioBackdrop`의 `TopColor`/`BottomColor`)와 바닥(`MI_StudioFloor`의 `BaseColor`/`EdgeColor`)을 같은 단색으로 바꾸고, `Studio`는 레벨에 저작된 원래 값으로 되돌린다. 조명·노출은 바꾸지 않는다. 런타임 Dynamic Material Instance만 쓰므로 **레벨/MI 에셋은 수정되지 않는다**. Clean View와 캐릭터 전환 뒤에도 유지된다. 배경/바닥 Actor는 재질(또는 그 부모)이 `MI_StudioBackdrop`/`MI_StudioFloor`인 Static Mesh로 찾는다(쿡된 빌드에는 Outliner 라벨이 없으므로; Editor에서는 라벨 `StudioBackdrop`/`PlatformCylinder`도 인정). 없으면 아무것도 바꾸지 않고 로그 1줄만 남긴다.
 
 **촬영 방법과 결과 위치**
 
@@ -379,6 +392,10 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | `CreatePortfolioAssets.py` (`M_WireframeOverlay` 추가) | 2026-10-01 | 1차: `Created M_WireframeOverlay` + 기존 13개 `[keep] ... OK` + ini OK, `DONE, NO ERRORS`, 종료 코드 0. 2차: `[keep] ... OK` ×14 + ini OK, 종료 코드 0, 실행 전후 `Content/Portfolio` 14개 파일 SHA-256 동일 | 6.14절 |
 | `M_WireframeOverlay` 실제 RHI 컴파일 확인(`MaterialEditingLibrary.get_statistics`, D3D12 SM5, NullRHI 아님, 읽기 전용) | 2026-10-01 | 컴파일 성공, VS 234 / PS 67 명령(`M_Wireframe` VS 220 / PS 67) | 6.14절 |
 | `WBP_CharacterViewer` 재생성 (`CreateViewerWidgetLayout.py` 2회, 설명 높이 134 → 126) | 2026-10-01 | 에셋 삭제 후 1차: `[create]` + `[build] ... compiled, and saved.`(SHA-256 `4c49e99a…` → `44b6422a…`). 2차: `[keep] ... All 7 required widgets present ... Optional StatusText present.`, 해시 동일 | 6.14절 |
+| Editor 빌드 (재생 컨트롤·LOD·배경 프리셋, 6.18절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (본 코드 10개 액션, 테스트 파일 추가 4개 액션) | 6.18절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0, 17개 액션(첫 Game 빌드라 공유 PCH 포함), 85.3초 | 6.18절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **24/24 통과**, 실패 0 / 경고 0 (신규 `Viewer.PlaybackMath`/`AnimationPlayback`/`ForcedLOD`/`BackdropPresets`) | `Saved/Automation/G/index.json`, 최종 재실행 `Saved/Automation/G2/index.json`(작업 worktree, 둘 다 24/24) |
+| `LV_Portfolio` 배경/바닥 재질 확인(읽기 전용 Python, 저장 안 함) | 2026-10-01 | `PlatformCylinder`(`StaticMeshActor_0`) slot 0 = `MI_StudioFloor` → `M_StudioFloor`, `StudioBackdrop`(`StaticMeshActor_1`) slot 0 = `MI_StudioBackdrop` → `M_StudioBackdrop`. `git status` 무변경 | 6.18절 |
 
 ### 4.1 미검증·대기 항목
 
@@ -393,6 +410,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **패키지(Development/Shipping) 재빌드·실행**: 스튜디오 룩/Manny 기본 프로필 상태로는 하지 않았다.
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
 - **2026-10-01 패널 레이아웃/촬영 패스의 `-game` 확인(대기)**: 이 패스는 NullRHI Editor 테스트와 빌드로만 검증됐다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerCapture`를 1280×720과 1920×1080에서 실행해 `ViewerCapture_UI_*.png`/`ViewerCapture_Clean_*.png`로 패널 폭(약 307px / 460px), 버튼 글자 잘림 없음, 설명 6줄 이상을 육안 확인 ② 같은 테스트에서 F12 파일이 실제로 생기고 크기가 뷰포트 × 2인지(로그의 `F12 capture method`가 `HighResScreenshot`인지 `SlateTakeScreenshot` 폴백인지 기록) ③ Shift+F12 2프레임 저장과 취소 후 회전/Turntable 복원 ④ `CharacterShowcase.Game.ViewerSmoke` 재실행(새 레이아웃에서 패널 경계 테스트 회귀 없음) ⑤ 실제 키 입력으로 F12, Shift+F12(코드 트리거가 일반 F12를 막는지), Esc 취소, 36장 전체 시퀀스 완주 — 이 항목들은 **미검증**이다.
+- **재생 컨트롤·LOD·배경 프리셋의 화면 확인(6.18절)**: 상태 값(일시정지/프레임/속도, 강제 LOD와 그 LOD의 수치, MI 파라미터 값)은 Editor Automation(NullRHI)으로 검증했다. **실제 화면에서** 일시정지·프레임 이동 시 포즈가 그 프레임으로 바뀌는지, 강제 LOD에서 메시가 실제로 거칠어지는지, Black/White/Mid Grey 배경·바닥 색이 보이는지(White 0.8이 날아가지 않는지), PLAYBACK 버튼 2줄과 `◀`/`▶` 글자가 300~460 Slate 폭에서 잘리지 않는지, 실제 키(P, [, ], -, =, 0, L, B) 입력은 **미검증**이다. `LV_Portfolio`의 배경/바닥 Actor가 `MI_StudioBackdrop`/`MI_StudioFloor`를 쓰는지는 레벨을 읽기 전용으로 열어 확인했다(6.18절).
 - **프로필 검증 도구(2.10절)의 런타임 로그**: `PostLogin`/`SwitchProfile`에서 `[ProfileValidator]` 보고서를 찍는 코드는 빌드만 확인했고 `-game`/패키지에서 실제 로그가 나오는지는 **미검증**이다. 또 지금 3개 프로필에는 Error가 없어서 "Error가 있는 실제 에셋 → 종료 코드 ≠ 0" 경로는 같은 예외 경로(없는 경로 지정 → -1)로만 확인했다. 검사 로직 자체는 Editor Automation 4개 테스트로 검증됐다.
 
 ## 5. 남은 작업·위험
@@ -610,3 +628,22 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 추가 확인: 알 수 없는 옵션 `--bogus` → 종료 코드 1, 없는 `UE_ROOT` → `[ERROR] Unreal Engine 5.6 not found` 종료 코드 1, 스크래치 가짜 프로젝트(130바이트 LFS 포인터 `LV_Portfolio.umap`) → `Content : lfs-pointer` + 종료 코드 1.
 
 **미검증**: .bat의 실제 실행(Editor/`-game`/UnrealEditor-Cmd/Build.bat/RunUAT 기동, robocopy·`Compress-Archive` 압축)은 하지 않았다 — 같은 체크아웃에서 패키지·스모크가 돌고 있었기 때문이다. 문서의 Editor 메뉴 경로·FBX 옵션 이름(UE 5.6 Interchange 가져오기 창), 막 받은 저장소의 전체 C++ 빌드·첫 셰이더 컴파일 시간, 일반 GPU의 FPS, 다른 PC에서 패키지 zip 실행은 측정·확인하지 않았다. `ValidateProfiles.bat`의 요약 줄 형식은 `Scripts/ValidateProfiles.py`(별도 작업)의 출력 형식 `[ValidateProfiles] <asset>: E=.. W=.. I=..`을 전제로 한다.
+
+### 6.18 재생 컨트롤, LOD 표시, 배경 프리셋 (2026-10-01)
+
+**목적**: 특정 프레임의 포즈·변형(어깨/팔꿈치 접힘 등)을 멈춰 놓고 보기, LOD별 메시 품질과 삼각형 수 확인, 단색 배경에서 실루엣 확인. 키·패널 사용법은 1.7절.
+
+**1. 재생 컨트롤** (`APortfolioCharacterActor`, 신규 함수만 추가 — `SetAnimation()`은 성공 끝에 상태 적용 1줄만 추가):
+- `IsAnimationPlaybackControllable()`: AnimationSingleNode 모드 + Single Node Instance에 Sequence가 있을 때만 true. Animation Blueprint(`DefaultAnimClass`)가 움직이는 동안, 또는 재생 중인 Sequence가 없으면 아래 setter는 전부 `false`이고 아무것도 바꾸지 않는다.
+- `SetAnimationPaused(bool)` / `IsAnimationPaused()`, `StepAnimationFrames(int32)`(먼저 일시정지, 시퀀스 `GetSamplingFrameRate()` 기준으로 현재 프레임(반올림) ± N, 0..NumFrames에서 순환), `SetAnimationPlayRate(float)`(0.1~2.0으로 clamp) / `GetAnimationPlayRate()`, `GetAnimationTimeInfo(Time, Length, Frame, NumFrames)`(`GetPlayLength()`, NumFrames = `GetNumberOfSampledKeys() - 1` — MM_Idle: 7.567 s, 228키, 30 fps → 프레임 0..227), 순수 함수 `WrapAnimationFrame`/`ClampAnimationPlayRate`(단위 테스트).
+- **결정**: 일시정지·속도는 애니메이션을 바꿔도 유지한다(일시정지 중 선택한 새 애니메이션은 0초에서 멈춘 채 시작 — `PlayAnimation()`이 속도를 1.0으로 되돌리므로 바로 다시 적용). Pose 항목(`bIsPose`)은 항상 정지(`IsAnimationPaused()` = true, 재개 요청은 false, 프레임 이동은 허용). 끝난 1회 재생 애니메이션을 재개하면 0초부터. `ClearRuntimeState()`(프로필 전환)가 재생·1.0배로 초기화한다.
+- Controller: `ToggleAnimationPaused()`, `StepAnimationFrames()`, `ChangeAnimationPlayRate(Delta)`, `ResetAnimationPlayRate()`(전부 위젯 갱신, 턴테이블 촬영 중에는 무시), 속도 단계 `AnimationRateStep`(0.25). 키 P, `[`, `]`, `-`(+숫자패드 -), `=`(+숫자패드 +), `0`.
+- Widget: ANIMATION 섹션 바로 아래 `PLAYBACK` — 1줄 `Pause (P)`/`Resume (P)` · `◀ ([)` · `▶ (])`, 2줄 `Slower (-)` · `Rate 1.00 (0)` · `Faster (=)`(같은 폭 3칸, 속도가 한계면 해당 버튼 비활성), 시간 줄 `0.10 s / 7.57 s · frame 3 / 227`. 시간 줄은 `NativeTick()`의 `UpdatePlaybackTimeText()`가 **프레임(또는 시퀀스) 번호가 바뀔 때만** `SetText`한다. 프로필에 애니메이션도 AnimBP도 없으면 섹션을 숨긴다. 디자이너 바인드 이름 변경 없음.
+
+**2. LOD 표시** (`APortfolioCharacterActor`): `SetForcedLOD(int32)`(엔진 규칙 그대로 0 = Auto, N = LOD N-1 고정, 범위 밖이면 false), `GetForcedLOD()`, `GetNumLODs()`, `GetDisplayedStatsLOD()`(강제 LOD, Auto면 0). `GetMeshStats(LODIndex = -1)`/`GetSlotStats(LODIndex = -1)`에 선택 인자를 추가했다(-1 = 표시 중인 LOD, 기존 호출은 그대로 컴파일). `GetPartMeasuredStats()`도 표시 LOD 기준. `FViewerMeshStats`에 `LODIndex` 필드 추가. 슬롯별 삼각형은 그 LOD의 `LODMaterialMap`/렌더 섹션으로 센다. `BuildInspectionText()`는 수정하지 않았다(기본 인자로 자동 반영). Auto일 때 LOD0 기준인 이유: 자동 LOD는 카메라 거리로 계속 바뀌므로 패널 숫자는 저작 기준 LOD0으로 둔다. 프로필 전환 시 Auto. 패널 DISPLAY `LOD: Auto (L)` / `▶ LOD: LOD2 of 3 (L)`, 키 L(Auto → LOD0 → LOD1 → LOD2 → Auto). 측정(SKM_Manny_Simple): LOD0 92,178 / LOD1 26,998 / LOD2 12,998 삼각형, 정점 LOD0 48,705 / LOD2 7,504.
+
+**3. 배경 프리셋** (`ACharacterViewerController`, 별도 블록): `EViewerBackdropPreset` Studio / Black / White / MidGrey, `SetBackdropPreset()`, `CycleBackdropPreset()`(키 B), `GetBackdropPreset()`, `GetBackdropTargetCount()`. 처음 적용할 때 월드의 Static Mesh 컴포넌트 중 재질(또는 부모 체인)이 `MI_StudioBackdrop`/`M_StudioBackdrop`, `MI_StudioFloor`/`M_StudioFloor`인 슬롯을 찾고(쿡된 빌드에는 Outliner 라벨이 없음 — Editor에서는 라벨 `StudioBackdrop`/`PlatformCylinder`도 인정), 그 슬롯에 Dynamic MI를 한 번 만들어(이미 Dynamic MI면 그대로 사용) 그 순간의 `TopColor`/`BottomColor`·`BaseColor`/`EdgeColor`를 원래 값으로 저장한다. Black 0 / White 0.8 / Mid Grey 0.18 단색(Linear), Studio = 저장한 원래 값. 조명·노출(`StudioPostProcess`)은 건드리지 않는다. `LV_Portfolio.umap`과 MI 에셋은 수정하지 않는다. Actor가 없으면 프리셋 값만 기록하고 로그 1줄(`no studio backdrop/floor found`, Log 등급). Clean View·프로필 전환에서 유지. 패널 DISPLAY `Backdrop: Studio (B)` / `▶ Backdrop: Mid Grey (B)`. 원래 값을 "BeginPlay에서" 잡는 대신 **처음 B를 누를 때** 잡는다 — 그 전에는 아무것도 값을 바꾸지 않으므로 같은 값이고, B를 쓰지 않으면 레벨 재질이 전혀 바뀌지 않는다.
+
+**다른 세션과의 경계**: D 세션 영역(`ApplyHighlightState`/`ApplyOverlayState`/`UpdateBoneMarkers`, `BuildInspectionSection`/`BuildInspectionText`)은 수정하지 않았다. Controller에서는 입력 바인딩·폴백 IA·키 매핑을 캡처 항목 바로 뒤에 붙였고, 나머지 함수는 파일 끝의 별도 블록이다. Widget은 `RefreshUI()`에 `BuildPlaybackSection(ListsBox)` 1줄, `BuildDisplaySection()`에 `BuildViewOptionRows(SectionBox)` 1줄, `NativeTick()`에 1줄, 버튼 종류 enum 끝에 8개, 클릭 switch에 8개 case를 추가했다.
+
+**검증**: Editor 빌드 0/0, Game 빌드 0/0(17개 액션, 85.3초). Editor Automation **24/24 통과**(기존 20 + 신규 4) — `Viewer.PlaybackMath`(프레임 순환 8건: 37→0, -1→36, -38→36, 75→1, NumFrames 0/음수 → 0; 속도 clamp 5→2.0, 0/-1→0.1, NaN→1.0; 시간 줄 형식; 프리셋 색), `Viewer.AnimationPlayback`(Manny + MM_Idle: 프로필 없음/AnimBP(`UAnimInstance`)에서 전부 false, +1 → 프레임 1·시간 1/30 s, 프레임 1에서 -2 → 227(= 길이), +1 → 0, 속도 5 → 2.0 / 0 → 0.1, 일시정지·0.5배가 다른 애니메이션 선택 후 유지되고 새 애니메이션은 프레임 0, 재개 상태도 유지, Pose = 정지·PoseTime 0.5 s·재개 거부·프레임 이동 가능, Controller의 P/=/0/[ ] 경로(= 10번 → 2.0에서 멈춤), 패널 시간 줄 = `FormatPlaybackTime` 결과, 다음 프레임 이동 후 `UpdatePlaybackTimeText()`만으로 `frame 4 / 227`, 버튼 글자 `Resume (P)`/`Rate 1.00 (0)`, 프로필 재적용 시 재생·1.0배, AnimBP 패널 문구), `Viewer.ForcedLOD`(LOD 3개, LOD0 92,178 > LOD1 26,998 > LOD2 12,998, `SetForcedLOD(3)` → 컴포넌트 3·기본 통계 LODIndex 2·슬롯 합 = 12,998, `GetSlotStats(0)` 합 = 92,178, 4/-1 거부, INSPECTION 본문 `Triangles 12,998`, Controller 순환 0→1→2→3→0, 패널 글자, 프로필 재적용 시 Auto·LOD0 수치), `Viewer.BackdropPresets`(Actor 없는 월드: 크래시 없음·프리셋 기록·대상 0·순환; 배경 = `MI_StudioBackdrop` 부모 Dynamic MI(그대로 재사용), 바닥 = `MI_StudioFloor`(Dynamic MI 새로 생성, 부모 확인) → 대상 2, Black/White/MidGrey에서 4개 파라미터 값, 프로필 전환·Clean View 후 유지, Studio에서 원래 값 TopColor (0.006, 0.0065, 0.008) / BottomColor (0.060, 0.063, 0.068) / BaseColor 0.18 / EdgeColor (0.035, 0.035, 0.038) 복원, MI 에셋 값 불변, 패널 글자). `LV_Portfolio` 읽기 전용 확인은 4절 표. **화면·실제 키 입력은 미검증**(4.1절) — `-game` 창을 띄우지 않았다.

@@ -2,6 +2,8 @@
 
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceBase.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/Skeleton.h"
 #include "Character/CharacterProfileData.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -19,11 +21,12 @@
 
 namespace PortfolioCharacterActorPrivate
 {
-	// Mesh material slot used by LOD0 render section SectionIndex (LODMaterialMap
-	// remap first, as USkinnedMeshComponent does, else the section's own index).
-	int32 GetLOD0SectionMaterialIndex(const USkeletalMesh& MeshAsset, int32 SectionIndex, const FSkelMeshRenderSection& Section)
+	// Mesh material slot used by render section SectionIndex of LODIndex
+	// (LODMaterialMap remap first, as USkinnedMeshComponent does, else the
+	// section's own index).
+	int32 GetSectionMaterialIndex(const USkeletalMesh& MeshAsset, int32 LODIndex, int32 SectionIndex, const FSkelMeshRenderSection& Section)
 	{
-		if (const FSkeletalMeshLODInfo* LODInfo = MeshAsset.GetLODInfo(0))
+		if (const FSkeletalMeshLODInfo* LODInfo = MeshAsset.GetLODInfo(LODIndex))
 		{
 			if (LODInfo->LODMaterialMap.IsValidIndex(SectionIndex) && LODInfo->LODMaterialMap[SectionIndex] != INDEX_NONE)
 			{
@@ -33,22 +36,22 @@ namespace PortfolioCharacterActorPrivate
 		return Section.MaterialIndex;
 	}
 
-	const FSkeletalMeshLODRenderData* GetLOD0RenderData(const USkeletalMesh* MeshAsset)
+	const FSkeletalMeshLODRenderData* GetLODRenderData(const USkeletalMesh* MeshAsset, int32 LODIndex)
 	{
 		const FSkeletalMeshRenderData* RenderData = MeshAsset ? MeshAsset->GetResourceForRendering() : nullptr;
-		return (RenderData && RenderData->LODRenderData.Num() > 0) ? &RenderData->LODRenderData[0] : nullptr;
+		return (RenderData && RenderData->LODRenderData.IsValidIndex(LODIndex)) ? &RenderData->LODRenderData[LODIndex] : nullptr;
 	}
 
-	// LOD0 triangles of every render section that uses one of SlotIndices.
-	int32 CountSlotTriangles(const USkeletalMesh& MeshAsset, const TArray<int32>& SlotIndices)
+	// Triangles of every render section of LODIndex that uses one of SlotIndices.
+	int32 CountSlotTriangles(const USkeletalMesh& MeshAsset, const TArray<int32>& SlotIndices, int32 LODIndex)
 	{
 		int32 Triangles = 0;
-		if (const FSkeletalMeshLODRenderData* LOD0 = GetLOD0RenderData(&MeshAsset))
+		if (const FSkeletalMeshLODRenderData* LODData = GetLODRenderData(&MeshAsset, LODIndex))
 		{
-			for (int32 SectionIndex = 0; SectionIndex < LOD0->RenderSections.Num(); ++SectionIndex)
+			for (int32 SectionIndex = 0; SectionIndex < LODData->RenderSections.Num(); ++SectionIndex)
 			{
-				const FSkelMeshRenderSection& Section = LOD0->RenderSections[SectionIndex];
-				if (SlotIndices.Contains(GetLOD0SectionMaterialIndex(MeshAsset, SectionIndex, Section)))
+				const FSkelMeshRenderSection& Section = LODData->RenderSections[SectionIndex];
+				if (SlotIndices.Contains(GetSectionMaterialIndex(MeshAsset, LODIndex, SectionIndex, Section)))
 				{
 					Triangles += static_cast<int32>(Section.NumTriangles);
 				}
@@ -254,6 +257,16 @@ void APortfolioCharacterActor::ClearRuntimeState()
 	bWireframeEnabled = false;
 	bLoggedTintSuppressedByWireframe = false;
 
+	// Playback controls and the forced LOD belong to the previous profile.
+	bAnimationPaused = false;
+	AnimationPlayRate = 1.f;
+	bCurrentAnimationIsPose = false;
+	ForcedLODSetting = 0;
+	if (Mesh)
+	{
+		Mesh->SetForcedLOD(0);
+	}
+
 	// Turntable enabled/disabled state intentionally persists across a profile
 	// switch (see Docs/CHARACTER_VIEWER_SETUP.md section 4); only rotation resets.
 	// Skip the reset until PostInitializeComponents() has actually captured
@@ -276,6 +289,7 @@ void APortfolioCharacterActor::RestoreDefaultAnimationState()
 		Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 		Mesh->SetAnimInstanceClass(Profile->DefaultAnimClass);
 		CurrentAnimationId = NAME_None;
+		bCurrentAnimationIsPose = false;
 		return;
 	}
 
@@ -290,6 +304,7 @@ void APortfolioCharacterActor::RestoreDefaultAnimationState()
 	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	Mesh->PlayAnimation(nullptr, false);
 	CurrentAnimationId = NAME_None;
+	bCurrentAnimationIsPose = false;
 }
 
 void APortfolioCharacterActor::SetTurntableEnabled(bool bEnabled)
@@ -403,6 +418,8 @@ bool APortfolioCharacterActor::SetAnimation(FName Id)
 	}
 
 	CurrentAnimationId = Id;
+	bCurrentAnimationIsPose = Entry->bIsPose;
+	ApplyPlaybackStateToNewAnimation();
 	return true;
 }
 
@@ -896,24 +913,26 @@ void APortfolioCharacterActor::ApplyOverlayState()
 	Mesh->SetOverlayMaterial(Overlay);
 }
 
-FViewerMeshStats APortfolioCharacterActor::GetMeshStats() const
+FViewerMeshStats APortfolioCharacterActor::GetMeshStats(int32 LODIndex) const
 {
 	using namespace PortfolioCharacterActorPrivate;
 
 	FViewerMeshStats Stats;
+	const int32 MeasuredLOD = LODIndex == INDEX_NONE ? GetDisplayedStatsLOD() : LODIndex;
+	Stats.LODIndex = MeasuredLOD;
 	const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
-	const FSkeletalMeshLODRenderData* LOD0 = GetLOD0RenderData(MeshAsset);
-	if (!MeshAsset || !LOD0)
+	const FSkeletalMeshLODRenderData* LODData = GetLODRenderData(MeshAsset, MeasuredLOD);
+	if (!MeshAsset || !LODData)
 	{
-		// No mesh, or render data unavailable: all zeros, bValid false.
+		// No mesh, render data unavailable, or no such LOD: all zeros, bValid false.
 		return Stats;
 	}
 
-	for (const FSkelMeshRenderSection& Section : LOD0->RenderSections)
+	for (const FSkelMeshRenderSection& Section : LODData->RenderSections)
 	{
 		Stats.Triangles += static_cast<int32>(Section.NumTriangles);
 	}
-	Stats.Vertices = static_cast<int32>(LOD0->GetNumVertices());
+	Stats.Vertices = static_cast<int32>(LODData->GetNumVertices());
 	Stats.Bones = MeshAsset->GetRefSkeleton().GetNum();
 	Stats.MaterialSlots = MeshAsset->GetMaterials().Num();
 	Stats.LODs = MeshAsset->GetLODNum();
@@ -924,7 +943,7 @@ FViewerMeshStats APortfolioCharacterActor::GetMeshStats() const
 	return Stats;
 }
 
-FViewerSlotStats APortfolioCharacterActor::ComputeSlotStats(int32 SlotIndex) const
+FViewerSlotStats APortfolioCharacterActor::ComputeSlotStats(int32 SlotIndex, int32 LODIndex) const
 {
 	using namespace PortfolioCharacterActorPrivate;
 
@@ -940,7 +959,7 @@ FViewerSlotStats APortfolioCharacterActor::ComputeSlotStats(int32 SlotIndex) con
 	const FSkeletalMaterial& SlotMaterial = MeshAsset->GetMaterials()[SlotIndex];
 	Stats.SlotName = SlotMaterial.MaterialSlotName;
 	Stats.MaterialName = SlotMaterial.MaterialInterface ? SlotMaterial.MaterialInterface->GetFName() : NAME_None;
-	Stats.Triangles = CountSlotTriangles(*MeshAsset, TArray<int32>{ SlotIndex });
+	Stats.Triangles = CountSlotTriangles(*MeshAsset, TArray<int32>{ SlotIndex }, LODIndex);
 
 	TSet<UTexture*> Textures;
 	CollectTextures(SlotMaterial.MaterialInterface, Textures);
@@ -948,8 +967,9 @@ FViewerSlotStats APortfolioCharacterActor::ComputeSlotStats(int32 SlotIndex) con
 	return Stats;
 }
 
-TArray<FViewerSlotStats> APortfolioCharacterActor::GetSlotStats() const
+TArray<FViewerSlotStats> APortfolioCharacterActor::GetSlotStats(int32 LODIndex) const
 {
+	const int32 MeasuredLOD = LODIndex == INDEX_NONE ? GetDisplayedStatsLOD() : LODIndex;
 	TArray<FViewerSlotStats> Result;
 	const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
 	if (!MeshAsset)
@@ -959,7 +979,7 @@ TArray<FViewerSlotStats> APortfolioCharacterActor::GetSlotStats() const
 
 	for (int32 SlotIndex = 0; SlotIndex < MeshAsset->GetMaterials().Num(); ++SlotIndex)
 	{
-		Result.Add(ComputeSlotStats(SlotIndex));
+		Result.Add(ComputeSlotStats(SlotIndex, MeasuredLOD));
 	}
 	return Result;
 }
@@ -1000,7 +1020,179 @@ bool APortfolioCharacterActor::GetPartMeasuredStats(FName PartId, FViewerSlotSta
 	Out.SlotIndex = SlotIndices.Num() == 1 ? SlotIndices[0] : INDEX_NONE;
 	Out.SlotName = FName(*FString::Join(SlotNames, TEXT(", ")));
 	Out.MaterialName = MaterialNames.Num() > 0 ? FName(*FString::Join(MaterialNames, TEXT(", "))) : NAME_None;
-	Out.Triangles = CountSlotTriangles(*MeshAsset, SlotIndices);
+	Out.Triangles = CountSlotTriangles(*MeshAsset, SlotIndices, GetDisplayedStatsLOD());
 	FillTextureInfo(Textures, Out);
+	return true;
+}
+
+// --- Animation playback controls -------------------------------------------
+
+float APortfolioCharacterActor::ClampAnimationPlayRate(float Rate)
+{
+	if (FMath::IsNaN(Rate))
+	{
+		return 1.f;
+	}
+	return FMath::Clamp(Rate, MinAnimationPlayRate, MaxAnimationPlayRate);
+}
+
+int32 APortfolioCharacterActor::WrapAnimationFrame(int32 Frame, int32 NumFrames)
+{
+	if (NumFrames <= 0)
+	{
+		return 0;
+	}
+	// Frames are 0..NumFrames inclusive (NumFrames + 1 sampled keys).
+	const int32 Count = NumFrames + 1;
+	return ((Frame % Count) + Count) % Count;
+}
+
+UAnimSingleNodeInstance* APortfolioCharacterActor::GetControllableSingleNode(UAnimSequenceBase** OutSequence) const
+{
+	if (OutSequence)
+	{
+		*OutSequence = nullptr;
+	}
+	if (!Mesh || Mesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
+	{
+		return nullptr;
+	}
+	UAnimSingleNodeInstance* SingleNode = Mesh->GetSingleNodeInstance();
+	UAnimSequenceBase* Sequence = SingleNode ? Cast<UAnimSequenceBase>(SingleNode->GetAnimationAsset()) : nullptr;
+	if (!Sequence)
+	{
+		return nullptr;
+	}
+	if (OutSequence)
+	{
+		*OutSequence = Sequence;
+	}
+	return SingleNode;
+}
+
+bool APortfolioCharacterActor::IsAnimationPlaybackControllable() const
+{
+	return GetControllableSingleNode() != nullptr;
+}
+
+void APortfolioCharacterActor::ApplyPlaybackStateToNewAnimation()
+{
+	UAnimSingleNodeInstance* SingleNode = GetControllableSingleNode();
+	if (!SingleNode)
+	{
+		return;
+	}
+	// PlayAnimation() resets the instance's rate to 1.0; the user's rate persists.
+	SingleNode->SetPlayRate(AnimationPlayRate);
+	if (bAnimationPaused || bCurrentAnimationIsPose)
+	{
+		SingleNode->SetPlaying(false);
+	}
+}
+
+bool APortfolioCharacterActor::SetAnimationPaused(bool bPaused)
+{
+	UAnimSequenceBase* Sequence = nullptr;
+	UAnimSingleNodeInstance* SingleNode = GetControllableSingleNode(&Sequence);
+	if (!SingleNode || (!bPaused && bCurrentAnimationIsPose))
+	{
+		return false;
+	}
+
+	bAnimationPaused = bPaused;
+	if (!bPaused && !SingleNode->IsLooping() && SingleNode->GetCurrentTime() >= Sequence->GetPlayLength() - UE_KINDA_SMALL_NUMBER)
+	{
+		// A finished one-shot would otherwise "resume" without moving.
+		SingleNode->SetPosition(0.f, false);
+	}
+	SingleNode->SetPlaying(!bPaused);
+	return true;
+}
+
+bool APortfolioCharacterActor::IsAnimationPaused() const
+{
+	return bAnimationPaused || bCurrentAnimationIsPose;
+}
+
+bool APortfolioCharacterActor::StepAnimationFrames(int32 Frames)
+{
+	UAnimSequenceBase* Sequence = nullptr;
+	UAnimSingleNodeInstance* SingleNode = GetControllableSingleNode(&Sequence);
+	if (!SingleNode)
+	{
+		return false;
+	}
+
+	// Stepping only makes sense on a still pose: pause first (persists).
+	bAnimationPaused = true;
+	SingleNode->SetPlaying(false);
+
+	float Time = 0.f;
+	float Length = 0.f;
+	int32 Frame = 0;
+	int32 NumFrames = 0;
+	GetAnimationTimeInfo(Time, Length, Frame, NumFrames);
+
+	const int32 NewFrame = WrapAnimationFrame(Frame + Frames, NumFrames);
+	const FFrameRate FrameRate = Sequence->GetSamplingFrameRate();
+	const double FramesPerSecond = FrameRate.IsValid() && FrameRate.AsDecimal() > 0.0 ? FrameRate.AsDecimal() : 30.0;
+	const float NewTime = FMath::Clamp(static_cast<float>(NewFrame / FramesPerSecond), 0.f, Length);
+	SingleNode->SetPosition(NewTime, false);
+	return true;
+}
+
+bool APortfolioCharacterActor::SetAnimationPlayRate(float Rate)
+{
+	UAnimSingleNodeInstance* SingleNode = GetControllableSingleNode();
+	if (!SingleNode)
+	{
+		return false;
+	}
+	AnimationPlayRate = ClampAnimationPlayRate(Rate);
+	SingleNode->SetPlayRate(AnimationPlayRate);
+	return true;
+}
+
+bool APortfolioCharacterActor::GetAnimationTimeInfo(float& OutTime, float& OutLength, int32& OutFrame, int32& OutNumFrames) const
+{
+	OutTime = 0.f;
+	OutLength = 0.f;
+	OutFrame = 0;
+	OutNumFrames = 0;
+
+	UAnimSequenceBase* Sequence = nullptr;
+	const UAnimSingleNodeInstance* SingleNode = GetControllableSingleNode(&Sequence);
+	if (!SingleNode)
+	{
+		return false;
+	}
+
+	OutLength = Sequence->GetPlayLength();
+	OutTime = FMath::Clamp(SingleNode->GetCurrentTime(), 0.f, OutLength);
+
+	const FFrameRate FrameRate = Sequence->GetSamplingFrameRate();
+	const double FramesPerSecond = FrameRate.IsValid() && FrameRate.AsDecimal() > 0.0 ? FrameRate.AsDecimal() : 30.0;
+	const int32 NumKeys = Sequence->GetNumberOfSampledKeys();
+	OutNumFrames = NumKeys > 1 ? NumKeys - 1 : FMath::Max(0, FMath::RoundToInt(OutLength * FramesPerSecond));
+	OutFrame = FMath::Clamp(FMath::RoundToInt(OutTime * FramesPerSecond), 0, OutNumFrames);
+	return true;
+}
+
+// --- LOD display -----------------------------------------------------------
+
+int32 APortfolioCharacterActor::GetNumLODs() const
+{
+	const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
+	return MeshAsset ? MeshAsset->GetLODNum() : 0;
+}
+
+bool APortfolioCharacterActor::SetForcedLOD(int32 ForcedLOD)
+{
+	if (!Mesh || ForcedLOD < 0 || ForcedLOD > GetNumLODs())
+	{
+		return false;
+	}
+	ForcedLODSetting = ForcedLOD;
+	Mesh->SetForcedLOD(ForcedLOD);
 	return true;
 }

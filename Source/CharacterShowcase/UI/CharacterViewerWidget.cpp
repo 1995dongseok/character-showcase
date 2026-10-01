@@ -11,7 +11,10 @@
 #include "Components/ButtonSlot.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
 #include "Components/ScrollBox.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SizeBox.h"
 #include "Components/SlateWrapperTypes.h"
 #include "Components/TextBlock.h"
@@ -66,6 +69,30 @@ void UCharacterViewerButtonBinding::HandleClicked()
 		break;
 	case ECharacterViewerButtonKind::TurntableCapture:
 		OwnerWidget->RequestTurntableCapture();
+		break;
+	case ECharacterViewerButtonKind::ToggleAnimationPause:
+		OwnerWidget->RequestToggleAnimationPause();
+		break;
+	case ECharacterViewerButtonKind::AnimationStepBack:
+		OwnerWidget->RequestStepAnimation(-1);
+		break;
+	case ECharacterViewerButtonKind::AnimationStepForward:
+		OwnerWidget->RequestStepAnimation(1);
+		break;
+	case ECharacterViewerButtonKind::AnimationRateDown:
+		OwnerWidget->RequestChangeAnimationPlayRate(-1.f);
+		break;
+	case ECharacterViewerButtonKind::AnimationRateReset:
+		OwnerWidget->RequestChangeAnimationPlayRate(0.f);
+		break;
+	case ECharacterViewerButtonKind::AnimationRateUp:
+		OwnerWidget->RequestChangeAnimationPlayRate(1.f);
+		break;
+	case ECharacterViewerButtonKind::CycleLOD:
+		OwnerWidget->RequestCycleLOD();
+		break;
+	case ECharacterViewerButtonKind::CycleBackdrop:
+		OwnerWidget->RequestCycleBackdrop();
 		break;
 	}
 }
@@ -825,6 +852,9 @@ void UCharacterViewerWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	// Text is laid out at the accumulated layout scale (DPI scale), so the
 	// whole-line description height is fitted for that scale.
 	ApplyDescriptionLineFit(MyGeometry.Scale);
+
+	// PLAYBACK time line: only rewritten when the frame changes.
+	UpdatePlaybackTimeText();
 }
 
 void UCharacterViewerWidget::ApplyAutoPanelWidth(float ViewportWidth)
@@ -1016,6 +1046,7 @@ void UCharacterViewerWidget::RefreshUI()
 	WireframeButton = nullptr;
 	InspectionSectionBox = nullptr;
 	InspectionBodyText = nullptr;
+	PlaybackTimeText = nullptr;
 
 	if (ControlsBox)
 	{
@@ -1029,6 +1060,7 @@ void UCharacterViewerWidget::RefreshUI()
 	{
 		ListsBox->ClearChildren();
 		AddListSection(ListsBox, FText::FromString(TEXT("ANIMATION")), GetAnimations(), ECharacterViewerButtonKind::Animation, GetCurrentAnimationId());
+		BuildPlaybackSection(ListsBox);
 		AddListSection(ListsBox, FText::FromString(TEXT("EXPRESSION")), GetExpressions(), ECharacterViewerButtonKind::Expression, GetCurrentExpressionId());
 		AddListSection(ListsBox, FText::FromString(TEXT("APPEARANCE")), GetMaterialVariants(), ECharacterViewerButtonKind::MaterialVariant, GetCurrentMaterialVariantId());
 		BuildInspectionSection(ListsBox);
@@ -1092,6 +1124,7 @@ void UCharacterViewerWidget::BuildDisplaySection(UVerticalBox* Container)
 	const bool bWireframeAvailable = Actor && Actor->IsWireframeAvailable();
 	const bool bWireframeOn = IsWireframeEnabled();
 	WireframeButton = AddButtonRow(SectionBox, FText::FromString(bWireframeOn ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")), bWireframeAvailable, bWireframeOn, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
+	BuildViewOptionRows(SectionBox);
 
 	// Portfolio capture (section 1.7). Disabled while a capture runs (the
 	// controller ignores new requests then anyway).
@@ -1196,4 +1229,207 @@ UButton* UCharacterViewerWidget::AddButtonRow(UVerticalBox* Container, const FTe
 		*OutTextBlock = ButtonText;
 	}
 	return Button;
+}
+
+// --- Animation playback (PLAYBACK) / LOD / Backdrop ------------------------
+
+void UCharacterViewerWidget::RequestToggleAnimationPause()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->ToggleAnimationPaused();
+	}
+	RefreshUI();
+}
+
+void UCharacterViewerWidget::RequestStepAnimation(int32 Frames)
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->StepAnimationFrames(Frames);
+	}
+	RefreshUI();
+}
+
+void UCharacterViewerWidget::RequestChangeAnimationPlayRate(float Direction)
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		if (FMath::IsNearlyZero(Direction))
+		{
+			Controller->ResetAnimationPlayRate();
+		}
+		else
+		{
+			// One AnimationRateStep per click, same as the -/= keys.
+			Controller->ChangeAnimationPlayRate(Direction > 0.f ? Controller->AnimationRateStep : -Controller->AnimationRateStep);
+		}
+	}
+	RefreshUI();
+}
+
+void UCharacterViewerWidget::RequestCycleLOD()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->CycleForcedLOD();
+	}
+	RefreshUI();
+}
+
+void UCharacterViewerWidget::RequestCycleBackdrop()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->CycleBackdropPreset();
+	}
+	RefreshUI();
+}
+
+FString UCharacterViewerWidget::FormatPlaybackTime(float Time, float Length, int32 Frame, int32 NumFrames)
+{
+	// U+00B7 middle dot, as in the INSPECTION text.
+	return FString::Printf(TEXT("%.2f s / %.2f s · frame %d / %d"), Time, Length, Frame, NumFrames);
+}
+
+FText UCharacterViewerWidget::GetPlaybackTimeText() const
+{
+	return PlaybackTimeText ? PlaybackTimeText->GetText() : FText::GetEmpty();
+}
+
+FText UCharacterViewerWidget::BuildPlaybackTimeLine() const
+{
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	float Time = 0.f;
+	float Length = 0.f;
+	int32 Frame = 0;
+	int32 NumFrames = 0;
+	if (Actor && Actor->GetAnimationTimeInfo(Time, Length, Frame, NumFrames))
+	{
+		return FText::FromString(FormatPlaybackTime(Time, Length, Frame, NumFrames));
+	}
+	if (Actor && Actor->Mesh && Actor->Mesh->GetAnimationMode() == EAnimationMode::AnimationBlueprint)
+	{
+		return FText::FromString(TEXT("Animation Blueprint drives this mesh"));
+	}
+	return FText::FromString(TEXT("No animation playing"));
+}
+
+void UCharacterViewerWidget::UpdatePlaybackTimeText()
+{
+	if (!PlaybackTimeText)
+	{
+		return;
+	}
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	float Time = 0.f;
+	float Length = 0.f;
+	int32 Frame = 0;
+	int32 NumFrames = 0;
+	const bool bControllable = Actor && Actor->GetAnimationTimeInfo(Time, Length, Frame, NumFrames);
+	if (bControllable == bLastPlaybackControllable && Frame == LastPlaybackFrame && NumFrames == LastPlaybackNumFrames
+		&& FMath::IsNearlyEqual(Length, LastPlaybackLength))
+	{
+		return;
+	}
+	PlaybackTimeText->SetText(BuildPlaybackTimeLine());
+	bLastPlaybackControllable = bControllable;
+	LastPlaybackFrame = Frame;
+	LastPlaybackNumFrames = NumFrames;
+	LastPlaybackLength = Length;
+}
+
+UButton* UCharacterViewerWidget::AddButtonCell(UHorizontalBox* Row, const FText& Label, bool bEnabled, ECharacterViewerButtonKind Kind)
+{
+	UVerticalBox* Cell = (Row && WidgetTree) ? WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass()) : nullptr;
+	if (!Cell)
+	{
+		return nullptr;
+	}
+	UButton* Button = AddButtonRow(Cell, Label, bEnabled, false, NAME_None, Kind);
+	if (UHorizontalBoxSlot* CellSlot = Row->AddChildToHorizontalBox(Cell))
+	{
+		CellSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		CellSlot->SetPadding(FMargin(1.f, 0.f));
+	}
+	return Button;
+}
+
+void UCharacterViewerWidget::BuildPlaybackSection(UVerticalBox* Container)
+{
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	if (!Container || !WidgetTree || !Actor || !Actor->Profile)
+	{
+		return;
+	}
+	const bool bControllable = Actor->IsAnimationPlaybackControllable();
+	if (!bControllable && Actor->Profile->Animations.Num() == 0 && !Actor->Profile->DefaultAnimClass)
+	{
+		return;
+	}
+
+	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	UHorizontalBox* StepRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	UHorizontalBox* RateRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	UTextBlock* TimeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	if (!SectionBox || !StepRow || !RateRow || !TimeText)
+	{
+		return;
+	}
+	AddSectionHeader(SectionBox, FText::FromString(TEXT("PLAYBACK")));
+
+	// A Pose entry is always paused, so Pause/Resume is disabled for it.
+	const bool bPaused = Actor->IsAnimationPaused();
+	AddButtonCell(StepRow, FText::FromString(bPaused ? TEXT("Resume (P)") : TEXT("Pause (P)")), bControllable && !Actor->IsCurrentAnimationPose(), ECharacterViewerButtonKind::ToggleAnimationPause);
+	AddButtonCell(StepRow, FText::FromString(TEXT("◀ ([)")), bControllable, ECharacterViewerButtonKind::AnimationStepBack);
+	AddButtonCell(StepRow, FText::FromString(TEXT("▶ (])")), bControllable, ECharacterViewerButtonKind::AnimationStepForward);
+	SectionBox->AddChildToVerticalBox(StepRow);
+
+	const float Rate = Actor->GetAnimationPlayRate();
+	AddButtonCell(RateRow, FText::FromString(TEXT("Slower (-)")), bControllable && Rate > APortfolioCharacterActor::MinAnimationPlayRate + KINDA_SMALL_NUMBER, ECharacterViewerButtonKind::AnimationRateDown);
+	AddButtonCell(RateRow, FText::FromString(FString::Printf(TEXT("Rate %.2f (0)"), Rate)), bControllable, ECharacterViewerButtonKind::AnimationRateReset);
+	AddButtonCell(RateRow, FText::FromString(TEXT("Faster (=)")), bControllable && Rate < APortfolioCharacterActor::MaxAnimationPlayRate - KINDA_SMALL_NUMBER, ECharacterViewerButtonKind::AnimationRateUp);
+	if (UVerticalBoxSlot* RateSlot = SectionBox->AddChildToVerticalBox(RateRow))
+	{
+		RateSlot->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
+	}
+
+	TimeText->SetFont(MakeFont(TimeText->GetFont(), ButtonFontSize, TEXT("Regular")));
+	TimeText->SetAutoWrapText(true);
+	TimeText->SetJustification(ETextJustify::Center);
+	if (UVerticalBoxSlot* TimeSlot = SectionBox->AddChildToVerticalBox(TimeText))
+	{
+		TimeSlot->SetPadding(FMargin(0.f, 3.f, 0.f, 0.f));
+	}
+	PlaybackTimeText = TimeText;
+
+	// Force the first write (cache reset), then the same frame-change rule as NativeTick().
+	LastPlaybackFrame = INDEX_NONE;
+	LastPlaybackNumFrames = INDEX_NONE;
+	LastPlaybackLength = -1.f;
+	bLastPlaybackControllable = !bControllable;
+	UpdatePlaybackTimeText();
+
+	Container->AddChildToVerticalBox(SectionBox);
+}
+
+void UCharacterViewerWidget::BuildViewOptionRows(UVerticalBox* SectionBox)
+{
+	if (!SectionBox)
+	{
+		return;
+	}
+
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	const int32 NumLODs = Actor ? Actor->GetNumLODs() : 0;
+	const int32 ForcedLOD = Actor ? Actor->GetForcedLOD() : 0;
+	const FString LODLabel = ForcedLOD > 0
+		? FString::Printf(TEXT("LOD: LOD%d of %d (L)"), ForcedLOD - 1, NumLODs)
+		: TEXT("LOD: Auto (L)");
+	AddButtonRow(SectionBox, FText::FromString(LODLabel), NumLODs > 0, ForcedLOD > 0, NAME_None, ECharacterViewerButtonKind::CycleLOD);
+
+	const ACharacterViewerController* Controller = WeakController.Get();
+	const EViewerBackdropPreset Preset = Controller ? Controller->GetBackdropPreset() : EViewerBackdropPreset::Studio;
+	AddButtonRow(SectionBox, FText::FromString(FString::Printf(TEXT("Backdrop: %s (B)"), *ACharacterViewerController::GetBackdropPresetDisplayName(Preset))),
+		Controller != nullptr, Preset != EViewerBackdropPreset::Studio, NAME_None, ECharacterViewerButtonKind::CycleBackdrop);
 }

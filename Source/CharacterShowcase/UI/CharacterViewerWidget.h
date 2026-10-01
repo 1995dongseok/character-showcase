@@ -15,6 +15,7 @@ class USizeBox;
 class UWidgetTree;
 class UScrollBox;
 class UVerticalBox;
+class UHorizontalBox;
 class UTextBlock;
 class UButton;
 
@@ -60,6 +61,16 @@ enum class ECharacterViewerButtonKind : uint8
 	// / StartTurntableCapture() (same as F12 / Shift+F12).
 	PortfolioScreenshot,
 	TurntableCapture,
+	// PLAYBACK section (under ANIMATION) and the DISPLAY LOD/Backdrop rows,
+	// forwarding to ACharacterViewerController (same as P, [, ], -, 0, =, L, B).
+	ToggleAnimationPause,
+	AnimationStepBack,
+	AnimationStepForward,
+	AnimationRateDown,
+	AnimationRateReset,
+	AnimationRateUp,
+	CycleLOD,
+	CycleBackdrop,
 };
 
 // Raw pointers to the widgets UCharacterViewerWidget::BuildDefaultLayoutTree()
@@ -462,6 +473,37 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
 	void RequestTurntableCapture();
 
+	// --- Animation playback (PLAYBACK section) / LOD / Backdrop (DISPLAY rows) ---
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	void RequestToggleAnimationPause();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	void RequestStepAnimation(int32 Frames);
+
+	// Direction > 0: one AnimationRateStep faster, < 0: slower, 0: reset to 1.0.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Playback")
+	void RequestChangeAnimationPlayRate(float Direction);
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void RequestCycleLOD();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Display")
+	void RequestCycleBackdrop();
+
+	// "0.45 s / 1.20 s · frame 14 / 36" (unit-tested).
+	static FString FormatPlaybackTime(float Time, float Length, int32 Frame, int32 NumFrames);
+
+	// Test-only accessor: the PLAYBACK section's time line as rendered
+	// (empty when the section is hidden or no layout is bound).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Playback")
+	FText GetPlaybackTimeText() const;
+
+	// Re-reads the bound actor's animation time and updates the PLAYBACK time
+	// line only when the frame (or the sequence) changed. Called every
+	// NativeTick(); public so Editor tests can drive it without ticking.
+	void UpdatePlaybackTimeText();
+
 protected:
 	// Builds the fallback tree (if needed) BEFORE UUserWidget::RebuildWidget()
 	// converts WidgetTree->RootWidget into Slate. NativeConstruct() runs only
@@ -565,6 +607,31 @@ private:
 
 	// Tracked here (not on the Actor/Pawn) purely for UI highlight purposes; not gameplay state.
 	FName CurrentCameraPresetId = NAME_None;
+
+	// --- PLAYBACK section / DISPLAY LOD + Backdrop rows ---
+
+	// Under ANIMATION: [Pause|Resume (P)] [◀ ([)] [▶ (])] / [Slower (-)] [Rate x.xx (0)]
+	// [Faster (=)] and the time line. Hidden when the profile has no animation and
+	// no AnimBP; buttons disabled while playback is not controllable (AnimBP
+	// or nothing playing). Rebuilt every RefreshUI().
+	void BuildPlaybackSection(UVerticalBox* Container);
+
+	// "LOD: Auto (L)" and "Backdrop: Studio (B)" rows inside DISPLAY.
+	void BuildViewOptionRows(UVerticalBox* SectionBox);
+
+	// One equal-width button cell in a horizontal row (AddButtonRow() into a cell box).
+	UButton* AddButtonCell(UHorizontalBox* Row, const FText& Label, bool bEnabled, ECharacterViewerButtonKind Kind);
+
+	FText BuildPlaybackTimeLine() const;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> PlaybackTimeText;
+
+	// UpdatePlaybackTimeText() cache: the text is only rewritten when one changes.
+	int32 LastPlaybackFrame = INDEX_NONE;
+	int32 LastPlaybackNumFrames = INDEX_NONE;
+	float LastPlaybackLength = -1.f;
+	bool bLastPlaybackControllable = false;
 
 	void ApplyCaptureStatus();
 	FSlateFontInfo MakeFont(const FSlateFontInfo& Base, int32 Size, FName Typeface) const;

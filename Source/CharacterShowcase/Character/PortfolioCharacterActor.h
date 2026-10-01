@@ -12,6 +12,8 @@ class USkeleton;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UMaterialInterface;
+class UAnimSingleNodeInstance;
+class UAnimSequenceBase;
 struct FViewerPartInfo;
 
 // How the currently selected part is shown (GetActiveHighlightMode()).
@@ -227,17 +229,23 @@ public:
 
 	// --- Measured mesh info (replaces hand-authored guesses) ---
 
-	// Measured stats for the current mesh (LOD0 render data, skeleton,
-	// materials). bValid is false without a mesh or render data.
+	// Measured stats for the current mesh (one LOD's render data, skeleton,
+	// materials). LODIndex is a 0-based LOD; INDEX_NONE (default) = the LOD
+	// currently displayed (GetDisplayedStatsLOD(): the forced LOD, else LOD0).
+	// bValid is false without a mesh, without render data, or for a LODIndex
+	// the mesh does not have.
 	UFUNCTION(BlueprintPure, Category = "Character|Stats")
-	FViewerMeshStats GetMeshStats() const;
+	FViewerMeshStats GetMeshStats(int32 LODIndex = -1) const;
 
 	// One entry per material slot of the current mesh (empty without a mesh).
+	// Triangles are counted in LODIndex's render sections (same LODIndex rule
+	// as GetMeshStats()); a slot LODIndex does not use reports 0.
 	UFUNCTION(BlueprintPure, Category = "Character|Stats")
-	TArray<FViewerSlotStats> GetSlotStats() const;
+	TArray<FViewerSlotStats> GetSlotStats(int32 LODIndex = -1) const;
 
 	// Measured stats summed over PartId's MaterialSlotNames (unique textures
-	// across those slots). False (Out reset) if the part is unknown or none of
+	// across those slots), triangles in the displayed LOD
+	// (GetDisplayedStatsLOD()). False (Out reset) if the part is unknown or none of
 	// its MaterialSlotNames resolve on the current mesh -- the UI then shows
 	// the part's authored notes (TriangleCount/MaterialName/TextureResolution).
 	UFUNCTION(BlueprintPure, Category = "Character|Stats")
@@ -272,6 +280,83 @@ public:
 	// None while Wireframe is off, else how it is drawn (Overlay or ReplaceSlots).
 	UFUNCTION(BlueprintPure, Category = "Character|Wireframe")
 	EViewerWireframeMode GetActiveWireframeMode() const;
+
+	// --- Animation playback controls (pause / frame step / play rate) ---
+	// Only for the AnimationSingleNode mode with a Sequence playing (a
+	// SetAnimation() entry, or the profile's DefaultAnimationId). While an
+	// Animation Blueprint drives the mesh (Profile->DefaultAnimClass), or no
+	// sequence is playing, every setter returns false and changes nothing
+	// (IsAnimationPlaybackControllable() is false; the panel disables the
+	// PLAYBACK buttons). Pause and play rate persist across SetAnimation()
+	// calls (a newly selected sequence starts paused at time 0 if paused); a
+	// Pose entry (bIsPose) is always paused. ApplyProfile()/ClearRuntimeState()
+	// reset both (playing, rate 1.0).
+
+	UFUNCTION(BlueprintPure, Category = "Character|Animation")
+	bool IsAnimationPlaybackControllable() const;
+
+	// true pauses at the current time, false resumes (a finished non-looping
+	// sequence restarts from 0). False for a Pose entry asked to resume.
+	UFUNCTION(BlueprintCallable, Category = "Character|Animation")
+	bool SetAnimationPaused(bool bPaused);
+
+	// The user's pause state, or true for a Pose entry.
+	UFUNCTION(BlueprintPure, Category = "Character|Animation")
+	bool IsAnimationPaused() const;
+
+	// True while the current SetAnimation() entry is a Pose (bIsPose).
+	UFUNCTION(BlueprintPure, Category = "Character|Animation")
+	bool IsCurrentAnimationPose() const { return bCurrentAnimationIsPose; }
+
+	// Pauses, then moves Frames frames (at the sequence's sampling frame
+	// rate) from the current frame, wrapping over frames 0..NumFrames
+	// (WrapAnimationFrame()).
+	UFUNCTION(BlueprintCallable, Category = "Character|Animation")
+	bool StepAnimationFrames(int32 Frames);
+
+	// Clamped to [MinAnimationPlayRate, MaxAnimationPlayRate].
+	UFUNCTION(BlueprintCallable, Category = "Character|Animation")
+	bool SetAnimationPlayRate(float Rate);
+
+	UFUNCTION(BlueprintPure, Category = "Character|Animation")
+	float GetAnimationPlayRate() const { return AnimationPlayRate; }
+
+	// Current time / play length (s), current frame (rounded) and the last
+	// frame index NumFrames (= sampled keys - 1, so frames are 0..NumFrames;
+	// a 1.2 s sequence at 30 fps has 37 keys -> NumFrames 36). False (all
+	// zero) when IsAnimationPlaybackControllable() is false.
+	UFUNCTION(BlueprintPure, Category = "Character|Animation")
+	bool GetAnimationTimeInfo(float& OutTime, float& OutLength, int32& OutFrame, int32& OutNumFrames) const;
+
+	static constexpr float MinAnimationPlayRate = 0.1f;
+	static constexpr float MaxAnimationPlayRate = 2.0f;
+
+	// Pure helpers (unit-tested): Rate clamped to [0.1, 2.0] (NaN -> 1.0);
+	// Frame wrapped into 0..NumFrames (inclusive; NumFrames <= 0 -> 0).
+	static float ClampAnimationPlayRate(float Rate);
+	static int32 WrapAnimationFrame(int32 Frame, int32 NumFrames);
+
+	// --- LOD display ---
+
+	// Engine convention (USkinnedMeshComponent::SetForcedLOD): 0 = automatic
+	// LOD selection, N (1..GetNumLODs()) = always show LOD N-1. Returns false
+	// (no change) for a value out of range or without a mesh. Reset to 0 by
+	// ApplyProfile().
+	UFUNCTION(BlueprintCallable, Category = "Character|LOD")
+	bool SetForcedLOD(int32 ForcedLOD);
+
+	UFUNCTION(BlueprintPure, Category = "Character|LOD")
+	int32 GetForcedLOD() const { return ForcedLODSetting; }
+
+	// LODs of the current mesh asset (0 without a mesh).
+	UFUNCTION(BlueprintPure, Category = "Character|LOD")
+	int32 GetNumLODs() const;
+
+	// 0-based LOD the default GetMeshStats()/GetSlotStats()/GetPartMeasuredStats()
+	// measure: the forced LOD, else LOD0 (the automatic on-screen LOD changes
+	// with camera distance, so the panel reports the authored LOD0 then).
+	UFUNCTION(BlueprintPure, Category = "Character|LOD")
+	int32 GetDisplayedStatsLOD() const { return ForcedLODSetting > 0 ? ForcedLODSetting - 1 : 0; }
 
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -374,5 +459,19 @@ private:
 	void UpdateBoneMarkers(const TArray<FName>& MarkerBones, bool bVisible);
 	void DestroyBoneMarkers();
 
-	FViewerSlotStats ComputeSlotStats(int32 SlotIndex) const;
+	FViewerSlotStats ComputeSlotStats(int32 SlotIndex, int32 LODIndex) const;
+
+	// --- Animation playback / LOD state (see the public sections above) ---
+
+	bool bAnimationPaused = false;
+	float AnimationPlayRate = 1.f;
+	// The current SetAnimation() entry is a Pose (always paused).
+	bool bCurrentAnimationIsPose = false;
+	int32 ForcedLODSetting = 0;
+
+	// Single node instance + its Sequence while playback is controllable, else null.
+	UAnimSingleNodeInstance* GetControllableSingleNode(UAnimSequenceBase** OutSequence = nullptr) const;
+
+	// Applies AnimationPlayRate and the pause state to a sequence SetAnimation() just started.
+	void ApplyPlaybackStateToNewAnimation();
 };

@@ -4,23 +4,29 @@
 #include "ViewerMeshStats.generated.h"
 
 // Measured (not authored) technical info for the Skeletal Mesh currently shown
-// by APortfolioCharacterActor (GetMeshStats()). Computed on demand from LOD0
-// render data and the mesh asset, so it also works in cooked builds; when the
-// render data is unavailable every count is 0 and bValid is false.
+// by APortfolioCharacterActor (GetMeshStats()). Computed on demand from one
+// LOD's render data (LOD0 unless a LOD is forced, see LODIndex) and the mesh
+// asset, so it also works in cooked builds; when the render data is
+// unavailable every count is 0 and bValid is false.
 USTRUCT(BlueprintType)
 struct FViewerMeshStats
 {
 	GENERATED_BODY()
 
-	// False when there is no mesh or its LOD0 render data is unavailable.
+	// False when there is no mesh or the measured LOD's render data is unavailable.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	bool bValid = false;
 
-	// LOD0 triangles, summed over every render section.
+	// 0-based LOD that Triangles/Vertices were measured on (0 unless a LOD is
+	// forced, APortfolioCharacterActor::SetForcedLOD()).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
+	int32 LODIndex = 0;
+
+	// Triangles of LODIndex, summed over every render section.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	int32 Triangles = 0;
 
-	// LOD0 render vertices.
+	// Render vertices of LODIndex.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	int32 Vertices = 0;
 
@@ -61,7 +67,8 @@ struct FViewerSlotStats
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	FName SlotName;
 
-	// LOD0 triangles of every render section that uses this slot.
+	// Triangles of every render section that uses this slot, in the measured
+	// LOD (LOD0 unless a LOD is forced).
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Stats")
 	int32 Triangles = 0;
 
