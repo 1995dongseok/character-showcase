@@ -100,9 +100,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
 	TObjectPtr<UMaterialInterface> BoneMarkerMaterial = nullptr;
 
-	// World-space diameter (cm) of one bone marker sphere.
+	// World-space diameter (cm) of one bone marker sphere. 8 cm (was 12): at
+	// 12 cm the 13 Torso markers on Manny merged into one blob (packaged smoke).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection", meta = (ClampMin = "1"))
-	float BoneMarkerDiameter = 12.f;
+	float BoneMarkerDiameter = 8.f;
 
 	// Opt-in: also keep the faint whole-mesh overlay tint while BoneMarkers
 	// are shown. Off by default: the markers are the indication.

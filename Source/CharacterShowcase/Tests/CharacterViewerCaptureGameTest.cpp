@@ -7,12 +7,16 @@
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerController.h"
 #include "CharacterViewer/ViewerCapture.h"
+#include "CharacterViewer/ViewerHeightRuler.h"
 #include "Components/Border.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/LightComponent.h"
 #include "Components/ScrollBox.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
@@ -33,6 +37,12 @@
 //     then (pointer-free) Inspection on + first part selected ->
 //     ViewerCapture_Inspect_<W>x<H>.png, + Wireframe (shaded overlay) ->
 //     ViewerCapture_Wireframe_<W>x<H>.png, then everything off again;
+//     then the height ruler (G) -> ViewerCapture_Ruler_<W>x<H>.png, the
+//     lighting presets Flat/Rim/Top (N) -> ViewerCapture_Light<Flat|Rim|Top>_
+//     <W>x<H>.png, Studio + ruler off again (light intensities must equal the
+//     values before the first preset), and a profile switch to
+//     DA_Character_Cube -> ViewerCapture_Status_<W>x<H>.png (profile check in
+//     the status line), then back to DA_Character_Manny (section 6.20);
 //  2. ACharacterViewerController::TakePortfolioScreenshot() (= F12) must
 //     write its file within a few seconds (size = viewport x multiplier on
 //     the high-res path); the method used is logged;
@@ -53,7 +63,21 @@ namespace CharacterViewerCaptureGameTest
 		FString TurntableFolder;
 		FRotator TurntableStartRotation = FRotator::ZeroRotator;
 		bool bTurntableWasEnabled = false;
+		// Directional light intensities before the first lighting preset (section 6.20).
+		TArray<TPair<TWeakObjectPtr<ULightComponent>, float>> LightIntensitiesBefore;
 	};
+
+	static FString DescribeLightingTargets(const ACharacterViewerController& Controller)
+	{
+		auto Describe = [&Controller](EViewerLightRole Role)
+		{
+			const ULightComponent* Light = Controller.GetLightingTarget(Role);
+			return Light ? FString::Printf(TEXT("%s (%.2f lux)"), Light->GetOwner() ? *Light->GetOwner()->GetActorNameOrLabel() : *Light->GetName(), Light->Intensity)
+				: FString(TEXT("none"));
+		};
+		return FString::Printf(TEXT("Lighting targets (%d): Key = %s, Fill = %s, Rim = %s"), Controller.GetLightingTargetCount(),
+			*Describe(EViewerLightRole::Key), *Describe(EViewerLightRole::Fill), *Describe(EViewerLightRole::Rim));
+	}
 
 	static UWorld* FindGameWorld()
 	{
@@ -283,6 +307,123 @@ bool FCharacterViewerCaptureGameTest::RunTest(const FString& Parameters)
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// 2c. Height ruler (G), lighting presets (N) and the profile check status
+	// line (Docs/CHARACTER_VIEWER_SETUP.md 6.20). ~12 s.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		ACharacterViewerController* Controller = State->Controller.Get();
+		if (!Controller)
+		{
+			Test->AddError(TEXT("Ruler step: no controller."));
+			return true;
+		}
+		// Intensities as authored, before any lighting preset touches them.
+		State->LightIntensitiesBefore.Reset();
+		for (TActorIterator<AActor> It(Controller->GetWorld()); It; ++It)
+		{
+			TInlineComponentArray<UDirectionalLightComponent*> Lights(*It);
+			for (UDirectionalLightComponent* Light : Lights)
+			{
+				State->LightIntensitiesBefore.Add({ Light, Light->Intensity });
+			}
+		}
+		Test->AddInfo(FString::Printf(TEXT("Lighting: %d directional light(s) before the first preset (preset %s)."),
+			State->LightIntensitiesBefore.Num(), *ACharacterViewerController::GetLightingPresetDisplayName(Controller->GetLightingPreset())));
+		Controller->SetHeightRulerEnabled(true);
+		Test->TestTrue(TEXT("Ruler capture: G turns the ruler on"), Controller->IsHeightRulerEnabled() && Controller->GetHeightRuler() != nullptr);
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		ACharacterViewerController* Controller = State->Controller.Get();
+		if (const AViewerHeightRuler* Ruler = Controller ? Controller->GetHeightRuler() : nullptr)
+		{
+			TInlineComponentArray<UPrimitiveComponent*> Primitives(Ruler);
+			Test->AddInfo(FString::Printf(TEXT("Ruler capture: visible %d, %d primitives (%d ticks, %d scale labels, %d visible), height label '%s', at %s yaw %.1f."),
+				Ruler->IsRulerVisible() ? 1 : 0, Primitives.Num(), Ruler->GetTickCount(), Ruler->GetScaleLabelCount(), Ruler->GetVisibleScaleLabelCount(),
+				*Ruler->GetHeightLabelText(), *Ruler->GetActorLocation().ToString(), Ruler->GetActorRotation().Yaw));
+			Test->TestTrue(TEXT("Ruler capture: ruler visible"), Ruler->IsRulerVisible());
+		}
+		CaptureWindow(Test, TEXT("Ruler"), State->ViewportSize);
+		if (Controller)
+		{
+			Controller->SetLightingPreset(EViewerLightingPreset::Flat);
+			Test->AddInfo(DescribeLightingTargets(*Controller));
+			Test->TestEqual(TEXT("Lighting: 3 studio lights resolved"), Controller->GetLightingTargetCount(), 3);
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		CaptureWindow(Test, TEXT("LightFlat"), State->ViewportSize);
+		if (ACharacterViewerController* Controller = State->Controller.Get())
+		{
+			Controller->SetLightingPreset(EViewerLightingPreset::Rim);
+			Test->AddInfo(DescribeLightingTargets(*Controller));
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		CaptureWindow(Test, TEXT("LightRim"), State->ViewportSize);
+		if (ACharacterViewerController* Controller = State->Controller.Get())
+		{
+			Controller->SetLightingPreset(EViewerLightingPreset::Top);
+			Test->AddInfo(DescribeLightingTargets(*Controller));
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		CaptureWindow(Test, TEXT("LightTop"), State->ViewportSize);
+		ACharacterViewerController* Controller = State->Controller.Get();
+		if (!Controller)
+		{
+			return true;
+		}
+		Controller->SetLightingPreset(EViewerLightingPreset::Studio);
+		Controller->SetHeightRulerEnabled(false);
+		Test->TestFalse(TEXT("Ruler off again"), Controller->IsHeightRulerEnabled() || (Controller->GetHeightRuler() && Controller->GetHeightRuler()->IsRulerVisible()));
+		for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Entry : State->LightIntensitiesBefore)
+		{
+			if (const ULightComponent* Light = Entry.Key.Get())
+			{
+				Test->TestTrue(FString::Printf(TEXT("Studio restores %s intensity (%.3f, before %.3f)"),
+					Light->GetOwner() ? *Light->GetOwner()->GetActorNameOrLabel() : *Light->GetName(), Light->Intensity, Entry.Value),
+					Light->Intensity == Entry.Value);
+			}
+		}
+
+		// Profile check status line after a switch to the Cube profile.
+		Controller->SelectCharacterProfile(FName(TEXT("DA_Character_Cube")));
+		const APortfolioCharacterActor* Actor = State->Actor.Get();
+		Test->TestTrue(TEXT("Status capture: switched to DA_Character_Cube"), Actor && Actor->Profile && Actor->Profile->GetFName() == FName(TEXT("DA_Character_Cube")));
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		if (const UCharacterViewerWidget* Widget = State->Widget.Get())
+		{
+			const FString Status = Widget->GetCaptureStatus().ToString();
+			Test->AddInfo(FString::Printf(TEXT("Status capture: status line '%s', colour %s."), *Status, *Widget->GetStatusColor().ToString()));
+			Test->TestTrue(FString::Printf(TEXT("Status capture: profile check shown (got '%s')"), *Status), Status.StartsWith(TEXT("프로필 ")));
+		}
+		CaptureWindow(Test, TEXT("Status"), State->ViewportSize);
+		if (ACharacterViewerController* Controller = State->Controller.Get())
+		{
+			Controller->SelectCharacterProfile(FName(TEXT("DA_Character_Manny")));
+		}
+		const APortfolioCharacterActor* Actor = State->Actor.Get();
+		Test->TestTrue(TEXT("Back to DA_Character_Manny"), Actor && Actor->Profile && Actor->Profile->GetFName() == FName(TEXT("DA_Character_Manny")));
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 
 	// 3. F12 path: TakePortfolioScreenshot() writes its file.
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
