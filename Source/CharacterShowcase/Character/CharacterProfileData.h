@@ -270,8 +270,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Part")
 	TArray<FViewerPartInfo> Parts;
 
-	// P2-4: material applied to every slot while Wireframe is on. Null means
-	// Wireframe is unavailable for this profile (the Widget disables the button).
+	// P2-4 (legacy, optional): "replace-slots" wireframe material. Since
+	// 2026-10-01 Wireframe is drawn by default as a shaded overlay
+	// (APortfolioCharacterActor::WireframeOverlayMaterial, M_WireframeOverlay)
+	// and this material is only applied to every slot when the actor's
+	// bWireframeReplacesSlots is on, or when the overlay material is missing.
+	// Null is fine while the overlay material exists; Wireframe is unavailable
+	// (button disabled) only when neither material exists.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Part")
 	TObjectPtr<UMaterialInterface> WireframeMaterial = nullptr;
 

@@ -28,7 +28,26 @@ enum class EViewerHighlightMode : uint8
 	// Small spheres on the part's bones and their direct child bones.
 	BoneMarkers,
 	// Translucent overlay tint over the whole mesh (HighlightOverlayMaterial).
+	// While the Wireframe overlay is on (EViewerWireframeMode::Overlay) the
+	// mesh's single overlay slot shows the wireframe instead; this mode then
+	// only keeps Custom Depth (logged once), see ApplyOverlayState().
 	WholeMesh
+};
+
+// How Wireframe is drawn (GetActiveWireframeMode()).
+UENUM(BlueprintType)
+enum class EViewerWireframeMode : uint8
+{
+	// Wireframe off, or no wireframe material available.
+	None,
+	// Default: WireframeOverlayMaterial (M_WireframeOverlay) drawn as the
+	// mesh's overlay pass over the normally shaded surface, so topology is
+	// readable on dense meshes. Material slots are untouched.
+	Overlay,
+	// Legacy: Profile->WireframeMaterial replaces every material slot (lines
+	// only, no shaded surface). Used when bWireframeReplacesSlots is on, or as
+	// a fallback when WireframeOverlayMaterial is null.
+	ReplaceSlots
 };
 
 UCLASS(Blueprintable)
@@ -78,6 +97,23 @@ public:
 	// are shown. Off by default: the markers are the indication.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
 	bool bWholeMeshTintWithBoneMarkers = false;
+
+	// Shaded wireframe: unlit cyan Wireframe=True material set with
+	// Mesh->SetOverlayMaterial() while Wireframe is on, so the lines are drawn
+	// on top of the normally shaded mesh (EViewerWireframeMode::Overlay).
+	// Defaults to /Game/Portfolio/Materials/M_WireframeOverlay (created by
+	// Scripts/CreatePortfolioAssets.py) if present at construction time. A
+	// Viewer implementation detail like the highlight materials, not authored
+	// character data. Null -> Wireframe falls back to the profile's legacy
+	// slot-replacing WireframeMaterial (if any).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Wireframe")
+	TObjectPtr<UMaterialInterface> WireframeOverlayMaterial = nullptr;
+
+	// Legacy opt-in: when the profile has a WireframeMaterial, replace every
+	// material slot with it (lines only, no shaded surface) instead of using
+	// the overlay. Off by default.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Wireframe")
+	bool bWireframeReplacesSlots = false;
 
 	// Clears runtime state (turntable rotation, expression morphs, material
 	// overrides, animation) accumulated under the previous profile, then
@@ -209,18 +245,33 @@ public:
 
 	// --- Wireframe (P2-4) ---
 
-	// true: applies Profile->WireframeMaterial to every material slot except
-	// the selected part's highlighted slots (MaterialSlots mode). false:
-	// restores the current material variant (CurrentVariantId) to every slot
-	// -- never the stale override array -- and re-applies the part highlight,
-	// so Variant -> Wireframe -> Variant round-trips exactly (all slots are
-	// recomputed by ApplyMaterialState()). Returns false (no-op) if Profile or
-	// Profile->WireframeMaterial is null.
+	// true: shows the wireframe in the mode GetActiveWireframeMode() reports:
+	// Overlay (default) sets WireframeOverlayMaterial as the mesh overlay and
+	// leaves every material slot as it is (Variant and part highlight stay
+	// visible under the lines); ReplaceSlots (bWireframeReplacesSlots, or no
+	// overlay material) applies Profile->WireframeMaterial to every slot
+	// except the selected part's highlighted slots. false: removes the overlay
+	// / restores the current material variant to every slot -- never the
+	// stale override array -- and re-applies the part highlight, so Variant ->
+	// Wireframe -> Variant round-trips exactly (ApplyHighlightState()
+	// recomputes slots, markers and the overlay). Turning it ON returns false
+	// (no-op) if there is no Profile or neither WireframeOverlayMaterial nor
+	// Profile->WireframeMaterial is available (IsWireframeAvailable());
+	// turning it OFF always succeeds while a Mesh exists.
 	UFUNCTION(BlueprintCallable, Category = "Character|Wireframe")
 	bool SetWireframeEnabled(bool bEnabled);
 
 	UFUNCTION(BlueprintPure, Category = "Character|Wireframe")
 	bool IsWireframeEnabled() const { return bWireframeEnabled; }
+
+	// True if SetWireframeEnabled(true) would succeed for the current profile
+	// (the Widget enables/disables the Wireframe button with this).
+	UFUNCTION(BlueprintPure, Category = "Character|Wireframe")
+	bool IsWireframeAvailable() const;
+
+	// None while Wireframe is off, else how it is drawn (Overlay or ReplaceSlots).
+	UFUNCTION(BlueprintPure, Category = "Character|Wireframe")
+	EViewerWireframeMode GetActiveWireframeMode() const;
 
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -246,7 +297,8 @@ protected:
 
 	// Recomputes every mesh slot from scratch from (CurrentVariantId,
 	// bWireframeEnabled, SelectedPartId, bHighlightVisible): defaults, then the
-	// variant's overrides, then the wireframe material on every slot if on,
+	// variant's overrides, then the wireframe material on every slot if on in
+	// ReplaceSlots mode (the default Overlay mode never touches slots),
 	// then PartHighlightMaterial on the selected part's slots (MaterialSlots
 	// mode). It never layers on the previous override array (the
 	// Docs/CHARACTER_VIEWER_SETUP.md "do not copy the override array blindly"
@@ -304,6 +356,20 @@ private:
 	// markers, overlay tint, Custom Depth) for SelectedPartId according to
 	// bHighlightVisible, and updates ActiveHighlightMode.
 	void ApplyHighlightState();
+
+	// The mesh has ONE overlay material slot. Precedence: the Wireframe
+	// overlay (GetActiveWireframeMode() == Overlay) wins; otherwise the
+	// selection tint (WholeMesh mode, or BoneMarkers with
+	// bWholeMeshTintWithBoneMarkers); otherwise none. A tint suppressed by the
+	// wireframe overlay is logged once per occurrence (Custom Depth stays on).
+	void ApplyOverlayState();
+
+	// Mode SetWireframeEnabled(true) would use with the current profile/materials.
+	EViewerWireframeMode ResolveWireframeMode() const;
+
+	// True while a suppressed-tint log line has been written for the current
+	// Wireframe + WholeMesh combination (reset when the combination ends).
+	bool bLoggedTintSuppressedByWireframe = false;
 
 	void UpdateBoneMarkers(const TArray<FName>& MarkerBones, bool bVisible);
 	void DestroyBoneMarkers();

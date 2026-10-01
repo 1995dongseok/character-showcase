@@ -11,7 +11,8 @@
 - **2026-09-30 추가 검증(4절 표)**: `-game` 합성 포인터 스모크가 활성 전면 창에서 1/1 통과(이전 실패 3건 해소). Shipping 패키지에 OS 수준 실제 마우스/키보드 입력(SendInput)을 넣어 드래그 Orbit, 휠 Zoom, R, Space와 드래그 정지, H, I/파츠 클릭/빈 공간 해제, W, 패널 위 휠·드래그 차단, 포커스 상실 복귀를 화면 캡처 25장으로 확인. 증거는 `Docs/Evidence/2026-09-30-shipping-real-input/`.
 - **2026-10-01 추가(4절 표, 6.11절)**: 파츠 단위 강조, 메시 수치 실측 API, 스켈레톤 호환 검사 완화, 실제 ProjectID. Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation **11/11 통과**(신규 4개 포함), `CreatePortfolioAssets.py` 2회 실행(1차 `M_ViewerPartHighlight` 생성 + 기존 7개 `[keep] OK`, 2차 `[keep] OK` ×8). `-game` 스모크는 이 변경 후 아직 실행하지 않았다.
 - **2026-10-01 패널 레이아웃·촬영 패스(6.12절)**: 패널 폭이 뷰포트의 24%(300~460 Slate 단위)로 바뀌고 DPI 곡선(720p = 0.8)을 프로젝트에 설정해 720p에서 버튼 글자가 잘리던 문제를 고쳤다. F12(고해상도 스크린샷)·Shift+F12(36장 턴테이블)·Esc(취소) 촬영 기능과 패널 상태 줄(`StatusText`)을 추가했다(1.7절). Editor 빌드/Game 빌드 0/0, Editor Automation 10/10. `-game` 시각 확인은 대기(4.1절).
-- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), 측정 수치의 INSPECTION 패널 표시(API만 있음), 패널 레이아웃·F12/Shift+F12 촬영의 `-game` 시각 확인(6.12절).
+- **2026-10-01 INSPECTION 실측 수치·Shaded Wireframe·설명 줄 맞춤(6.14절)**: Inspection을 켜면 INSPECTION 섹션에 실측 메시 요약(`Triangles 92,178 · Verts 48,705 · Bones 89 · Slots 2 · LODs 3 · Morphs 0`, Skeleton/Physics), 슬롯별 줄, 선택 파츠의 `Measured:`(슬롯 실측) 또는 `Authored:`(메모)와 `Highlight:` 방식이 표시된다. Wireframe(W)은 기본적으로 **음영 위에 청록 선을 겹치는 Overlay**(`M_WireframeOverlay`)로 바뀌어 92k 삼각형 Manny에서도 표면과 토폴로지가 함께 보인다(예전 "슬롯 전체 교체"는 선택 옵션으로 남음). 설명 박스는 DPI 배율마다 정확히 6줄 높이(1080p 126 / 720p 120 Slate 단위)로 맞춰 7번째 줄이 반만 보이지 않는다. Editor 빌드/Game 빌드 0/0, Editor Automation **16/16**. 화면 확인은 대기(4.1절).
+- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), Shaded Wireframe·INSPECTION 실측 표시·설명 6줄 맞춤의 화면 확인(6.14절, `CharacterShowcase.Game.ViewerCapture`의 Inspect/Wireframe 캡처), 패널 레이아웃·F12/Shift+F12 촬영의 `-game` 시각 확인(6.12절).
 - **파츠 강조는 파츠 단위로 표시된다(2026-10-01, 6.11절).** 우선순위: ⓐ Part의 **Material Slot Names**가 메시 슬롯과 일치하면 그 슬롯만 마젠타 불투명 재질(`M_ViewerPartHighlight`)로 바뀐다. ⓑ 아니면 **Bone Names**의 본과 그 직계 자식 본에 작은 마젠타 구체 마커가 붙는다(예: 팔 → 어깨·팔꿈치·손목). ⓒ 둘 다 해당 없으면 예전처럼 메시 전체에 반투명 마젠타 Overlay가 덮인다(선택이 안 보이는 경우가 없도록). 현재 placeholder(`TutorialTPP`)는 Material Slot이 1개라 ⓑ 본 마커로 표시된다.
 - **placeholder 데이터 주의**: `DA_Character_Manny`가 참조하는 `SKM_Manny_Simple`(파츠별 삼각형 9,206~25,680, 6.13절의 측정 방법), `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개), `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진/템플릿이 기본 제공하는 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
 - **2026-10-01 검증(4절 표)**: `CreatePortfolioAssets.py` 신규 5개 생성 + 재실행 `[keep] OK` ×12, `-game` 스모크 2회 — 커서가 게임 창 밖이라 합성 포인터 전제 조건 1건으로 Fail, 나머지 assertion 오류 0(Manny Torso 클릭 포함), 화면 측정으로 바닥 중간 회색·가슴 클리핑 0 확인. 비쿠킹 실행이라 Manny의 강조/Wireframe 셰이더는 화면에 아직 안 나왔다(4.1절).
@@ -206,8 +207,8 @@ Neutral 표정은 **Morphs를 빈 배열로 둔 행**으로 등록한다. 메시
 - 현재 구조(단일 `SkeletalMeshComponent`)에서는 **Bone Names**로 파츠를 식별한다. 클릭 지점의 `BoneName`이 어느 Part의 Bone Names와도 정확히 일치하지 않으면 부모 본을 최대 10단계까지 걸어 올라가며 다시 찾는다(예: 손가락 본 → `hand_l` → "왼팔"). 여기 적는 본 이름은 **메시의 Physics Asset에 실제로 존재하는 본 이름과 정확히 같아야** 하며, 파츠 클릭이 되려면 **메시에 Physics Asset이 할당되어 있어야 한다**(Physics Asset이 없으면 그 캐릭터의 파츠는 클릭되지 않는다 — 지금의 `DA_Character_Cube`가 이 경우다).
 - 파츠가 별도 Component(예: Face/Hair/Jacket이 각각 다른 SkeletalMeshComponent)로 구성된 캐릭터라면 **Component Tag**로 식별 방식을 바꿀 수 있다(스키마는 이미 지원, 현재 placeholder는 미사용).
 - **Material Slot Names**: 캐릭터의 파츠가 별도 Material Slot/섹션으로 나뉘어 있으면(예: Body/Head/Hair/Jacket) 그 파츠를 이루는 슬롯 이름을 Skeletal Mesh 에디터에 보이는 이름 그대로 적는다. 하나라도 메시 슬롯과 일치하면 ① 선택 시 정확히 그 슬롯들만 마젠타로 바뀌고 ② 그 파츠의 삼각형 수/재질 이름/텍스처 요약을 Viewer가 직접 측정한다. 슬롯이 1개뿐인 메시(지금의 `TutorialTPP`)는 비워 둔다 — 그러면 Bone Names의 본 위치에 구체 마커가 표시된다.
-- **선택 강조 우선순위**: Material Slot Names(일치하는 슬롯만 교체) → Bone Names(본과 직계 자식 본에 지름 10cm 마젠타 구체, 충돌/그림자 없음) → 둘 다 없으면 메시 전체 반투명 Overlay. Wireframe이 켜져 있어도 선택된 슬롯은 마젠타로 남고, Wireframe/Variant를 바꾸거나 선택을 풀면 나머지 슬롯은 정확히 원래 상태로 돌아온다. Clean View(H) 중에는 강조가 전부 숨겨진다.
-- **Triangle Count / Material Name / Texture Resolution은 선택 메모(authored)다.** Material Slot Names가 메시 슬롯과 일치하는 파츠는 측정값(`GetPartMeasuredStats`)이 이 메모보다 우선한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 메모로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.** (현재 INSPECTION 패널은 이 메모를 표시한다. 측정값 표시 연결은 후속 작업, 4.1절.)
+- **선택 강조 우선순위**: Material Slot Names(일치하는 슬롯만 교체) → Bone Names(본과 직계 자식 본에 지름 10cm 마젠타 구체, 충돌/그림자 없음) → 둘 다 없으면 메시 전체 반투명 Overlay. Wireframe(기본 = 음영 위 청록 선 Overlay, 6.14절)이 켜져 있어도 선택된 슬롯의 마젠타와 본 마커는 선 아래에 그대로 보이고, Wireframe/Variant를 바꾸거나 선택을 풀면 모든 슬롯이 정확히 원래 상태로 돌아온다. 단 메시의 Overlay 슬롯은 하나뿐이라 **Wireframe이 켜진 동안에는 "메시 전체 반투명 Overlay" 강조 대신 Wireframe 선이 표시**되고(Custom Depth만 유지, 로그 1줄), INSPECTION의 `Highlight:` 줄에 그 사실이 적힌다. Clean View(H) 중에는 강조가 전부 숨겨진다(Wireframe은 유지).
+- **Triangle Count / Material Name / Texture Resolution은 선택 메모(authored)다.** Material Slot Names가 메시 슬롯과 일치하는 파츠는 측정값(`GetPartMeasuredStats`)이 이 메모보다 우선한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 메모로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.** INSPECTION 패널은 Inspection을 켜면 항상 메시 전체 실측값(삼각형/정점/본/슬롯/LOD/Morph, Skeleton/Physics Asset)과 슬롯별 실측 줄을 보여 주고, 선택 파츠는 슬롯이 일치하면 `Measured: …`(실측), 아니면 이 메모를 `Authored: …`로 구분해 표시한다(6.14절).
 - 본 마커는 불투명 구체라 굵은 메시 안쪽에 있는 관절에서는 일부가 메시에 묻혀 보일 수 있다. 크기는 `PortfolioCharacterActor`의 **Bone Marker Diameter**(기본 10cm)로 조정한다. 마커와 함께 예전의 메시 전체 틴트도 원하면 **Whole Mesh Tint With Bone Markers**를 켠다(기본 꺼짐).
 
 ### ⑧ Default Profile / Profile Library 등록
@@ -331,7 +332,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - `CharacterProfileData`는 설정(구성) 데이터다. 현재 선택/Turntable 회전/재생 시간/카메라 값 같은 실행 상태를 Asset에 저장하지 않는다.
 - 캐릭터 교체 시 이전 선택·Morph·재질 override·Animation·Wireframe·선택 파츠를 먼저 정리한 뒤 새 프로필을 적용한다(`ClearRuntimeState()`).
 - UMG 위에서 시작한 입력은 Orbit/Zoom/Inspection으로 전달하지 않는다(`IsPointerOverPanel()`). 드래그 종료·앱 포커스 상실 시 캡처/버튼 상태를 해제한다.
-- Clean View(H)는 UI/선택 강조/커서를 숨기되 Orbit/Zoom/Space/H는 유지한다. Wireframe은 Variant보다 화면에서 우선한다(끄면 현재 Variant로 정확히 복원).
+- Clean View(H)는 UI/선택 강조/커서를 숨기되 Orbit/Zoom/Space/H는 유지한다. Wireframe은 기본 Overlay 모드에서 셰이딩·Variant 위에 선만 겹치고(슬롯 불변), 레거시 슬롯 교체 모드(`bWireframeReplacesSlots`)에서만 Variant보다 우선한다(끄면 현재 Variant로 정확히 복원).
 
 ## 4. 개발 검증 결과
 
@@ -372,6 +373,12 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **18/18 통과**, 실패 0, 테스트 오류/경고 0 (신규 `Validator.NullAndEmpty`/`DeliberateMistakes`/`MorphsTexturesSkeleton`/`ContentProfiles`) | `Saved/Automation/E/index.json`(작업 worktree) |
 | `ValidateProfiles.py` (`-run=pythonscript`, 기본 경로) | 2026-10-01 | 종료 코드 0. `DA_Character` E=0 W=0 I=0, `DA_Character_Cube` E=0 W=2 I=0(Physics Asset 없음, 높이 25 cm), `DA_Character_Manny` E=0 W=0 I=0, `TOTAL profiles=3 E=0 W=2 I=0 RESULT=PASS` | 6.15절 |
 | `ValidateProfiles.py` 실패 경로·다른 실행 방식 | 2026-10-01 | `-ProfilePath=/Game/Portfolio/Data/DoesNotExist` → `RuntimeError`, 종료 코드 **-1**. `-ExecutePythonScript="... -ProfilePath=/Game/Portfolio/Data/DA_Character_Manny"` → `profiles=1 E=0 W=0 I=0 RESULT=PASS`, 종료 코드 0 | 6.15절 |
+| Editor 빌드 (INSPECTION 실측·Shaded Wireframe·설명 줄 맞춤, 6.14절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(최종 증분 빌드). 개발 중 컴파일 오류 2회(C4458 `Slot` 이름 가림, 테스트 `Printf` 형식 불일치 — `FSlateFontInfo::Size`가 float) 각각 수정 | 6.14절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0, 80.9초 | 6.14절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **16/16 통과**, 실패 0 / 경고 0(신규 `Viewer.WireframeOverlay`, `Viewer.InspectionPanelText`; `Viewer.PanelLayout`에 6줄 맞춤 규칙 추가; `Viewer.WireframeRestore`/`PartHighlightMaterialSlots`는 레거시 슬롯 교체 경로 검증으로 전환) | `Saved/Automation/D/index.json`(작업 worktree) |
+| `CreatePortfolioAssets.py` (`M_WireframeOverlay` 추가) | 2026-10-01 | 1차: `Created M_WireframeOverlay` + 기존 13개 `[keep] ... OK` + ini OK, `DONE, NO ERRORS`, 종료 코드 0. 2차: `[keep] ... OK` ×14 + ini OK, 종료 코드 0, 실행 전후 `Content/Portfolio` 14개 파일 SHA-256 동일 | 6.14절 |
+| `M_WireframeOverlay` 실제 RHI 컴파일 확인(`MaterialEditingLibrary.get_statistics`, D3D12 SM5, NullRHI 아님, 읽기 전용) | 2026-10-01 | 컴파일 성공, VS 234 / PS 67 명령(`M_Wireframe` VS 220 / PS 67) | 6.14절 |
+| `WBP_CharacterViewer` 재생성 (`CreateViewerWidgetLayout.py` 2회, 설명 높이 134 → 126) | 2026-10-01 | 에셋 삭제 후 1차: `[create]` + `[build] ... compiled, and saved.`(SHA-256 `4c49e99a…` → `44b6422a…`). 2차: `[keep] ... All 7 required widgets present ... Optional StatusText present.`, 해시 동일 | 6.14절 |
 
 ### 4.1 미검증·대기 항목
 
@@ -379,7 +386,8 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **Expression(표정)의 실제 시각 검증**: `TutorialTPP`/`SkeletalCube` 모두 Morph Target이 없다. Expression 스키마/무충돌만 확인됐고, 실제 Morph 적용 후 얼굴이 바뀌는 모습은 **미검증**이며 Morph가 있는 메시가 들어오기 전까지는 검증할 수 없다.
 - **사람이 만든 디자이너 WBP 레이아웃의 hover 동작**: 지금 존재하는 `WBP_CharacterViewer` 트리는 C++ 에디터 툴이 자동 생성한 것이다. 아티스트가 디자이너에서 직접 커스터마이즈한 레이아웃에서 `IsPointerOverPanel()`/패널 클릭 소비가 그대로 동작하는지는 **미검증**.
 - **파츠 단위 강조의 실제 화면 확인**: 2026-10-01 구현(슬롯 교체/본 마커/전체 Overlay 폴백, 6.11절). 상태·재질 값은 Editor Automation(NullRHI)으로 검증했지만, 렌더링된 화면에서 마커/슬롯 색이 실제로 보이는지는 **미검증**이다(`-game` 스모크와 패키지 캡처로 확인 필요). `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`)의 강조 관련 assertion을 새 동작(본 마커)에 맞게 고쳤으나 이 세션에서는 실행하지 않았다.
-- **측정 수치의 UI 표시**: `GetMeshStats()`/`GetSlotStats()`/`GetPartMeasuredStats()` API와 Editor 테스트만 있다. INSPECTION 패널은 아직 Part의 손으로 적은 메모 값을 표시한다(패널 연결은 후속 작업). 쿡된 빌드에서 측정값이 나오는지도 **미검증**(코드상 렌더 데이터가 없으면 `bValid=false` + 0 반환).
+- **측정 수치의 UI 표시(2026-10-01 연결, 6.14절)**: INSPECTION 패널 텍스트는 Editor Automation(`Viewer.InspectionPanelText`, NullRHI, SKM_Manny_Simple)에서 실측 숫자가 그대로 나오는 것까지 확인했다. **쿡된 빌드에서 측정값이 나오는지**와 실제 화면에서 13pt 텍스트가 줄바꿈되어 읽히는지는 **미검증**(코드상 렌더 데이터가 없으면 `measured: n/a`). `CharacterShowcase.Game.ViewerCapture`의 `ViewerCapture_Inspect_<W>x<H>.png`(목록을 끝까지 스크롤한 상태)로 확인 예정.
+- **Shaded Wireframe의 화면 확인(대기, 6.14절)**: `M_WireframeOverlay`가 Overlay로 설정/해제되고 슬롯·Variant가 정확히 왕복하는 것은 Editor Automation(NullRHI)으로, 머티리얼이 실제 RHI(D3D12 SM5)에서 오류 없이 컴파일되는 것은 통계 컴파일(VS 234 / PS 67 명령)로 확인했다. **720p Manny에서 음영 표면 위에 청록 선이 끊김 없이 보이는지(깊이 바이어스 `DepthBiasFraction` 0.002가 충분한지), 선 밀도가 읽을 만한지는 미검증** — `CharacterShowcase.Game.ViewerCapture`의 `ViewerCapture_Wireframe_<W>x<H>.png`(첫 파츠 선택 + Wireframe)로 확인한다. 선이 점선처럼 끊기면 `M_WireframeOverlay`의 `DepthBiasFraction`을 올린다(MI를 만들어 조정 가능).
 - **Manny에서 선택 강조/Wireframe의 화면 표시(비쿠킹 `-game`)**: 2026-10-01 스모크 2회 모두 `Preparing Shaders (1~2)`가 떠 있어 `ViewerSmoke_Inspect.png`에 마젠타 강조가 안 보이고 `ViewerSmoke_Wireframe.png`는 청록 와이어 대신 회색 체커(셰이더 준비 중 대체 재질)로 찍혔다. 값 자체는 테스트가 확인했다(오류 0). 6.10절과 같은 비쿠킹 셰이더 지연으로 보이며 쿡된 패키지에서 Manny로는 아직 확인하지 않았다. 같은 스모크의 `ViewerSmoke_Profile1.png`(TutorialTPP)도 노란 재질 대신 어두운 회색으로 찍혔다(같은 대체 재질로 추정, 미확인).
 - **새 레벨 생성 경로**: `LV_Portfolio`가 없을 때 스크립트가 만드는 경로(`create_or_update_level()` + `apply_studio_setup()`)는 실행하지 않았다. `apply_studio_setup()` 자체는 기존 레벨 편집에서 실행·검증됐다.
 - **패키지(Development/Shipping) 재빌드·실행**: 스튜디오 룩/Manny 기본 프로필 상태로는 하지 않았다.
@@ -391,7 +399,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 
 - `ApplyProfile` 순서(`PostLogin`이 `BeginPlay`보다 먼저 실행됨)에 맞춘 방어 코드는 정적으로만 점검했고, 이 UE 버전의 PIE로 최종 확인하지 않았다.
 - `SetAnimation`의 스켈레톤 호환성 검사(2026-10-01, 6.11절)는 같은 Skeleton, 양방향 Compatible Skeletons 목록, 본 계층 일치(`USkeleton::IsCompatibleMesh`) 중 하나면 허용한다. 계층은 맞지만 비율이 다른 리그의 애니메이션은 허용되며 화면상 리타겟 품질은 보장하지 않는다(IK Retargeter로 미리 리타겟한 Sequence 사용 권장).
-- 파츠별 Triangle Count/Material Name 메모는 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 슬롯을 가지면 Material Slot Names를 채워 측정값을 쓰는 것이 맞다(패널 표시 연결은 후속).
+- 파츠별 Triangle Count/Material Name 메모는 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 슬롯을 가지면 Material Slot Names를 채우면 INSPECTION 패널에 측정값이 표시된다(6.14절).
 - 본 마커 강조는 관절 위치를 점으로 보여 줄 뿐 파츠 표면 전체를 칠하지 않는다. 표면 단위 강조가 필요하면 파츠를 별도 Material Slot으로 나누거나(가장 간단), 별도 Component 구조 또는 Custom Stencil 기반 Post Process 작업이 필요하다.
 - `-game` 스모크의 합성 포인터 단계는 게임 창이 활성·비가려짐 전면 창일 때만 유효하다(원인 확정, 6.10절). 무인 실행 환경에서는 이 조건을 보장할 수 없으므로 실패 시 전제 조건 오류 메시지를 먼저 확인한다.
 - `Scripts/CreatePortfolioAssets.py`의 예전 "레벨 재생성" 로직이 유발하던 간헐적 크래시는 원인을 특정해 제거했지만(6.10절), 대규모 반복 재현 테스트는 하지 않았다.
@@ -538,6 +546,34 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - 이 엔진 빌드에서 **`-NullRHI`로 `StaticMeshActor`를 spawn하면 `EXCEPTION_INT_DIVIDE_BY_ZERO`로 Editor가 크래시**한다(재현 1/1, 실제 RHI에서는 정상). 레벨 편집 스크립트는 `-NullRHI` 없이 실행했다. 에셋 생성/검증(`CreatePortfolioAssets.py`, 기존 레벨이 있으면 Actor를 spawn하지 않음)은 `-NullRHI`로 정상.
 - `-NullRHI`에서 스켈레탈 메시 FBX 내보내기도 `Assertion failed: MeshObject`로 크래시 — 실제 RHI에서는 정상.
 - `MaterialEditingLibrary.set_material_instance_*_parameter_value`의 bool 반환값은 값이 적용됐는데도 False를 돌려줬다 → 스크립트는 반환값 대신 값을 다시 읽어 검사한다.
+
+### 6.14 INSPECTION 실측 수치 표시, Shaded Wireframe, 설명 박스 줄 맞춤 (2026-10-01)
+
+**배경**: 6.11절에서 만든 실측 API(`GetMeshStats`/`GetSlotStats`/`GetPartMeasuredStats`)가 패널에 연결되지 않아 INSPECTION은 손으로 적은 메모만 보여 줬다. 92,178 삼각형 Manny에서 Wireframe(모든 슬롯을 `M_Wireframe`으로 교체)은 픽셀마다 선이 겹쳐 청록 실루엣이 되어 토폴로지를 볼 수 없었다. 1280×720/1920×1080 캡처에서 설명 박스(최대 높이 134)는 6줄 + 7번째 줄 절반을 보여 줬다.
+
+**1. INSPECTION 실측 표시** (`UCharacterViewerWidget::BuildInspectionText()`, `BuildInspectionSection()`이 사용 — 폴백·디자이너 레이아웃 공통, 바인드 이름 7+1개 변경 없음, 13pt·자동 줄바꿈 그대로):
+- 메시 요약(프로필이 있으면 항상): `Triangles 92,178 · Verts 48,705 · Bones 89 · Slots 2 · LODs 3 · Morphs 0` / `Skeleton SK_Mannequin · Physics PA_Mannequin`. 렌더 데이터가 없으면(`bValid=false`) `measured: n/a`. 숫자는 OS 로캘과 무관하게 `FormatThousands()`로 쉼표를 넣는다.
+- 슬롯별 줄: `M_HeadLegs: 38,166 tris · MI_Manny_01_New · 4 tex, max 1024x1024`, `M_Torso: 54,012 tris · MI_Manny_02_New · 4 tex, max 4096x4096`(메시 에셋 자체의 슬롯 재질 기준, Variant/강조 재질 아님).
+- 선택 전 `Click a part`. 선택 후 `DisplayName (PartType)` / Description / `Measured: <삼각형> · <슬롯> · <재질> · <텍스처>`(Part의 Material Slot Names가 메시와 일치할 때) 또는 `Authored: <Triangle Count> · <Material Name> · <Texture Resolution>`(메모) / `Highlight: Material slots | Bone markers (N) | Whole mesh | hidden`. Whole mesh + Wireframe Overlay 중이면 `Whole mesh (tint hidden while Wireframe is on)`.
+- 현재 `DA_Character_Manny`의 Part는 Material Slot Names가 비어 있어 선택 파츠는 `Authored:`(6.13절에서 FBX로 측정해 넣은 값)와 `Bone markers (N)`으로 표시된다.
+
+**2. Shaded Wireframe** (`APortfolioCharacterActor`):
+- 신규 `M_WireframeOverlay`(`CreatePortfolioAssets.py`의 `create_or_update_wireframe_overlay_material()` + 읽기 전용 validator, create-missing-only): Unlit, **Opaque**, Two Sided, Wireframe=True, Used with Skeletal Mesh, Emissive = `LineColor`(청록 0,1,1), World Position Offset = `(CameraPosition − WorldPosition) × DepthBiasFraction`(기본 0.002). 엔진은 Overlay Material을 같은 섹션의 추가 메시 패스로 그리고 블렌드 모드는 제한하지 않는다(엔진 소스 `SkeletalMeshSceneProxy.cpp`: 스켈레탈 메시 usage 플래그만 검사). 선은 표면과 같은 삼각형이라 깊이가 같아 점선처럼 깨질 수 있으므로, 각 정점을 카메라 쪽 시선 위로 거리의 0.2%만큼 당긴다(화면 위치는 그대로, 깊이만 앞으로 — Full Body 4.6 m에서 약 0.9 cm).
+- 액터 속성(뷰어 구현 세부, 프로필 데이터 아님): `WireframeOverlayMaterial`(기본 `M_WireframeOverlay` 자동 로드), `bWireframeReplacesSlots`(기본 끔). `GetActiveWireframeMode()` = None / **Overlay(기본)** / ReplaceSlots. 우선순위: `bWireframeReplacesSlots`가 켜져 있고 프로필 `WireframeMaterial`이 있으면 예전 슬롯 교체, 아니면 Overlay, Overlay 재질이 없으면 프로필 `WireframeMaterial`로 슬롯 교체(폴백). 둘 다 없으면 `SetWireframeEnabled(true)`는 `false`(버튼 비활성, `IsWireframeAvailable()`). 끄기는 항상 성공.
+- Overlay 모드는 슬롯을 건드리지 않으므로 Variant·MaterialSlots 강조·본 마커가 선 아래에 그대로 보인다. 메시의 Overlay 슬롯은 하나뿐이라 **Wireframe Overlay가 켜진 동안 WholeMesh 선택 틴트(와 `bWholeMeshTintWithBoneMarkers` 틴트)는 표시하지 않고 Custom Depth만 유지**하며 로그 1줄(`LogTemp: ... whole-mesh selection tint ... is not shown`)을 남긴다. Wireframe을 끄면 틴트가 돌아온다. Clean View는 선택 강조만 숨기고 Wireframe은 유지한다.
+- `UCharacterProfileData::WireframeMaterial`은 "선택(레거시) 슬롯 교체용"으로 의미만 바뀌었다(필드·기존 에셋 값 변경 없음).
+
+**3. 설명 박스 줄 맞춤** (`UCharacterViewerWidget`):
+- 줄 높이는 Slate 텍스트 레이아웃이 실제로 쓰는 값(`FSlateTextRun::GetMaxHeight` = 글꼴 최대 문자 높이 + |그림자 Y| × 배율, 정수 픽셀)이다. `MeasureTextLinesHeight()`가 임시 `STextBlock`에 N줄 텍스트를 넣어 `SlatePrepass(배율)`로 그 높이를 직접 잰다(Slate가 없으면 예전 추정식으로 폴백). 측정값(13pt Roboto Regular, 그림자 (1,1)): 배율 1.0 → 줄 21 px, 6줄 126 Slate 단위 / 배율 0.8(720p) → 줄 16 px = 20 단위, 6줄 120 단위 / 배율 1.25 → 줄 27 px = 21.6 단위, 6줄 129.6 단위. 예전 134는 1080p에서 6.38줄, 720p에서 6.70줄이었다(캡처의 "7번째 줄 절반"과 일치).
+- `BuildDefaultLayoutTree()`(C++ 폴백과 Editor 툴 공용)는 배율 1.0 기준 126을 저장하고, 런타임에는 `NativeTick()`의 `ApplyDescriptionLineFit(MyGeometry.Scale)`이 DPI 배율·글꼴·그림자가 바뀔 때만 `DescriptionScroll`의 부모 SizeBox 높이를 `DescriptionVisibleLines`(기본 6)줄로 다시 맞춘다(`bFitDescriptionToWholeLines`, 기본 켬 — 디자이너가 직접 높이를 정하려면 WBP Class Defaults에서 끈다). 생성 트리 값이 바뀌어 `WBP_CharacterViewer`를 삭제 후 `CreateViewerWidgetLayout.py`로 재생성했다(4절 표).
+
+**`CharacterShowcase.Game.ViewerCapture` 추가 단계(포인터 없음)**: UI/Clean 캡처 뒤 Inspection On + 현재 프로필의 첫 Part를 코드로 선택(클릭 없음 → 전면 창/커서 전제 조건 불필요), 패널 목록을 끝까지 스크롤, 2초 후 `ViewerCapture_Inspect_<W>x<H>.png`(강조 모드·보이는 본 마커 수·본 이름 로그), Wireframe On(선택 유지) 2초 후 `ViewerCapture_Wireframe_<W>x<H>.png`(Wireframe 모드·Overlay 재질 이름 로그), 이어서 선택 해제·Wireframe Off·Inspection Off·스크롤 원위치. 약 4.5초 추가. 이 세션에서는 실행하지 않았다(`-game` 창이 필요).
+
+**`-game` 스모크(`CharacterViewerGameSmokeTest.cpp`) assertion 갱신(실행 안 함)**: "Click a part"는 이제 본문 끝 + 본문이 `Triangles `(또는 `measured: n/a`)로 시작하는지 검사, Wireframe On은 Overlay 모드면 Overlay 재질 = `WireframeOverlayMaterial`이고 슬롯이 레거시 `WireframeMaterial`이 아닌지, Wireframe 중 Grid 선택은 슬롯 0 = Grid + Overlay 유지, Wireframe Off 후 Overlay 없음(레거시 모드면 예전 assertion).
+
+**검증**: 4절 표. Editor Automation 16/16 — 신규 `Viewer.WireframeOverlay`(SKM_Manny_Simple: 기본 Overlay 모드, 켜도 override 0개, Variant/슬롯 강조/본 마커가 Overlay 아래 유지, WholeMesh + Wireframe = Overlay는 선·Custom Depth 유지, Clean View에서 Wireframe 유지, 끄면 틴트 복귀, 반복 왕복 후 override 0, 레거시 옵트인 왕복, 프로필 해제), `Viewer.InspectionPanelText`(위 숫자가 폴백 패널 본문에 그대로 나오는지, Measured/Authored/Highlight 줄, `measured: n/a`, Inspection Off 시 접힘), `Viewer.PanelLayout`(저장 높이 = 측정 6줄, 6줄 = 6 × 1줄, 7번째 줄이 박스 바닥에서 정확히 시작, 배율 0.8/1.0/1.25 런타임 맞춤, 옵션 끄면 유지, 생성된 WBP도 126). 화면 확인(720p Manny에서 선이 음영 위에 끊김 없이 보이는지, INSPECTION 텍스트 가독성, 설명 6줄)은 **미검증**(4.1절).
+
+**알려진 사항**: 새 바이너리로 `M_WireframeOverlay`가 없는 상태에서 Editor를 처음 띄우면 CDO 생성자 로그 `LogUObjectGlobals: Error: CDO Constructor (PortfolioCharacterActor): Failed to find .../M_WireframeOverlay`가 1회 나온다(에셋 생성 전 1차 스크립트 실행에서 발생, 2차부터 없음 — 생성자에서 기본 재질을 찾는 기존 방식의 부트스트랩 순서 문제). 3절 설계 규칙의 "Wireframe은 Variant보다 화면에서 우선한다"는 레거시 슬롯 교체 모드에만 해당하며, 기본 Overlay 모드에서는 Variant가 선 아래에 보인다(3절은 이 패스에서 수정하지 않았다).
 
 ### 6.15 프로필 검증 도구 (2026-10-01)
 

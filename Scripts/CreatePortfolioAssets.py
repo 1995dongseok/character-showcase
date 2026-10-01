@@ -53,6 +53,10 @@ Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.13), same create-missing-only
     the LV_Portfolio studio backdrop gradient and neutral floor.
   - apply_studio_setup(): the studio lights/backdrop/post-process actors; run
     by this script only when it creates a NEW LV_Portfolio.
+
+Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.14), same rule:
+  - M_WireframeOverlay: the shaded-wireframe overlay material
+    (APortfolioCharacterActor::WireframeOverlayMaterial).
 """
 
 import sys
@@ -100,6 +104,10 @@ HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{HIGHLIGHT_MAT_NAME}"
 # spheres by APortfolioCharacterActor.
 PART_HIGHLIGHT_MAT_NAME = "M_ViewerPartHighlight"
 PART_HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{PART_HIGHLIGHT_MAT_NAME}"
+# Shaded wireframe (2026-10-01, Docs/CHARACTER_VIEWER_SETUP.md 6.14): set as the
+# mesh's OVERLAY material by APortfolioCharacterActor while Wireframe is on.
+WIREFRAME_OVERLAY_MAT_NAME = "M_WireframeOverlay"
+WIREFRAME_OVERLAY_MAT_PATH = f"{MATERIALS_PACKAGE}/{WIREFRAME_OVERLAY_MAT_NAME}"
 
 TUTORIAL_MESH = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"
 TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Idle.Tutorial_Idle"
@@ -691,6 +699,119 @@ def create_or_update_part_highlight_material():
     MEL.recompile_material(mat)
 
     save(PART_HIGHLIGHT_MAT_PATH)
+    return mat
+
+
+WIREFRAME_OVERLAY_COLOR = (0.0, 1.0, 1.0)  # same cyan as M_Wireframe
+# Each vertex of the overlay pass is moved toward the camera by this fraction
+# of its distance to the camera (World Position Offset = (CameraPosition -
+# WorldPosition) * fraction). Moving along the view ray does not change where
+# the line lands on screen, only its depth, so the lines win the depth test
+# against the identical shaded surface instead of z-fighting into dashes.
+# 0.002 = 0.9 cm at the 4.6 m Full Body distance, 0.36 cm at the 1.8 m Face distance.
+WIREFRAME_OVERLAY_SCALARS = {"DepthBiasFraction": 0.002}
+WIREFRAME_OVERLAY_VECTORS = {"LineColor": WIREFRAME_OVERLAY_COLOR}
+
+
+def validate_wireframe_overlay_material(mat, path):
+    """Read-only check for an existing M_WireframeOverlay: skeletal-mesh
+    usage, Wireframe on, unlit, opaque, and the two exposed parameters.
+    Never writes to `mat`."""
+    diffs = []
+    expected = (
+        ("used_with_skeletal_mesh", True, "used_with_skeletal_mesh is not True"),
+        ("wireframe", True, "wireframe is not True"),
+        ("two_sided", True, "two_sided is not True"),
+    )
+    for prop, value, message in expected:
+        try:
+            if mat.get_editor_property(prop) is not value:
+                diffs.append(message)
+        except Exception as exc:
+            diffs.append(f"could not read {prop} ({exc!r})")
+    try:
+        if mat.get_editor_property("shading_model") != unreal.MaterialShadingModel.MSM_UNLIT:
+            diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected MSM_UNLIT")
+        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_OPAQUE:
+            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_OPAQUE")
+    except Exception as exc:
+        diffs.append(f"could not read shading_model/blend_mode ({exc!r})")
+    try:
+        MEL = unreal.MaterialEditingLibrary
+        have_scalars = {str(n) for n in MEL.get_scalar_parameter_names(mat)}
+        have_vectors = {str(n) for n in MEL.get_vector_parameter_names(mat)}
+        missing = [n for n in WIREFRAME_OVERLAY_SCALARS if n not in have_scalars] + \
+                  [n for n in WIREFRAME_OVERLAY_VECTORS if n not in have_vectors]
+        if missing:
+            diffs.append(f"missing parameters {missing}")
+    except Exception as exc:
+        diffs.append(f"could not read parameter names ({exc!r})")
+    report_keep(path, diffs)
+
+
+def create_or_update_wireframe_overlay_material():
+    """M_WireframeOverlay: unlit, OPAQUE, two-sided, Wireframe=True, cyan
+    emissive (`LineColor`), plus a camera-ward World Position Offset
+    (`DepthBiasFraction`, see WIREFRAME_OVERLAY_SCALARS). Set with
+    USkeletalMeshComponent::SetOverlayMaterial() while Wireframe is on
+    (APortfolioCharacterActor, EViewerWireframeMode::Overlay): the engine
+    draws the overlay as an extra mesh pass of the same sections (any blend
+    mode is accepted; only the skeletal-mesh usage flag is checked), so the
+    shaded surface stays visible with cyan lines on top -- unlike M_Wireframe,
+    which replaces every slot and turns a 92k-triangle mesh into a solid cyan
+    silhouette. Opaque so the lines are written like normal geometry (no
+    translucency sorting).
+
+    CREATE-MISSING-ONLY like the materials above: an existing
+    M_WireframeOverlay is validated read-only and never touched."""
+    if EAL.does_asset_exist(WIREFRAME_OVERLAY_MAT_PATH):
+        mat = EAL.load_asset(WIREFRAME_OVERLAY_MAT_PATH)
+        log(f"[CreatePortfolioAssets] {WIREFRAME_OVERLAY_MAT_NAME} already exists, preserving (read-only): {WIREFRAME_OVERLAY_MAT_PATH}")
+        validate_wireframe_overlay_material(mat, WIREFRAME_OVERLAY_MAT_PATH)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    mat = asset_tools.create_asset(WIREFRAME_OVERLAY_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {WIREFRAME_OVERLAY_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created {WIREFRAME_OVERLAY_MAT_NAME} at {WIREFRAME_OVERLAY_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("wireframe", True)
+    # Required: the skeletal mesh scene proxy drops an overlay material
+    # without this usage flag ("Overlay material with missing usage flag").
+    mat.set_editor_property("used_with_skeletal_mesh", True)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+
+    color = MEL.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, -400, -100)
+    color.set_editor_property("parameter_name", "LineColor")
+    rgb = WIREFRAME_OVERLAY_VECTORS["LineColor"]
+    color.set_editor_property("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+    color.set_editor_property("group", "Wireframe")
+    if not MEL.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect emissive on {WIREFRAME_OVERLAY_MAT_NAME}")
+
+    camera_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionCameraPositionWS, -800, 200)
+    world_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionWorldPosition, -800, 320)
+    to_camera = MEL.create_material_expression(mat, unreal.MaterialExpressionSubtract, -600, 250)
+    bias = MEL.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, -600, 400)
+    bias.set_editor_property("parameter_name", "DepthBiasFraction")
+    bias.set_editor_property("default_value", WIREFRAME_OVERLAY_SCALARS["DepthBiasFraction"])
+    bias.set_editor_property("group", "Wireframe")
+    offset = MEL.create_material_expression(mat, unreal.MaterialExpressionMultiply, -400, 300)
+    _connect(camera_pos, "", to_camera, "A")
+    _connect(world_pos, "", to_camera, "B")
+    _connect(to_camera, "", offset, "A")
+    _connect(bias, "", offset, "B")
+    if not MEL.connect_material_property(offset, "", unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect world position offset on {WIREFRAME_OVERLAY_MAT_NAME}")
+
+    MEL.recompile_material(mat)
+    save(WIREFRAME_OVERLAY_MAT_PATH)
     return mat
 
 
@@ -1994,6 +2115,7 @@ def main():
         STUDIO_FLOOR_MI_NAME, STUDIO_FLOOR_MI_PATH, floor_mat, STUDIO_FLOOR_MAT_PATH,
         STUDIO_FLOOR_VECTORS, STUDIO_FLOOR_SCALARS)
     create_or_update_part_highlight_material()
+    create_or_update_wireframe_overlay_material()
     profile = create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     manny_profile = create_or_update_character_profile_manny()

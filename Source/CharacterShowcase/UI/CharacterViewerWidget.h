@@ -215,10 +215,45 @@ public:
 	static float ComputePanelWidth(float ViewportWidth, float Fraction, float MinWidth, float MaxWidth);
 
 	// Conservative line height (Slate units) for a Roboto font of FontSize
-	// points, and the description scroll height that shows MinLines lines
-	// before it starts scrolling.
+	// points. Only the fallback of MeasureTextLinesHeight() when Slate's font
+	// services are unavailable.
 	static float EstimateLineHeight(int32 FontSize);
-	static float ComputeDescriptionMaxHeight(int32 FontSize, int32 MinLines);
+
+	// Height (Slate units) of exactly Lines lines of wrapped UTextBlock text in
+	// Font, as Slate lays it out at LayoutScale (DPI scale): each line is a
+	// whole number of pixels at that scale (font max character height +
+	// |ShadowOffset.Y|, FSlateTextRun::GetMaxHeight), so a box this tall shows
+	// Lines whole lines and none of the next one. Measured with a temporary
+	// STextBlock (SlatePrepass) through the Slate font measure service; falls
+	// back to Lines * EstimateLineHeight() when Slate is not initialized.
+	static float MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0));
+
+	// DescriptionSizeBox max height that shows exactly Lines whole lines
+	// (= MeasureTextLinesHeight; the ScrollBox/TextBlock add no vertical padding).
+	static float ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale = 1.f, FVector2D ShadowOffset = FVector2D(1.0, 1.0));
+
+	// When true (default), DescriptionScroll's parent SizeBox (DescriptionSizeBox
+	// in the generated tree) gets a max height of exactly DescriptionVisibleLines
+	// whole lines of DescriptionText's font at the current DPI scale, so the
+	// last visible line is never cut in half (2026-10-01 captures showed 6.5
+	// lines at 720p/1080p). Re-applied from NativeTick() only when the DPI
+	// scale or the font changes. Turn off in the WBP's Class Defaults to keep
+	// a designer-set height.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout")
+	bool bFitDescriptionToWholeLines = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "1", ClampMax = "40"))
+	int32 DescriptionVisibleLines = DescriptionMinVisibleLines;
+
+	// Applies the whole-line description height for LayoutScale (called every
+	// NativeTick with this widget's geometry scale; public so Editor tests can
+	// drive it). No-op unless bFitDescriptionToWholeLines and DescriptionScroll
+	// sits in a USizeBox.
+	void ApplyDescriptionLineFit(float LayoutScale);
+
+	// Last max height applied by ApplyDescriptionLineFit (0 until applied).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Layout")
+	float GetAppliedDescriptionMaxHeight() const { return AppliedDescriptionMaxHeight; }
 
 	// Builds the default panel tree (RootCanvas > PanelRoot > PanelContent >
 	// NameText / ControlsBox / StatusText / DescriptionSizeBox >
@@ -345,6 +380,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
 	FText GetFallbackInspectionBodyText() const;
 
+	// The INSPECTION section body (both layouts; BuildInspectionSection() puts
+	// it into InspectionBodyText while Inspection is on), built from MEASURED
+	// data of the bound Actor:
+	//   mesh summary  "Triangles 92,178 · Verts 48,705 · Bones 89 · Slots 2 · LODs 3 · Morphs 0"
+	//                 "Skeleton SK_Mannequin · Physics PA_Mannequin" ("measured: n/a" if !bValid)
+	//   one line per slot "M_Torso: 54,012 tris · MI_Manny_02_New · 4 tex, max 4096x4096"
+	//   then "Click a part", or the selected part's authored DisplayName (PartType)
+	//   / Description, "Measured: ..." (GetPartMeasuredStats) or the authored
+	//   notes labelled "Authored: ...", and "Highlight: Material slots |
+	//   Bone markers (N) | Whole mesh".
+	// Just "Click a part" without a bound Actor/Profile. Does not check the
+	// Inspection toggle.
+	UFUNCTION(BlueprintPure, Category = "Viewer|Inspection")
+	FText BuildInspectionText() const;
+
+	// 92178 -> "92,178" (culture-independent, so the panel reads the same on every OS locale).
+	static FString FormatThousands(int64 Value);
+
 	// Test-only accessor (Tests/CharacterViewerGameSmokeTest.cpp, P1 profile-switch
 	// evidence): the actually-rendered NameText text, so a test can confirm the
 	// panel was rebuilt (RefreshUI() ran) rather than only that the underlying
@@ -453,10 +506,10 @@ private:
 	// always show the current toggle state.
 	void BuildDisplaySection(UVerticalBox* Container);
 
-	// INSPECTION section (P2-2): shown only while Inspection is on. Shows
-	// "Click a part" until a part is selected, then its DisplayName/PartType/
-	// Description/TriangleCount/MaterialName/TextureResolution. Rebuilt every
-	// RefreshUI() call; updates InspectionSectionBox/InspectionBodyText.
+	// INSPECTION section (P2-2): shown only while Inspection is on. Body =
+	// BuildInspectionText() (measured mesh/slot numbers, then "Click a part"
+	// or the selected part). Rebuilt every RefreshUI() call; updates
+	// InspectionSectionBox/InspectionBodyText.
 	void BuildInspectionSection(UVerticalBox* Container);
 
 	// Adds one disableable UButton+UTextBlock row to Container, wired to
@@ -484,7 +537,7 @@ private:
 
 	// DISPLAY section (P2-2): Inspection (I) / Wireframe (W) buttons live here
 	// alongside Turntable/Reset/Clean View. Wireframe is disabled (not hidden)
-	// when the profile has no WireframeMaterial.
+	// when APortfolioCharacterActor::IsWireframeAvailable() is false.
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> TurntableButtonText;
 
@@ -519,4 +572,11 @@ private:
 
 	float AppliedPanelWidth = 0.f;
 	FText CaptureStatus;
+
+	// ApplyDescriptionLineFit() cache: re-measure only when one of these changes.
+	float AppliedDescriptionMaxHeight = 0.f;
+	float LastDescriptionFitScale = 0.f;
+	int32 LastDescriptionFitLines = 0;
+	FVector2D LastDescriptionFitShadow = FVector2D::ZeroVector;
+	FSlateFontInfo LastDescriptionFitFont;
 };

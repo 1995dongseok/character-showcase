@@ -185,6 +185,14 @@ APortfolioCharacterActor::APortfolioCharacterActor()
 	{
 		BoneMarkerMesh = BoneMarkerMeshFinder.Object;
 	}
+
+	// Shaded wireframe overlay (EViewerWireframeMode::Overlay). Missing ->
+	// Wireframe falls back to the profile's slot-replacing WireframeMaterial.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> WireframeOverlayFinder(TEXT("/Game/Portfolio/Materials/M_WireframeOverlay.M_WireframeOverlay"));
+	if (WireframeOverlayFinder.Succeeded())
+	{
+		WireframeOverlayMaterial = WireframeOverlayFinder.Object;
+	}
 }
 
 void APortfolioCharacterActor::PostInitializeComponents()
@@ -244,6 +252,7 @@ void APortfolioCharacterActor::ClearRuntimeState()
 	SelectedPartId = NAME_None;
 	ActiveHighlightMode = EViewerHighlightMode::None;
 	bWireframeEnabled = false;
+	bLoggedTintSuppressedByWireframe = false;
 
 	// Turntable enabled/disabled state intentionally persists across a profile
 	// switch (see Docs/CHARACTER_VIEWER_SETUP.md section 4); only rotation resets.
@@ -484,11 +493,13 @@ void APortfolioCharacterActor::ApplyMaterialState()
 	// 2. Current variant's slot overrides.
 	ApplyVariantOverrides();
 
-	// 3. Wireframe over every slot. Mesh->GetNumMaterials() is 0 without an
-	// assigned SkeletalMesh (e.g. an editor test with no content asset);
-	// GetNumOverrideMaterials() still reflects any slot step 2 populated, so
-	// every slot that is actually in use gets wireframed.
-	if (bWireframeEnabled && Profile && Profile->WireframeMaterial)
+	// 3. Legacy wireframe (ReplaceSlots mode only; the default Overlay mode is
+	// drawn by ApplyOverlayState() and leaves every slot alone) over every
+	// slot. Mesh->GetNumMaterials() is 0 without an assigned SkeletalMesh
+	// (e.g. an editor test with no content asset); GetNumOverrideMaterials()
+	// still reflects any slot step 2 populated, so every slot that is
+	// actually in use gets wireframed.
+	if (GetActiveWireframeMode() == EViewerWireframeMode::ReplaceSlots)
 	{
 		const int32 NumMaterials = FMath::Max(Mesh->GetNumMaterials(), Mesh->GetNumOverrideMaterials());
 		for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
@@ -684,9 +695,8 @@ void APortfolioCharacterActor::ApplyHighlightState()
 		UpdateBoneMarkers(TArray<FName>(), false);
 	}
 
-	const bool bShowOverlay = ActiveHighlightMode == EViewerHighlightMode::WholeMesh
-		|| (ActiveHighlightMode == EViewerHighlightMode::BoneMarkers && bWholeMeshTintWithBoneMarkers);
-	Mesh->SetOverlayMaterial(bShowOverlay ? HighlightOverlayMaterial.Get() : nullptr);
+	// The single overlay slot: Wireframe overlay or selection tint.
+	ApplyOverlayState();
 
 	// Custom Depth is per-component (whole mesh); harmless, kept for a
 	// project-supplied stencil post-process.
@@ -807,9 +817,33 @@ void APortfolioCharacterActor::ClearSelectedPart()
 	SetSelectedPart(NAME_None);
 }
 
+EViewerWireframeMode APortfolioCharacterActor::ResolveWireframeMode() const
+{
+	const bool bHasLegacyMaterial = Profile && Profile->WireframeMaterial;
+	if (bWireframeReplacesSlots && bHasLegacyMaterial)
+	{
+		return EViewerWireframeMode::ReplaceSlots;
+	}
+	if (Profile && WireframeOverlayMaterial)
+	{
+		return EViewerWireframeMode::Overlay;
+	}
+	return bHasLegacyMaterial ? EViewerWireframeMode::ReplaceSlots : EViewerWireframeMode::None;
+}
+
+bool APortfolioCharacterActor::IsWireframeAvailable() const
+{
+	return Mesh && ResolveWireframeMode() != EViewerWireframeMode::None;
+}
+
+EViewerWireframeMode APortfolioCharacterActor::GetActiveWireframeMode() const
+{
+	return bWireframeEnabled ? ResolveWireframeMode() : EViewerWireframeMode::None;
+}
+
 bool APortfolioCharacterActor::SetWireframeEnabled(bool bEnabled)
 {
-	if (!Mesh || !Profile || !Profile->WireframeMaterial)
+	if (!Mesh || (bEnabled && !IsWireframeAvailable()))
 	{
 		return false;
 	}
@@ -818,9 +852,48 @@ bool APortfolioCharacterActor::SetWireframeEnabled(bool bEnabled)
 
 	// Off re-selects the current variant by id (never a snapshotted override
 	// array) and re-applies the part highlight; on keeps the highlighted
-	// slots highlighted. Both come from recomputing every slot.
-	ApplyMaterialState();
+	// slots highlighted. Slots, markers and the single overlay slot (wireframe
+	// overlay vs. selection tint) are all recomputed from the current state.
+	ApplyHighlightState();
 	return true;
+}
+
+void APortfolioCharacterActor::ApplyOverlayState()
+{
+	if (!Mesh)
+	{
+		return;
+	}
+
+	const bool bWireframeOverlay = GetActiveWireframeMode() == EViewerWireframeMode::Overlay;
+	const bool bWantsTint = ActiveHighlightMode == EViewerHighlightMode::WholeMesh
+		|| (ActiveHighlightMode == EViewerHighlightMode::BoneMarkers && bWholeMeshTintWithBoneMarkers);
+
+	if (bWireframeOverlay && bWantsTint)
+	{
+		// One overlay slot per component: the wireframe wins. The selection
+		// keeps Custom Depth (stencil 1) and the INSPECTION text.
+		if (!bLoggedTintSuppressedByWireframe)
+		{
+			UE_LOG(LogTemp, Log, TEXT("APortfolioCharacterActor: Wireframe overlay is on; the whole-mesh selection tint for part '%s' is not shown (Custom Depth only) until Wireframe is turned off."), *SelectedPartId.ToString());
+			bLoggedTintSuppressedByWireframe = true;
+		}
+	}
+	else
+	{
+		bLoggedTintSuppressedByWireframe = false;
+	}
+
+	UMaterialInterface* Overlay = nullptr;
+	if (bWireframeOverlay)
+	{
+		Overlay = WireframeOverlayMaterial.Get();
+	}
+	else if (bWantsTint)
+	{
+		Overlay = HighlightOverlayMaterial.Get();
+	}
+	Mesh->SetOverlayMaterial(Overlay);
 }
 
 FViewerMeshStats APortfolioCharacterActor::GetMeshStats() const

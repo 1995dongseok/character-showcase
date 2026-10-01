@@ -17,7 +17,9 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Styling/SlateTypes.h"
+#include "Widgets/Text/STextBlock.h"
 
 void UCharacterViewerButtonBinding::HandleClicked()
 {
@@ -89,9 +91,77 @@ float UCharacterViewerWidget::EstimateLineHeight(int32 FontSize)
 	return static_cast<float>(FMath::Max(1, FontSize)) * (96.f / 72.f) * 1.25f;
 }
 
-float UCharacterViewerWidget::ComputeDescriptionMaxHeight(int32 FontSize, int32 MinLines)
+float UCharacterViewerWidget::MeasureTextLinesHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset)
 {
-	return FMath::CeilToFloat(EstimateLineHeight(FontSize) * static_cast<float>(FMath::Max(1, MinLines))) + 4.f;
+	const int32 SafeLines = FMath::Max(1, Lines);
+	const float SafeScale = LayoutScale > KINDA_SMALL_NUMBER ? LayoutScale : 1.f;
+	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer() && Font.HasValidFont())
+	{
+		// Same layout path as the panel's wrapped UTextBlock (FTextBlockLayout +
+		// FSlateTextRun): each line is GetMaxCharacterHeight(Font, Scale) +
+		// |ShadowOffset.Y| * Scale pixels. Measuring "1\n2\n...\nN" through a
+		// real STextBlock keeps this exact instead of re-deriving the formula.
+		TArray<FString> LineTexts;
+		for (int32 Index = 1; Index <= SafeLines; ++Index)
+		{
+			LineTexts.Add(FString::FromInt(Index));
+		}
+		const TSharedRef<STextBlock> Probe = SNew(STextBlock)
+			.Text(FText::FromString(FString::Join(LineTexts, TEXT("\n"))))
+			.Font(Font)
+			.ShadowOffset(ShadowOffset);
+		Probe->SlatePrepass(SafeScale);
+		const float Height = static_cast<float>(Probe->GetDesiredSize().Y);
+		if (Height > 0.f)
+		{
+			return Height;
+		}
+	}
+	return EstimateLineHeight(FMath::RoundToInt(Font.Size)) * static_cast<float>(SafeLines);
+}
+
+float UCharacterViewerWidget::ComputeDescriptionMaxHeight(const FSlateFontInfo& Font, int32 Lines, float LayoutScale, FVector2D ShadowOffset)
+{
+	// DescriptionScroll (ScrollBox) and DescriptionText (Margin 0) add no
+	// vertical padding, so the box height is exactly the text height.
+	return MeasureTextLinesHeight(Font, Lines, LayoutScale, ShadowOffset);
+}
+
+void UCharacterViewerWidget::ApplyDescriptionLineFit(float LayoutScale)
+{
+	if (!bFitDescriptionToWholeLines || !DescriptionScroll || !DescriptionText || !(LayoutScale > KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	USizeBox* DescriptionBox = Cast<USizeBox>(DescriptionScroll->GetParent());
+	if (!DescriptionBox)
+	{
+		return;
+	}
+
+	const FSlateFontInfo Font = DescriptionText->GetFont();
+	const FVector2D Shadow = DescriptionText->GetShadowOffset();
+	const int32 Lines = FMath::Max(1, DescriptionVisibleLines);
+	if (AppliedDescriptionMaxHeight > 0.f && FMath::IsNearlyEqual(LastDescriptionFitScale, LayoutScale, 1e-4f)
+		&& LastDescriptionFitLines == Lines && LastDescriptionFitShadow.Equals(Shadow) && LastDescriptionFitFont.IsIdenticalTo(Font))
+	{
+		return;
+	}
+
+	const float Height = ComputeDescriptionMaxHeight(Font, Lines, LayoutScale, Shadow);
+	if (Height <= 0.f)
+	{
+		return;
+	}
+	if (!FMath::IsNearlyEqual(DescriptionBox->GetMaxDesiredHeight(), Height, 0.01f))
+	{
+		DescriptionBox->SetMaxDesiredHeight(Height);
+	}
+	AppliedDescriptionMaxHeight = Height;
+	LastDescriptionFitScale = LayoutScale;
+	LastDescriptionFitLines = Lines;
+	LastDescriptionFitShadow = Shadow;
+	LastDescriptionFitFont = Font;
 }
 
 bool UCharacterViewerWidget::BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacterViewerLayoutWidgets& Out)
@@ -167,15 +237,11 @@ bool UCharacterViewerWidget::BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacte
 		StatusSlot->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
 	}
 
-	// Description: wraps, and shows at least DescriptionMinVisibleLines lines
-	// before it scrolls (instead of pushing the controls/lists off screen).
-	DescriptionSize->SetMaxDesiredHeight(ComputeDescriptionMaxHeight(DefaultDescriptionFontSize, DescriptionMinVisibleLines));
-	DescriptionSize->SetContent(DescriptionScrollBox);
-	if (UVerticalBoxSlot* DescriptionSlot = PanelContent->AddChildToVerticalBox(DescriptionSize))
-	{
-		DescriptionSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 4.f));
-	}
-	DescriptionScrollBox->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
+	// Description: wraps, and shows exactly DescriptionMinVisibleLines WHOLE
+	// lines before it scrolls (instead of pushing the controls/lists off
+	// screen, and without a half-cut last line). The stored height is for DPI
+	// scale 1.0; at runtime ApplyDescriptionLineFit() re-fits it to the actual
+	// DPI scale, since line heights are whole pixels per scale.
 	{
 		FSlateFontInfo Font = Description->GetFont();
 		Font.Size = DefaultDescriptionFontSize;
@@ -183,6 +249,13 @@ bool UCharacterViewerWidget::BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacte
 		Description->SetFont(Font);
 	}
 	Description->SetAutoWrapText(true);
+	DescriptionSize->SetMaxDesiredHeight(ComputeDescriptionMaxHeight(Description->GetFont(), DescriptionMinVisibleLines, 1.f, Description->GetShadowOffset()));
+	DescriptionSize->SetContent(DescriptionScrollBox);
+	if (UVerticalBoxSlot* DescriptionSlot = PanelContent->AddChildToVerticalBox(DescriptionSize))
+	{
+		DescriptionSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 4.f));
+	}
+	DescriptionScrollBox->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
 	DescriptionScrollBox->AddChild(Description);
 
 	// Without an explicit Fill slot size a VerticalBox gives every child only
@@ -519,6 +592,135 @@ FText UCharacterViewerWidget::GetFallbackInspectionBodyText() const
 	return InspectionBodyText ? InspectionBodyText->GetText() : FText::GetEmpty();
 }
 
+FString UCharacterViewerWidget::FormatThousands(int64 Value)
+{
+	const bool bNegative = Value < 0;
+	FString Digits = FString::Printf(TEXT("%lld"), bNegative ? -Value : Value);
+	FString Result;
+	const int32 Length = Digits.Len();
+	for (int32 Index = 0; Index < Length; ++Index)
+	{
+		if (Index > 0 && (Length - Index) % 3 == 0)
+		{
+			Result.AppendChar(TEXT(','));
+		}
+		Result.AppendChar(Digits[Index]);
+	}
+	return bNegative ? TEXT("-") + Result : Result;
+}
+
+FText UCharacterViewerWidget::BuildInspectionText() const
+{
+	// U+00B7 middle dot (present in the default Roboto font).
+	const FString Dot = TEXT(" · ");
+	auto NameOr = [](const FName& Name, const TCHAR* Fallback)
+	{
+		return Name == NAME_None ? FString(Fallback) : Name.ToString();
+	};
+
+	TArray<FString> Lines;
+	const APortfolioCharacterActor* Actor = WeakActor.Get();
+	if (Actor && Actor->Profile)
+	{
+		// 1. Measured mesh summary (LOD0 render data, skeleton, materials).
+		const FViewerMeshStats Mesh = Actor->GetMeshStats();
+		if (Mesh.bValid)
+		{
+			Lines.Add(FString::Printf(TEXT("Triangles %s%sVerts %s%sBones %s%sSlots %s%sLODs %s%sMorphs %s"),
+				*FormatThousands(Mesh.Triangles), *Dot,
+				*FormatThousands(Mesh.Vertices), *Dot,
+				*FormatThousands(Mesh.Bones), *Dot,
+				*FormatThousands(Mesh.MaterialSlots), *Dot,
+				*FormatThousands(Mesh.LODs), *Dot,
+				*FormatThousands(Mesh.MorphTargets)));
+			Lines.Add(FString::Printf(TEXT("Skeleton %s%sPhysics %s"),
+				*NameOr(Mesh.SkeletonName, TEXT("none")), *Dot, *NameOr(Mesh.PhysicsAssetName, TEXT("none (parts not clickable)"))));
+		}
+		else
+		{
+			Lines.Add(TEXT("measured: n/a"));
+		}
+
+		// 2. One line per material slot (the mesh asset's own slot material).
+		for (const FViewerSlotStats& SlotStats : Actor->GetSlotStats())
+		{
+			Lines.Add(FString::Printf(TEXT("%s: %s tris%s%s%s%s"),
+				*NameOr(SlotStats.SlotName, TEXT("(unnamed slot)")),
+				*FormatThousands(SlotStats.Triangles), *Dot,
+				*NameOr(SlotStats.MaterialName, TEXT("no material")), *Dot,
+				*SlotStats.TextureSummary));
+		}
+		Lines.Add(FString());
+	}
+
+	// 3. Selected part: authored identity, measured (or authored) numbers, highlight mode.
+	FViewerPartInfo Info;
+	if (!Actor || !GetSelectedPartInfo(Info))
+	{
+		Lines.Add(TEXT("Click a part"));
+		return FText::FromString(FString::Join(Lines, TEXT("\n")));
+	}
+
+	const FString PartType = Info.PartType.ToString();
+	Lines.Add(PartType.IsEmpty()
+		? Info.DisplayName.ToString()
+		: FString::Printf(TEXT("%s (%s)"), *Info.DisplayName.ToString(), *PartType));
+	if (!Info.Description.IsEmpty())
+	{
+		Lines.Add(Info.Description.ToString());
+	}
+
+	FViewerSlotStats PartStats;
+	if (Actor->GetPartMeasuredStats(Info.Id, PartStats))
+	{
+		Lines.Add(FString::Printf(TEXT("Measured: %s tris%s%s%s%s%s%s"),
+			*FormatThousands(PartStats.Triangles), *Dot,
+			*NameOr(PartStats.SlotName, TEXT("(unnamed slot)")), *Dot,
+			*NameOr(PartStats.MaterialName, TEXT("no material")), *Dot,
+			*PartStats.TextureSummary));
+	}
+	else
+	{
+		TArray<FString> Notes;
+		if (Info.TriangleCount > 0)
+		{
+			Notes.Add(FString::Printf(TEXT("%s tris"), *FormatThousands(Info.TriangleCount)));
+		}
+		if (!Info.MaterialName.IsEmpty())
+		{
+			Notes.Add(Info.MaterialName.ToString());
+		}
+		if (!Info.TextureResolution.IsEmpty())
+		{
+			Notes.Add(Info.TextureResolution.ToString());
+		}
+		Lines.Add(FString::Printf(TEXT("Authored: %s"), Notes.Num() > 0 ? *FString::Join(Notes, *Dot) : TEXT("none")));
+	}
+
+	FString Highlight;
+	switch (Actor->GetActiveHighlightMode())
+	{
+	case EViewerHighlightMode::MaterialSlots:
+		Highlight = TEXT("Material slots");
+		break;
+	case EViewerHighlightMode::BoneMarkers:
+		Highlight = FString::Printf(TEXT("Bone markers (%d)"), Actor->GetBoneMarkerBoneNames().Num());
+		break;
+	case EViewerHighlightMode::WholeMesh:
+		// One overlay slot per mesh: the Wireframe overlay wins (Custom Depth only).
+		Highlight = Actor->GetActiveWireframeMode() == EViewerWireframeMode::Overlay
+			? TEXT("Whole mesh (tint hidden while Wireframe is on)")
+			: TEXT("Whole mesh");
+		break;
+	default:
+		Highlight = TEXT("hidden");
+		break;
+	}
+	Lines.Add(FString::Printf(TEXT("Highlight: %s"), *Highlight));
+
+	return FText::FromString(FString::Join(Lines, TEXT("\n")));
+}
+
 FText UCharacterViewerWidget::GetGeneratedButtonText(ECharacterViewerButtonKind Kind, FName Id) const
 {
 	for (const TObjectPtr<UCharacterViewerButtonBinding>& Binding : ButtonBindings)
@@ -619,6 +821,10 @@ void UCharacterViewerWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	// This UserWidget fills the viewport (AddToViewport), so its local size is
 	// the viewport size in Slate units (DPI scale already applied).
 	ApplyAutoPanelWidth(static_cast<float>(MyGeometry.GetLocalSize().X));
+
+	// Text is laid out at the accumulated layout scale (DPI scale), so the
+	// whole-line description height is fitted for that scale.
+	ApplyDescriptionLineFit(MyGeometry.Scale);
 }
 
 void UCharacterViewerWidget::ApplyAutoPanelWidth(float ViewportWidth)
@@ -883,7 +1089,7 @@ void UCharacterViewerWidget::BuildDisplaySection(UVerticalBox* Container)
 	InspectionButtonText = InspectionLabel;
 
 	const APortfolioCharacterActor* Actor = WeakActor.Get();
-	const bool bWireframeAvailable = Actor && Actor->Profile && Actor->Profile->WireframeMaterial != nullptr;
+	const bool bWireframeAvailable = Actor && Actor->IsWireframeAvailable();
 	const bool bWireframeOn = IsWireframeEnabled();
 	WireframeButton = AddButtonRow(SectionBox, FText::FromString(bWireframeOn ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")), bWireframeAvailable, bWireframeOn, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
 
@@ -918,22 +1124,7 @@ void UCharacterViewerWidget::BuildInspectionSection(UVerticalBox* Container)
 	const bool bShowInspection = IsInspectionEnabled();
 	if (bShowInspection)
 	{
-		FViewerPartInfo Info;
-		if (GetSelectedPartInfo(Info))
-		{
-			BodyText->SetText(FText::FromString(FString::Printf(
-				TEXT("%s (%s)\n%s\nTriangles: %d\nMaterial: %s\nTexture: %s"),
-				*Info.DisplayName.ToString(),
-				*Info.PartType.ToString(),
-				*Info.Description.ToString(),
-				Info.TriangleCount,
-				*Info.MaterialName.ToString(),
-				*Info.TextureResolution.ToString())));
-		}
-		else
-		{
-			BodyText->SetText(FText::FromString(TEXT("Click a part")));
-		}
+		BodyText->SetText(BuildInspectionText());
 	}
 	SectionBox->AddChildToVerticalBox(BodyText);
 	SectionBox->SetVisibility(bShowInspection ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
