@@ -40,7 +40,7 @@ Unreal을 처음 여는 캐릭터 아티스트를 위한 순서다. 위에서부
 
 ![뷰어 화면](Images/viewer_ui_1280x720.png)
 
-**확인 방법**: 왼쪽에 Manny, 오른쪽에 패널이 보인다 — 맨 위 이름 `Manny (placeholder)`, 그 아래 **CHARACTER**(Manny / Tutorial Mannequin / Skeletal Cube), **VIEW**(Face / Upper Body / Full Body), **DISPLAY**(Turntable, Reset Camera, Clean View, Inspection, Wireframe, Screenshot (F12), Turntable Shots (Shift+F12)), 설명 글, **ANIMATION**(Idle / Walk / Jog / Pose), **EXPRESSION**(Neutral). 패널 위에서 휠을 굴리면 아래 목록이 더 나온다. 지금 선택된 항목에는 `▸` 표시가 붙는다. 왼쪽 드래그로 캐릭터가 돌아가면 성공.
+**확인 방법**: 왼쪽에 Manny, 오른쪽에 패널이 보인다 — 맨 위 이름 `Manny (placeholder)`, 그 아래 **CHARACTER**(Manny (placeholder) / Tutorial Mannequin (placeholder) / Skeletal Cube (placeholder)), **VIEW**(Face / Upper Body / Full Body), **DISPLAY**(`Turntable: Off (Space)`, `Reset Camera (R)`, `Clean View (H)`, `Inspection: Off (I)`, `Wireframe: Off (W)`, `LOD: Auto (L)`, `Backdrop: Studio (B)`, `Ruler: Off (G)`, `Light: Studio (N)`, `Screenshot (F12)`, `Turntable Shots (Shift+F12)`), 설명 글, **ANIMATION**(Idle / Walk / Jog / Pose), **PLAYBACK**(`Pause (P)` `◀ ([)` `▶ (])` / `Slower (-)` `Rate 1.00 (0)` `Faster (=)` + 시간 줄), **EXPRESSION**(Neutral), **APPEARANCE**(Default / Grid). Inspection(I)을 켜면 맨 아래에 **INSPECTION**(실측 수치)이 생긴다. 패널 위에서 휠을 굴리면 아래 목록이 더 나온다. 지금 선택된(또는 켜진) 항목에는 앞에 작은 `▶` 표시가 붙는다. (위 그림은 LOD·Backdrop·Ruler·Light 버튼과 PLAYBACK이 추가되기 전 화면이라 DISPLAY 버튼이 7개다.) 왼쪽 드래그로 캐릭터가 돌아가면 성공.
 
 ![플레이 데모](Images/playdemo_run.png)
 
@@ -63,18 +63,25 @@ Unreal을 처음 여는 캐릭터 아티스트를 위한 순서다. 위에서부
 1. **Bone Names가 Physics Asset의 본 이름과 다르다** → 그 파츠는 클릭해도 선택되지 않는다. 메시를 열어(더블클릭) **Skeleton Tree**의 이름을 대소문자까지 그대로 복사한다. 메시에 **Physics Asset이 없으면 파츠 클릭 자체가 안 된다**(Skeletal Mesh 에디터 → Asset Details → Physics → **Physics Asset** 칸 확인).
 2. **Profile Library에 추가하지 않았다** → 패널 CHARACTER 목록에 내 캐릭터 버튼이 없다(⑧).
 
-**확인 방법**: Play 또는 RunViewer에서 CHARACTER 목록에 내 캐릭터 이름이 보이고, 누르면 캐릭터가 바뀌며 이름/설명/ANIMATION 목록이 내 값으로 바뀐다. I를 켜고 몸통을 클릭하면 INSPECTION에 파츠 이름이 나오고 그 부위가 마젠타로 표시된다(슬롯이 맞으면 슬롯 전체, 아니면 관절 위치에 작은 구).
+**확인 방법**: Play 또는 RunViewer에서 CHARACTER 목록에 내 캐릭터 이름이 보이고, 누르면 캐릭터가 바뀌며 이름/설명/ANIMATION 목록이 내 값으로 바뀐다. I를 켜고 몸통을 클릭하면 INSPECTION에 파츠 이름이 나오고 그 부위가 마젠타로 표시된다(슬롯이 맞으면 슬롯 전체, 아니면 관절 위치에 지름 8 cm 구).
 
 ## 4. 검증
 
-`Tools\ValidateProfiles.bat` 더블클릭 → 창 없이 프로젝트를 읽어 모든 `CharacterProfileData`를 검사하고(`Scripts/ValidateProfiles.py`, 별도 작업으로 추가 중 — 아직 없으면 "not present yet"만 출력하고 끝난다), 마지막에 요약을 보여 준다:
+`Tools\ValidateProfiles.bat` 더블클릭 → 창 없이 프로젝트를 읽어 `Content/Portfolio/Data` 아래 모든 `CharacterProfileData`를 검사하고(`Scripts/ValidateProfiles.py`, 몇 분 걸린다), 마지막에 로그의 `[ValidateProfiles]` 줄을 다시 보여 준다:
 
 ```
-[ValidateProfiles] DA_Character_Manny: E=0 W=0 I=3
-[ValidateProfiles] DA_<캐릭터>: E=0 W=2 I=1
+[ValidateProfiles] Profile paths: /Game/Portfolio/Data
+[ValidateProfiles] /Game/Portfolio/Data/DA_Character: E=0 W=0 I=0
+[ValidateProfiles] /Game/Portfolio/Data/DA_Character_Cube: E=0 W=2 I=0
+[ValidateProfiles]   [Warning][Mesh] Skeletal Mesh 'SkeletalCube'에 Physics Asset이 없어 ... (SkeletalMesh.PhysicsAsset)
+[ValidateProfiles]   [Warning][Mesh] 스케일 확인: 높이 25 cm ... (SkeletalMesh)
+[ValidateProfiles] /Game/Portfolio/Data/DA_Character_Manny: E=0 W=0 I=0
+[ValidateProfiles] /Game/Portfolio/Data/DA_<캐릭터>: E=1 W=0 I=0
+[ValidateProfiles]   [Error][Part] ... (Parts[2].BoneNames[0])
+[ValidateProfiles] TOTAL profiles=4 E=1 W=2 I=0 load_failures=0 RESULT=FAIL
 ```
 
-**확인 방법**: 내 에셋 줄의 **E=0**(오류 없음). W(경고)는 읽어 보고 의도한 것이면 둔다. 전체 로그는 `Saved\Logs\ValidateProfiles.log`. (위 숫자는 형식 예시이며 실제 값은 스크립트 결과를 본다.)
+**확인 방법**: 내 에셋 줄이 **E=0**(오류 없음)이고 마지막 줄이 `RESULT=PASS`. 이 .bat은 Error가 있어도 `Exit code: 0`으로 끝나므로 종료 코드가 아니라 이 두 줄로 판단한다. 문제 줄 끝 괄호는 Details 패널의 위치다(`Parts[2]` = Parts 배열 3번째 행). W(경고)는 읽어 보고 의도한 것이면 둔다 — 지금의 `DA_Character_Cube`는 W=2(Physics Asset 없음, 높이 25 cm)가 정상이다. 전체 로그는 `Saved\Logs\ValidateProfiles.log`, 검사 항목 표는 [CHARACTER_VIEWER_SETUP.md 2.10절](CHARACTER_VIEWER_SETUP.md#210-프로필-검증-도구). (내 캐릭터 줄의 숫자는 형식 예시다.) 뷰어를 실행해 캐릭터를 바꿀 때도 패널 아래 상태 줄에 `프로필 OK` 또는 `프로필 검사: 오류 N · 경고 M`이 6초 뜬다.
 
 ## 5. 촬영
 
@@ -116,7 +123,7 @@ ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=720:-1:flags=lanczos,split[a][
 | 파츠 클릭이 안 된다 | Physics Asset 없음, 또는 Bone Names 불일치 | 3단계 "흔한 실수 1". Inspection(I)이 켜져 있는지, 새로 놓은 배경 소품이 **NoCollision**인지도 확인 |
 | CHARACTER에 내 캐릭터 버튼이 없다 | Profile Library에 미등록 | 3단계 ⑧ → Compile·Save |
 | 표정 버튼을 눌러도 그대로 | 메시에 Morph Target이 없음 / 이름 불일치 | FBX 가져오기에서 **Import Morph Targets** 켜기, Morph Name을 메시 에디터의 **Morph Target Preview** 이름과 똑같이 |
-| Wireframe이 꽉 찬 면처럼 보인다 | 삼각형이 많아 선이 겹침 | Face 구도로 가까이 가서 본다(정상 동작) |
+| Wireframe이 청록으로 꽉 덮여 보인다 | 삼각형이 많아 선이 겹침(Manny LOD0 9만 개) | Face 구도로 가까이 가서 보거나, L로 LOD1/LOD2를 강제로 표시해 본다(정상 동작) |
 | `Preparing Shaders (N)`, 강조/와이어가 회색 체커 | 첫 실행 셰이더 컴파일 중 | 기다린다. Editor에서 한 번 Play해 두면 줄어든다. 패키지에서는 나오지 않는다 |
 | Editor가 에셋을 못 읽음, `.uasset`이 약 130바이트 | **Git LFS** 파일을 안 받음 | `git lfs install` → 저장소 폴더에서 `git lfs pull` |
 | `.bat`이 `editor module missing` | C++ 미빌드 | `Tools\BuildEditor.bat` |

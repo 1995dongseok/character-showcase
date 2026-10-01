@@ -50,7 +50,7 @@ Blender / Maya / ZBrush→Maya에서 캐릭터를 내보내 이 프로젝트에 
 ## 5. Material Slot 이름 = 파츠
 
 - DCC의 재질(Blender Material / Maya Shader) 하나가 UE의 **Material Slot** 하나가 되고, 슬롯 이름은 그 재질 이름이다. **파츠별로 재질을 나누고 이름을 붙인다**: 예 `M_Head`, `M_Body`, `M_Hair`, `M_Cloth`, `M_Eyes`.
-- Data Asset **Parts**의 **Material Slot Names**에 그 이름(예 Head 파츠 = `M_Head`)을 적으면 ① 선택 시 정확히 그 슬롯만 마젠타로 칠해지고 ② 그 파츠의 삼각형 수·재질·텍스처를 뷰어가 직접 잰다. 슬롯이 1개뿐이면 관절 위치의 작은 구로만 표시된다.
+- Data Asset **Parts**의 **Material Slot Names**에 그 이름(예 Head 파츠 = `M_Head`)을 적으면 ① 선택 시 정확히 그 슬롯만 마젠타로 칠해지고 ② 그 파츠의 삼각형 수·재질·텍스처를 뷰어가 직접 잰다. 슬롯이 1개뿐이면 Bone Names의 관절 위치에 지름 8 cm 마젠타 구로만 표시된다.
 - Material Variant의 **Slot Name**도 같은 이름을 쓴다. 이름은 영문·고유·고정(나중에 바꾸면 Parts/Variants가 끊긴다). 보통 3~8개(슬롯마다 드로우 콜이 늘어난다).
 
 **확인 방법**: 메시 에디터 → Asset Details → **Material Slots** 목록의 이름이 의도한 파츠 이름과 같다. 뷰어에서 파츠 클릭 시 그 부위 전체가 마젠타.
@@ -66,7 +66,7 @@ Blender / Maya / ZBrush→Maya에서 캐릭터를 내보내 이 프로젝트에 
 
 ## 7. LOD (선택)
 
-뷰어는 가까이서 보므로 LOD0만 있어도 된다. 필요하면 DCC에서 `_LOD1…`을 만들어 함께 가져오거나 메시 에디터 **LOD Settings → Number of LODs**로 자동 생성한다. 뷰어는 LOD 개수를 측정해 보여 줄 수 있다(9절).
+뷰어는 가까이서 보므로 LOD0만 있어도 된다. 필요하면 DCC에서 `_LOD1…`을 만들어 함께 가져오거나 메시 에디터 **LOD Settings → Number of LODs**로 자동 생성한다. 뷰어는 LOD 개수를 INSPECTION에 보여 주고, **L** 키(`LOD: Auto (L)`)로 Auto → LOD0 → LOD1 → … 를 강제로 표시해 LOD별 모양과 삼각형 수를 확인할 수 있다(9절).
 
 ## 8. 애니메이션 가져오기
 
@@ -78,13 +78,13 @@ Blender / Maya / ZBrush→Maya에서 캐릭터를 내보내 이 프로젝트에 
 
 ## 9. 뷰어가 메시에서 자동으로 재는 값
 
-손으로 적지 않아도 메시에서 측정하는 값(`GetMeshStats` / `GetSlotStats` / `GetPartMeasuredStats`): LOD0 **삼각형·정점 수**, **본 수**, **Material Slot 수**와 슬롯별 삼각형·재질 이름·텍스처 해상도 요약, **LOD 수**, **Morph 수**, Skeleton/Physics Asset 이름. 파츠 수치는 그 파츠의 **Material Slot Names**를 합산한다(5절이 중요한 이유).
-INSPECTION 패널이 이 측정값을 표시하는지, 아니면 아직 Parts의 손으로 적은 메모(**Triangle Count / Material Name / Texture Resolution**)를 표시하는지는 [CHARACTER_VIEWER_SETUP.md](CHARACTER_VIEWER_SETUP.md) 0절·4.1절의 최신 상태를 본다(2026-10-01 기준: 측정 API만 있고 패널은 메모 값 표시). 메모를 쓴다면 placeholder의 숫자를 남겨 두지 말고 내 캐릭터 기준으로 다시 적는다.
+손으로 적지 않아도 메시에서 측정하는 값(`GetMeshStats` / `GetSlotStats` / `GetPartMeasuredStats`): **삼각형·정점 수**(기본 LOD0, L로 강제한 LOD가 있으면 그 LOD 기준), **본 수**, **Material Slot 수**와 슬롯별 삼각형·재질 이름·텍스처 해상도 요약, **LOD 수**, **Morph 수**, **키(Height, Import 경계 높이 cm)**, Skeleton/Physics Asset 이름. 파츠 수치는 그 파츠의 **Material Slot Names**를 합산한다(5절이 중요한 이유).
+Inspection(I)을 켜면 INSPECTION 패널이 이 측정값(메시 전체 요약 + 슬롯별 줄)을 항상 보여 준다. 선택한 파츠는 Material Slot Names가 메시 슬롯과 맞으면 `Measured: …`(실측), 아니면 Parts에 손으로 적은 메모(**Triangle Count / Material Name / Texture Resolution**)를 `Authored: …`로 구분해 보여 준다([CHARACTER_VIEWER_SETUP.md](CHARACTER_VIEWER_SETUP.md) 2절 ⑦). 메모를 쓴다면 placeholder의 숫자를 남겨 두지 말고 내 캐릭터 기준으로 다시 적는다.
 
 ## 10. 커밋 전 체크리스트
 
 - [ ] `git lfs install`을 한 번 했다. `.uasset`/`.umap`은 `.gitattributes`에 의해 LFS로 올라간다 — `git add` 후 `git lfs status`에 내 에셋이 LFS로 보인다.
-- [ ] **원본 제작 파일은 저장소에 넣지 않는다.** `.gitignore`가 `*.ztl *.zpr *.ma *.mb *.spp *.psd *.psb`를 막지만 `.blend`, `.fbx`, `.obj`, 원본 PNG/TGA/EXR은 막지 않는다 → 저장소 밖 폴더(예: `D:\Art\<캐릭터>\`)에 둔다. 가져온 데이터는 `.uasset` 안에 들어 있으므로 FBX가 없어도 프로젝트는 열린다.
+- [ ] **원본 제작 파일은 저장소에 넣지 않는다.** `.gitignore`가 `*.ztl *.zpr *.ma *.mb *.spp *.psd *.psb *.blend *.blend1 *.fbx *.obj *.abc *.tif *.tiff *.exr *.sbs *.sbsar`를 막지만 원본 PNG/TGA는 막지 않는다 → 원본은 전부 저장소 밖 폴더(예: `D:\Art\<캐릭터>\`)에 둔다. 가져온 데이터는 `.uasset` 안에 들어 있으므로 FBX가 없어도 프로젝트는 열린다.
 - [ ] `Saved/`, `Intermediate/`, `Binaries/`, `DerivedDataCache/`는 커밋하지 않는다(이미 무시됨).
 - [ ] `Tools\ValidateProfiles.bat` → 내 에셋 **E=0**.
 - [ ] `git status`에 의도한 파일만 있다: `Content/Portfolio/Characters/<캐릭터>/…`, `Content/Portfolio/Data/DA_<캐릭터>.uasset`, (등록했다면) `Content/Portfolio/Blueprints/BP_CharacterViewerGameMode.uasset`, `Content/Portfolio/Maps/LV_Portfolio.umap`. `.uasset`/`.umap`은 병합이 안 되므로 GameMode·레벨을 다른 사람과 동시에 고치지 않는다.
