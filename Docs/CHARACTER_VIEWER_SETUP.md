@@ -668,6 +668,13 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 
 **미검증**: .bat의 실제 실행(Editor/`-game`/UnrealEditor-Cmd/Build.bat/RunUAT 기동, robocopy·`Compress-Archive` 압축)은 하지 않았다 — 같은 체크아웃에서 패키지·스모크가 돌고 있었기 때문이다. 문서의 Editor 메뉴 경로·FBX 옵션 이름(UE 5.6 Interchange 가져오기 창), 막 받은 저장소의 전체 C++ 빌드·첫 셰이더 컴파일 시간, 일반 GPU의 FPS, 다른 PC에서 패키지 zip 실행은 측정·확인하지 않았다. `ValidateProfiles.bat`의 요약 줄 형식은 `Scripts/ValidateProfiles.py`(별도 작업)의 출력 형식 `[ValidateProfiles] <asset>: E=.. W=.. I=..`을 전제로 한다.
 
+### 6.17 `-game` 자동화 테스트 시작 지연 제거, DCC 원본 gitignore (2026-10-01, Fable)
+
+- **증상**: 1920×1080 `-game` `ViewerCapture`가 테스트를 시작하지 않고 10분을 기다렸다. 로그: `FWaitForInteractiveFrameRate: Game did not reach 10.00 FPS within 600.00 seconds. Current FPS=4`. 원인은 Editor 바이너리로 `-game`을 띄울 때 `FAutomationControllerManager::IsReadyForTests()`가 `UAutomationTestSettings`의 기본값(10 FPS를 5초 유지, 최대 600초 대기)을 요구하는 것인데, 이 PC(Intel UHD 630)는 1080p에서 4 FPS라 끝까지 못 넘는다(720p는 간헐적으로 10 FPS를 넘어 통과했다).
+- **조치**: `Config/DefaultEngine.ini` `[/Script/Engine.AutomationTestSettings]`에 `DefaultInteractiveFramerate=1`, `DefaultInteractiveFramerateDuration=1`, `DefaultInteractiveFramerateWaitTime=30`. 테스트 자체의 대기(latent command)는 그대로다. 패키지 빌드에는 이 게이트가 없다(`WITH_EDITOR`).
+- **같은 커밋 묶음**: `.gitignore`에 `*.blend`, `*.blend1`, `*.fbx`, `*.obj`, `*.abc`, `*.tif`, `*.tiff`, `*.exr`, `*.sbs`, `*.sbsar` 추가(FBX_IMPORT_GUIDE의 "원본은 저장소 밖" 규칙을 강제).
+- **검증**: 이 설정으로 실행한 `-game` 결과는 4절 표의 이후 행 참조(사용자가 PC를 사용 중이면 게임 창을 띄우지 않으므로, 데스크톱이 빈 뒤 실행).
+
 ### 6.18 재생 컨트롤, LOD 표시, 배경 프리셋 (2026-10-01)
 
 **목적**: 특정 프레임의 포즈·변형(어깨/팔꿈치 접힘 등)을 멈춰 놓고 보기, LOD별 메시 품질과 삼각형 수 확인, 단색 배경에서 실루엣 확인. 키·패널 사용법은 1.7절.
