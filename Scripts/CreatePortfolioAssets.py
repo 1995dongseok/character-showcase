@@ -95,6 +95,11 @@ WIREFRAME_MAT_NAME = "M_Wireframe"
 WIREFRAME_MAT_PATH = f"{MATERIALS_PACKAGE}/{WIREFRAME_MAT_NAME}"
 HIGHLIGHT_MAT_NAME = "M_ViewerHighlight"
 HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{HIGHLIGHT_MAT_NAME}"
+# Per-part highlight (Docs/CHARACTER_VIEWER_SETUP.md section 6.11): opaque
+# material put on a selected part's material slots and on the bone marker
+# spheres by APortfolioCharacterActor.
+PART_HIGHLIGHT_MAT_NAME = "M_ViewerPartHighlight"
+PART_HIGHLIGHT_MAT_PATH = f"{MATERIALS_PACKAGE}/{PART_HIGHLIGHT_MAT_NAME}"
 
 TUTORIAL_MESH = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"
 TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Idle.Tutorial_Idle"
@@ -419,11 +424,15 @@ def create_or_update_character_profile():
     profile.set_editor_property("turntable_speed_degrees_per_second", 20.0)
 
     # --- P2-0/P2-1/P2-2 Parts: bone-based, from the physics asset's actual
-    # constraint tree (Docs/CHARACTER_VIEWER_SETUP.md section 13.11 -- 22
-    # bodies across TutorialTPP_PhysicsAsset's 68-bone skeleton). TriangleCount/
-    # MaterialName/TextureResolution are authored data measured once (whole
-    # LOD0/slot 0, since this placeholder mesh is a single render section
-    # under one material -- see the doc's per-part-accuracy limitation note).
+    # constraint tree (Docs/CHARACTER_VIEWER_SETUP.md section 6.9 -- 22
+    # bodies across TutorialTPP_PhysicsAsset's 68-bone skeleton).
+    # material_slot_names stays EMPTY on purpose: TutorialTPP has a single
+    # material slot, so a part cannot be a slot here; the selection highlight
+    # therefore uses bone markers on these BoneNames (EViewerHighlightMode::
+    # BoneMarkers). TriangleCount/MaterialName/TextureResolution are optional
+    # authored notes (whole LOD0/slot 0, shared by every part); for a real
+    # character with per-part slots, fill material_slot_names instead and the
+    # Viewer measures them (APortfolioCharacterActor::GetPartMeasuredStats).
     tri_count = 6118  # LOD0 total (AssetRegistry "Triangles" tag), measured via Python.
     mat_name = "TutorialTPP_Mat"
     tex_res = "N/A (no texture; TutorialTPP_Mat BaseColor is a solid Constant3Vector color)"
@@ -436,6 +445,7 @@ def create_or_update_character_profile():
         part.set_editor_property("description", unreal.Text(description))
         part.set_editor_property("bone_names", [unreal.Name(b) for b in bone_names])
         part.set_editor_property("component_tag", unreal.Name())
+        part.set_editor_property("material_slot_names", [])  # single-slot placeholder: bone markers, see above
         part.set_editor_property("triangle_count", tri_count)
         part.set_editor_property("material_name", unreal.Text(mat_name))
         part.set_editor_property("texture_resolution", unreal.Text(tex_res))
@@ -483,7 +493,7 @@ def measure_skeletal_mesh_extent(mesh):
 
 
 # ---------------------------------------------------------------------------
-# 1a. M_Wireframe / M_ViewerHighlight (P2-3/P2-4 materials)
+# 1a. M_Wireframe / M_ViewerHighlight / M_ViewerPartHighlight (P2-3/P2-4 materials)
 # ---------------------------------------------------------------------------
 
 def validate_material(mat, path, require_wireframe):
@@ -607,6 +617,80 @@ def create_or_update_highlight_material():
     MEL.recompile_material(mat)
 
     save(HIGHLIGHT_MAT_PATH)
+    return mat
+
+
+PART_HIGHLIGHT_COLOR = unreal.LinearColor(1.0, 0.0, 0.8, 1.0)  # same magenta as M_ViewerHighlight, but opaque
+
+
+def validate_part_highlight_material(mat, path):
+    """Minimal read-only shape check for an existing M_ViewerPartHighlight:
+    usable on a skeletal mesh, opaque (it replaces a slot's material, so a
+    translucent one would make the part see-through) and unlit. Never writes
+    to `mat`."""
+    diffs = []
+    try:
+        if mat.get_editor_property("used_with_skeletal_mesh") is not True:
+            diffs.append("used_with_skeletal_mesh is not True")
+    except Exception as exc:
+        diffs.append(f"could not read used_with_skeletal_mesh ({exc!r})")
+
+    try:
+        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_OPAQUE:
+            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_OPAQUE")
+    except Exception as exc:
+        diffs.append(f"could not read blend_mode ({exc!r})")
+
+    try:
+        if mat.get_editor_property("shading_model") != unreal.MaterialShadingModel.MSM_UNLIT:
+            diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected MSM_UNLIT")
+    except Exception as exc:
+        diffs.append(f"could not read shading_model ({exc!r})")
+
+    report_keep(path, diffs)
+
+
+def create_or_update_part_highlight_material():
+    """M_ViewerPartHighlight: unlit, OPAQUE, two-sided, constant magenta
+    emissive. Used by APortfolioCharacterActor for the per-part selection
+    highlight: SetMaterial() on the selected part's material slots
+    (MaterialSlots mode) and on the bone marker spheres (BoneMarkers mode).
+    Opaque so a highlighted slot reads as a solid colour block (not a tint
+    over the original surface) and so it renders identically on the marker
+    spheres.
+
+    CREATE-MISSING-ONLY like the materials above: an existing
+    M_ViewerPartHighlight is validated read-only and never touched."""
+    if EAL.does_asset_exist(PART_HIGHLIGHT_MAT_PATH):
+        mat = EAL.load_asset(PART_HIGHLIGHT_MAT_PATH)
+        log(f"[CreatePortfolioAssets] M_ViewerPartHighlight already exists, preserving (read-only): {PART_HIGHLIGHT_MAT_PATH}")
+        validate_part_highlight_material(mat, PART_HIGHLIGHT_MAT_PATH)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    factory = unreal.MaterialFactoryNew()
+    mat = asset_tools.create_asset(PART_HIGHLIGHT_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, factory)
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {PART_HIGHLIGHT_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created M_ViewerPartHighlight at {PART_HIGHLIGHT_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("wireframe", False)
+    # Required for SetMaterial() on a USkeletalMeshComponent slot (see
+    # create_or_update_wireframe_material()). Static meshes (the marker
+    # spheres) need no usage flag.
+    mat.set_editor_property("used_with_skeletal_mesh", True)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
+    color_node.set_editor_property("constant", PART_HIGHLIGHT_COLOR)
+    MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    MEL.recompile_material(mat)
+
+    save(PART_HIGHLIGHT_MAT_PATH)
     return mat
 
 
@@ -1909,6 +1993,7 @@ def main():
     create_or_update_studio_material_instance(
         STUDIO_FLOOR_MI_NAME, STUDIO_FLOOR_MI_PATH, floor_mat, STUDIO_FLOOR_MAT_PATH,
         STUDIO_FLOOR_VECTORS, STUDIO_FLOOR_SCALARS)
+    create_or_update_part_highlight_material()
     profile = create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     manny_profile = create_or_update_character_profile_manny()

@@ -555,7 +555,12 @@ namespace CharacterViewerGameSmokeTest
 			Test->TestEqual(TEXT("Selected part is 'Torso'"), Actor->GetSelectedPartId(), TorsoPartId);
 			if (Actor->Mesh)
 			{
-				Test->TestNotNull(TEXT("Mesh OverlayMaterial is set (selection highlight) after selecting a part"), Actor->Mesh->GetOverlayMaterial());
+				// Per-part highlight (Docs/CHARACTER_VIEWER_SETUP.md 6.11): the
+				// whole-mesh OverlayMaterial is now only the last-resort
+				// fallback. TutorialTPP's Torso has BoneNames in the skeleton,
+				// so it is shown with bone markers instead of the overlay.
+				Test->TestEqual(TEXT("Torso selection is shown with bone markers"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::BoneMarkers);
+				Test->TestTrue(TEXT("At least one bone marker is visible after selecting a part"), Actor->GetVisibleBoneMarkerCount() > 0);
 				Test->TestTrue(TEXT("Mesh Custom Depth is on after selecting a part"), Actor->Mesh->bRenderCustomDepth != 0);
 			}
 
@@ -606,6 +611,9 @@ namespace CharacterViewerGameSmokeTest
 			if (Actor->Mesh)
 			{
 				Test->TestNull(TEXT("Mesh OverlayMaterial cleared after clicking empty space"), Actor->Mesh->GetOverlayMaterial());
+				// Per-part highlight (6.11): clearing the selection destroys the bone markers.
+				Test->TestEqual(TEXT("No highlight mode after clicking empty space"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::None);
+				Test->TestEqual(TEXT("Bone markers destroyed after clicking empty space"), Actor->GetBoneMarkerCount(), 0);
 			}
 
 			return true;
@@ -752,10 +760,13 @@ namespace CharacterViewerGameSmokeTest
 			Controller->ProjectWorldLocationToScreen(TorsoWorldLocation, ScreenPos);
 			Controller->InspectAtScreenPosition(ScreenPos);
 			Test->TestEqual(TEXT("Torso re-selected before Clean View"), Actor->GetSelectedPartId(), FName(TEXT("Torso")));
-			Test->TestNotNull(TEXT("Overlay material set before Clean View"), Actor->Mesh->GetOverlayMaterial());
+			// Per-part highlight (6.11): bone markers replace the whole-mesh overlay for Torso.
+			Test->TestTrue(TEXT("Bone markers visible before Clean View"), Actor->GetVisibleBoneMarkerCount() > 0);
 
 			Controller->ToggleCleanView();
 			Test->TestNull(TEXT("Clean View removes the selection highlight overlay"), Actor->Mesh->GetOverlayMaterial());
+			Test->TestEqual(TEXT("Clean View hides every bone marker"), Actor->GetVisibleBoneMarkerCount(), 0);
+			Test->TestEqual(TEXT("Clean View reports no active highlight mode"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::None);
 			Test->TestFalse(TEXT("Clean View turns Custom Depth off"), Actor->Mesh->bRenderCustomDepth != 0);
 			Test->TestFalse(TEXT("Actor reports highlight hidden during Clean View"), Actor->IsHighlightVisible());
 			// The selection id itself is preserved (only the visual highlight is hidden), so it can be restored exactly.
@@ -806,7 +817,9 @@ namespace CharacterViewerGameSmokeTest
 			}
 
 			Controller->ToggleCleanView();
-			Test->TestNotNull(TEXT("Leaving Clean View restores the selection highlight overlay"), Actor->Mesh->GetOverlayMaterial());
+			// Per-part highlight (6.11): Torso's highlight is bone markers, not the whole-mesh overlay.
+			Test->TestEqual(TEXT("Leaving Clean View restores the bone-marker highlight"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::BoneMarkers);
+			Test->TestTrue(TEXT("Leaving Clean View shows the bone markers again"), Actor->GetVisibleBoneMarkerCount() > 0);
 			Test->TestTrue(TEXT("Leaving Clean View restores Custom Depth"), Actor->Mesh->bRenderCustomDepth != 0);
 			Test->TestEqual(TEXT("Selection id unchanged by the Clean View round-trip"), Actor->GetSelectedPartId(), TorsoPartId);
 

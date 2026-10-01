@@ -9,12 +9,14 @@
 - **에셋 자동 생성**: `Scripts/CreatePortfolioAssets.py`가 없는 에셋만 만들고, 이미 있는 에셋은 절대 덮어쓰지 않는다(읽기 전용 검증만 함, `[keep] ... OK/DIFFERS`). `Scripts/CreateViewerWidgetLayout.py`는 `WBP_CharacterViewer`에 디자이너 트리가 없을 때만 최소 트리를 만든다. **일상적인 캐릭터 등록(2절)에는 두 스크립트 모두 다시 실행할 필요가 없다** — Editor GUI에서 Data Asset/Blueprint/Level을 직접 편집하면 된다(1절 "언제 스크립트를 실행하지 않는가" 참고).
 - **검증된 것(숫자 있음, 4절 표)**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation 6/6 통과(2026-09-29), Win64 Development 패키지 빌드/실행 스모크 통과, Win64 Shipping 패키지 빌드 성공 + 프로세스 정상 기동/종료 확인(자동화 테스트 미포함), 두 Python 스크립트의 "기존 자산 보존" 동작을 해시 비교로 검증.
 - **2026-09-30 추가 검증(4절 표)**: `-game` 합성 포인터 스모크가 활성 전면 창에서 1/1 통과(이전 실패 3건 해소). Shipping 패키지에 OS 수준 실제 마우스/키보드 입력(SendInput)을 넣어 드래그 Orbit, 휠 Zoom, R, Space와 드래그 정지, H, I/파츠 클릭/빈 공간 해제, W, 패널 위 휠·드래그 차단, 포커스 상실 복귀를 화면 캡처 25장으로 확인. 증거는 `Docs/Evidence/2026-09-30-shipping-real-input/`.
+- **2026-10-01 추가(4절 표, 6.11절)**: 파츠 단위 강조, 메시 수치 실측 API, 스켈레톤 호환 검사 완화, 실제 ProjectID. Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation **11/11 통과**(신규 4개 포함), `CreatePortfolioAssets.py` 2회 실행(1차 `M_ViewerPartHighlight` 생성 + 기존 7개 `[keep] OK`, 2차 `[keep] OK` ×8). `-game` 스모크는 이 변경 후 아직 실행하지 않았다.
+- **2026-10-01 패널 레이아웃·촬영 패스(6.12절)**: 패널 폭이 뷰포트의 24%(300~460 Slate 단위)로 바뀌고 DPI 곡선(720p = 0.8)을 프로젝트에 설정해 720p에서 버튼 글자가 잘리던 문제를 고쳤다. F12(고해상도 스크린샷)·Shift+F12(36장 턴테이블)·Esc(취소) 촬영 기능과 패널 상태 줄(`StatusText`)을 추가했다(1.7절). Editor 빌드/Game 빌드 0/0, Editor Automation 10/10. `-game` 시각 확인은 대기(4.1절).
+- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위 강조의 실제 화면 확인(`-game`/패키지, 2026-10-01 구현분), 측정 수치의 INSPECTION 패널 표시(API만 있음), 패널 레이아웃·F12/Shift+F12 촬영의 `-game` 시각 확인(6.12절).
+- **파츠 강조는 파츠 단위로 표시된다(2026-10-01, 6.11절).** 우선순위: ⓐ Part의 **Material Slot Names**가 메시 슬롯과 일치하면 그 슬롯만 마젠타 불투명 재질(`M_ViewerPartHighlight`)로 바뀐다. ⓑ 아니면 **Bone Names**의 본과 그 직계 자식 본에 작은 마젠타 구체 마커가 붙는다(예: 팔 → 어깨·팔꿈치·손목). ⓒ 둘 다 해당 없으면 예전처럼 메시 전체에 반투명 마젠타 Overlay가 덮인다(선택이 안 보이는 경우가 없도록). 현재 placeholder(`TutorialTPP`)는 Material Slot이 1개라 ⓑ 본 마커로 표시된다.
+- **placeholder 데이터 주의**: `DA_Character_Manny`가 참조하는 `SKM_Manny_Simple`(파츠별 삼각형 9,206~25,680, 6.13절의 측정 방법), `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개), `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진/템플릿이 기본 제공하는 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
 - **2026-10-01 검증(4절 표)**: `CreatePortfolioAssets.py` 신규 5개 생성 + 재실행 `[keep] OK` ×12, `-game` 스모크 2회 — 커서가 게임 창 밖이라 합성 포인터 전제 조건 1건으로 Fail, 나머지 assertion 오류 0(Manny Torso 클릭 포함), 화면 측정으로 바닥 중간 회색·가슴 클리핑 0 확인. 비쿠킹 실행이라 Manny의 강조/Wireframe 셰이더는 화면에 아직 안 나왔다(4.1절).
-- **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위(부분) 강조 표시.
 - **기본 프로필 = `DA_Character_Manny` (2026-10-01)**: 엔진 3인칭 템플릿 마네킹 `SKM_Manny_Simple`(본 89개, LOD0 92,178 삼각형, Material Slot 2개 `M_HeadLegs`/`M_Torso`, 텍스처 1024²·Torso 노멀만 4096², Physics Asset `PA_Mannequin`, Morph 0)을 쓰는 placeholder 프로필이다. 시작 시 Idle(`MM_Idle`)로 서 있고 Full Body 구도로 보인다. `ProfileLibrary` 순서는 Manny → Tutorial Mannequin(`DA_Character`) → Skeletal Cube(`DA_Character_Cube`)이며, 기존 두 프로필은 변경 없이 남아 있다(2절 ⑧).
 - **스튜디오 룩 (2026-10-01)**: `LV_Portfolio`는 Key/Fill/Rim 3점 조명(전부 Directional, Movable), 고정 노출 `StudioPostProcess`(Manual, 보정 0), 어두운 그라데이션 배경 구(`MI_StudioBackdrop`), 18% 중간 회색 바닥(`MI_StudioFloor`, 멀어질수록 배경으로 페이드)으로 바뀌었다. 배경/바닥은 NoCollision이라 파츠 클릭을 가로채지 않는다. 값과 조정 위치는 2절 ⑨, 변경 이력은 6.13절.
-- **현재 파츠 강조는 메시 전체에 적용된다.** Custom Depth와 Overlay Material은 둘 다 Component 단위로 적용되므로, 어느 파츠를 클릭해도 SkeletalMeshComponent 전체가 강조된다. 선택된 파츠 자체는 INSPECTION 패널의 텍스트로만 구분된다(2절 ⑦, 6.9절).
-- **placeholder 데이터 주의**: `DA_Character_Manny`가 참조하는 `SKM_Manny_Simple`(파츠별 삼각형 9,206~25,680, 6.13절의 측정 방법), `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개), `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진/템플릿이 기본 제공하는 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
 ## 1. 실행 방법
@@ -62,7 +64,7 @@ $proj = 'C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Characte
 & "$ueRoot\Engine\Build\BatchFiles\Build.bat" CharacterShowcase Win64 Development "-Project=$proj" -WaitMutex
 ```
 
-Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.Viewer.*`):
+Automation 테스트(`CharacterShowcase.Profile.NullSafety`, `CharacterShowcase.Viewer.*` — 2026-10-01부터 `Viewer.PanelLayout`/`Viewer.CaptureNaming`/`Viewer.CaptureSequence` 포함, `CharacterShowcase.Game.*`는 NullRHI에서 실행되지 않음):
 
 ```powershell
 & "$ueRoot\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" $proj -unattended -nop4 -nosound -NullRHI `
@@ -95,10 +97,52 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
     -unattended -nosplash -nop4 -log
 ```
 
-- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `DA_Character_Manny`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight`, `M_StudioBackdrop`, `MI_StudioBackdrop`, `M_StudioFloor`, `MI_StudioFloor` **12개가 존재하지 않을 때만** 새로 만든다(2026-10-01에 뒤의 5개 추가). 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
+- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `DA_Character_Manny`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerPartHighlight`, `M_ViewerHighlight`, `M_StudioBackdrop`, `MI_StudioBackdrop`, `M_StudioFloor`, `MI_StudioFloor` **12개가 존재하지 않을 때만** 새로 만든다(2026-10-01에 뒤의 5개 추가). 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
 - **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 12개 중 일부가 삭제되어 없어졌을 때"에만 쓴다. `LV_Portfolio`가 없어서 새로 만들 때는 스튜디오 조명/배경/PostProcess(`apply_studio_setup()`)까지 함께 만든다.
 - 스크립트가 만든 에셋을 최신 생성 로직으로 다시 만들고 싶을 때만, 그 에셋을 Editor에서 직접 삭제한 뒤 재실행한다(스크립트가 "없는 에셋"으로 인식해 새로 만든다). 기존 값을 스크립트로 되돌리는 용도로 쓰지 않는다.
-- **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 최소 7위젯 트리를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
+- **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 기본 트리(필수 7개 + 선택 `StatusText`)를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
+- 기본 레이아웃을 최신 생성 로직으로 다시 만들려면 `WBP_CharacterViewer`를 삭제하고 이 스크립트만 다시 실행한다(2026-10-01부터 에셋이 없으면 빈 WBP(부모 `CharacterViewerWidget`)부터 만든다 — `CreatePortfolioAssets.py`를 함께 돌릴 필요 없음). 트리는 런타임 C++ 폴백과 같은 함수(`UCharacterViewerWidget::BuildDefaultLayoutTree()`)로 만들어지므로 두 경로의 모양이 같다.
+
+### 1.7 조작 키 · 촬영(포트폴리오 캡처)
+
+| 키 | 동작 | 패널 버튼 |
+| --- | --- | --- |
+| 왼쪽 드래그 | Orbit (패널 위에서 시작한 드래그는 무시) | — |
+| 휠 | Zoom (패널 위에서는 패널 스크롤) | — |
+| R | 카메라 Reset (Default Preset) | Reset Camera (R) |
+| Space | Turntable On/Off | Turntable: On/Off (Space) |
+| H | Clean View (UI·강조·커서 숨김) | Clean View (H) |
+| I | Inspection On/Off | Inspection: On/Off (I) |
+| W | Wireframe On/Off | Wireframe: On/Off (W) |
+| **F12** | 고해상도 스크린샷 1장 | Screenshot (F12) |
+| **Shift+F12** | 턴테이블 연속 촬영(36장) | Turntable Shots (Shift+F12) |
+| **Esc** | 진행 중인 촬영 취소 | — |
+
+키는 전부 `ACharacterViewerController`의 런타임 폴백 Enhanced Input(`EnsureFallbackInputAssets`)으로 매핑된다. 기존 키는 그대로이고 F12/Shift+F12/Esc만 추가됐다(`IA_ViewerScreenshot`, `IA_ViewerTurntableCapture`(F12 + Shift 코드(chord) 트리거), `IA_ViewerCaptureShift`, `IA_ViewerCancelCapture`).
+
+**촬영 방법과 결과 위치**
+
+- **F12**: 현재 화면을 **UI 없이**, 선택 강조는 화면 그대로 둔 채 뷰포트 크기 × `ScreenshotResolutionMultiplier`(기본 2, `ACharacterViewerController`의 `Capture` 카테고리 — Editor에서 바꾸려면 이 클래스의 Blueprint 자식을 만들어 GameMode의 Player Controller Class로 지정)로 저장한다. 파일: `Saved/Screenshots/Portfolio/<프로필 에셋 이름>_<프리셋 Id>_<yyyyMMdd-HHmmss>.png` (예: `DA_Character_Full_20261001-142530.png`). 패널 아래 상태 줄에 `Saved: <상대 경로>`가 약 3초 표시된다.
+- **Shift+F12**: 캐릭터 Actor를 10°씩 돌리며 36장(`TurntableStepDegrees`)을 찍는다. 촬영 중에는 Turntable이 멈추고 카메라 Orbit/Zoom/R/Space는 무시되며, 끝나거나 취소되면 원래 회전·Turntable 상태로 돌아간다. 프레임마다 `CaptureSettleFrames`(기본 4) 틱을 기다린 뒤 1장씩 저장한다. 상태 줄에 `Capturing 12/36` 형태로 진행률이 보이고, **Esc**로 취소할 수 있다(이미 저장된 프레임은 남는다). 결과: `Saved/Screenshots/Portfolio/Turntable_<프로필>_<타임스탬프>/frame_000.png` … `frame_035.png`.
+- 이미지는 Slate가 패널을 그리기 전의 씬 뷰포트를 읽는 엔진 스크린샷 경로(`FScreenshotRequest::RequestScreenshot(..., bShowUI=false)`, 배율 > 1이면 `GetHighResScreenshotConfig().SetResolution`)로 저장되므로 패널은 이미지에 들어가지 않는다. 요청 후 `CaptureTimeoutSeconds`(6초) 안에 파일이 생기지 않으면 그 프레임만 스모크 테스트와 같은 `FSlateApplication::TakeScreenshot`(그 순간만 패널 숨김, 뷰포트 크기)으로 대신 저장하고 로그에 `falling back`을 남긴다.
+- 패키지 빌드에서는 `Saved`가 패키지 폴더 아래(`<패키지>/CharacterShowcase/Saved/Screenshots/Portfolio/`)에 생긴다.
+
+**프레임 → 영상/GIF (ffmpeg, 별도 설치)** — 턴테이블 폴더에서:
+
+```powershell
+# MP4 (12fps = 3초에 한 바퀴, 짝수 해상도 보정)
+ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p -crf 18 turntable.mp4
+# GIF (가로 720px, 팔레트 생성으로 색 손실 최소화, 무한 반복)
+ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=720:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -loop 0 turntable.gif
+```
+
+**레이아웃/촬영 `-game` 확인용 테스트** (`CharacterShowcase.Game.ViewerCapture`, 약 30~60초, 포인터 합성 없음): 해상도별 창 캡처(UI/Clean View)를 `Saved/Screenshots/ViewerCapture/ViewerCapture_<UI|Clean>_<W>x<H>.png`로 남기고, F12 경로 파일 생성·크기, Shift+F12 2프레임 저장 후 취소 시 회전/Turntable 복원을 확인한다. 1280×720과 1920×1080에서 각각 실행한다.
+
+```powershell
+& "$ueRoot\Engine\Binaries\Win64\UnrealEditor.exe" $proj /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1280 -ResY=720 `
+    -log -unattended -nosplash '-ExecCmds=Automation RunTests CharacterShowcase.Game.ViewerCapture' `
+    '-TestExit=Automation Test Queue Empty' "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation\ViewerCapture720"
+```
 
 ## 2. 아티스트 작업 절차
 
@@ -144,12 +188,14 @@ Neutral 표정은 **Morphs를 빈 배열로 둔 행**으로 등록한다. 메시
 
 ### ⑦ 본·충돌 기반 파츠 매핑과 기술정보 등록
 
-`Part` 카테고리의 **Parts** 배열(`FViewerPartInfo`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Part Type**, **Description**, **Bone Names**(배열), **Component Tag**, **Triangle Count**, **Material Name**, **Texture Resolution**.
+`Part` 카테고리의 **Parts** 배열(`FViewerPartInfo`)에 행을 추가한다. 각 행: **Id**, **Display Name**, **Part Type**, **Description**, **Bone Names**(배열), **Component Tag**, **Material Slot Names**(배열, 선택), **Triangle Count**, **Material Name**, **Texture Resolution**(마지막 셋은 선택 메모).
 
 - 현재 구조(단일 `SkeletalMeshComponent`)에서는 **Bone Names**로 파츠를 식별한다. 클릭 지점의 `BoneName`이 어느 Part의 Bone Names와도 정확히 일치하지 않으면 부모 본을 최대 10단계까지 걸어 올라가며 다시 찾는다(예: 손가락 본 → `hand_l` → "왼팔"). 여기 적는 본 이름은 **메시의 Physics Asset에 실제로 존재하는 본 이름과 정확히 같아야** 하며, 파츠 클릭이 되려면 **메시에 Physics Asset이 할당되어 있어야 한다**(Physics Asset이 없으면 그 캐릭터의 파츠는 클릭되지 않는다 — 지금의 `DA_Character_Cube`가 이 경우다).
 - 파츠가 별도 Component(예: Face/Hair/Jacket이 각각 다른 SkeletalMeshComponent)로 구성된 캐릭터라면 **Component Tag**로 식별 방식을 바꿀 수 있다(스키마는 이미 지원, 현재 placeholder는 미사용).
-- **Triangle Count / Material Name / Texture Resolution은 매 프레임 계산하는 값이 아니라 아티스트가 한 번 측정해서 적어 넣는 authored 데이터다.** 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 파츠마다 다른 값을 적어야 한다. `DA_Character`(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 그대로 공유한다. 기본 프로필 `DA_Character_Manny`는 파츠별로 측정한 값(Head 9,206 / Torso 25,680 / 팔 각 19,680 / 다리 각 8,966, 합계 92,178 = LOD0 전체)과 슬롯별 비율(예: 팔은 `MI_Manny_02_New` 80% + `MI_Manny_01_New` 19%)을 갖는다(측정 방법 6.13절) — **어느 쪽이든 이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.**
-- **파츠 강조(선택 시 색이 덮이는 효과)는 현재 메시 전체에 적용된다.** 어느 파츠를 클릭해도 Custom Depth와 Overlay Material이 전체 메시에 걸리므로, 실제로 어느 파츠가 선택됐는지는 INSPECTION 패널의 텍스트(Display Name 등)로만 알 수 있다. 파츠 단위로만 강조하려면 별도 Component 구조이거나 Stencil 기반 Post Process 작업이 추가로 필요하다(5절).
+- **Material Slot Names**: 캐릭터의 파츠가 별도 Material Slot/섹션으로 나뉘어 있으면(예: Body/Head/Hair/Jacket) 그 파츠를 이루는 슬롯 이름을 Skeletal Mesh 에디터에 보이는 이름 그대로 적는다. 하나라도 메시 슬롯과 일치하면 ① 선택 시 정확히 그 슬롯들만 마젠타로 바뀌고 ② 그 파츠의 삼각형 수/재질 이름/텍스처 요약을 Viewer가 직접 측정한다. 슬롯이 1개뿐인 메시(지금의 `TutorialTPP`)는 비워 둔다 — 그러면 Bone Names의 본 위치에 구체 마커가 표시된다.
+- **선택 강조 우선순위**: Material Slot Names(일치하는 슬롯만 교체) → Bone Names(본과 직계 자식 본에 지름 10cm 마젠타 구체, 충돌/그림자 없음) → 둘 다 없으면 메시 전체 반투명 Overlay. Wireframe이 켜져 있어도 선택된 슬롯은 마젠타로 남고, Wireframe/Variant를 바꾸거나 선택을 풀면 나머지 슬롯은 정확히 원래 상태로 돌아온다. Clean View(H) 중에는 강조가 전부 숨겨진다.
+- **Triangle Count / Material Name / Texture Resolution은 선택 메모(authored)다.** Material Slot Names가 메시 슬롯과 일치하는 파츠는 측정값(`GetPartMeasuredStats`)이 이 메모보다 우선한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 메모로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.** (현재 INSPECTION 패널은 이 메모를 표시한다. 측정값 표시 연결은 후속 작업, 4.1절.)
+- 본 마커는 불투명 구체라 굵은 메시 안쪽에 있는 관절에서는 일부가 메시에 묻혀 보일 수 있다. 크기는 `PortfolioCharacterActor`의 **Bone Marker Diameter**(기본 10cm)로 조정한다. 마커와 함께 예전의 메시 전체 틴트도 원하면 **Whole Mesh Tint With Bone Markers**를 켠다(기본 꺼짐).
 
 ### ⑧ Default Profile / Profile Library 등록
 
@@ -191,7 +237,9 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
   - **배경/바닥 메시는 반드시 NoCollision**(또는 Visibility 채널 Ignore)으로 둔다. Inspection 클릭은 `ECC_Visibility` 라인 트레이스로 캐릭터 본을 찾는데, 카메라를 감싸는 배경 구나 바닥이 Visibility를 Block하면 캐릭터보다 먼저 맞아 파츠 클릭이 전부 실패한다. 새 배경 소품을 추가할 때도 같다.
   - 배경 구의 **Cast Shadow는 끈 채로** 둔다(닫힌 구가 그림자를 드리우면 장면 전체가 그늘이 된다). 카메라 프로필의 **Max Distance는 배경 구 반지름 2,500 cm보다 작게** 둔다(현재 최대 Manny Full 917 cm, TutorialTPP 700 cm).
   - `Config/DefaultEngine.ini`의 `r.DefaultFeature.AutoExposure=False`는 그대로 두었고, 레벨 안에서는 `StudioPostProcess`가 우선한다. 이 볼륨을 지우면 노출이 이전 기본값(배율 2.0, 지금보다 1단 밝음)으로 돌아간다.
-- `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 더 이상 찾지 못해 자동으로 내장 폴백 패널로 전환된다(안전하지만 디자이너가 만든 스타일은 사라진다). **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
+- `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 필수 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 해당 위젯을 채우지 못한다(로그에 누락 이름 경고). 8번째 이름 **StatusText**(TextBlock, 촬영 상태 줄)는 **선택**이다 — 없으면 상태 줄만 안 보이고 나머지는 정상 동작한다. **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
+- **패널 폭 규칙**: `PanelRoot`가 오른쪽 가장자리에 고정된 Canvas 슬롯(앵커 X 최소/최대 = 1)에 있으면 C++가 매 틱 폭을 `clamp(뷰포트 폭 × 24%, 300, 460)` Slate 단위로 맞춘다(`bAutoPanelWidth`, `PanelWidthFraction`/`PanelMinWidth`/`PanelMaxWidth` — WBP의 Class Defaults → `Viewer|Layout`에서 조정). 디자이너가 직접 폭을 정하려면 `bAutoPanelWidth`를 끄거나 앵커를 바꾸면 C++가 손대지 않는다. 버튼 글자(`ButtonFontSize` 13)와 섹션 제목(`HeaderFontSize` 15)도 같은 곳에서 바꾼다. 버튼 글자는 자동 줄바꿈되므로 잘리지 않는다. 설명(Description)은 줄바꿈되며 최소 6줄이 보인 뒤 스크롤된다(`DescriptionSizeBox` 최대 높이).
+- **DPI 배율**: `Config/DefaultEngine.ini`의 `[/Script/Engine.UserInterfaceSettings]`에서 `UIScaleRule=ShortestSide`, 짧은 변 기준 720 → 0.8, 1080 → 1.0, 1440 → 1.25(사이 값은 선형). 엔진 기본값(720p = 0.666)일 때 패널이 약 213px로 줄어 글자가 잘렸다. 결과적으로 패널은 1280×720에서 384 Slate 단위(약 307px), 1920×1080에서 460px이다. 이 곡선은 프로젝트의 모든 UMG에 적용된다.
 - 1.2~1.3절의 방법으로 실행해 캐릭터가 보이는지, 우측 패널에 새 캐릭터 이름/목록이 뜨는지 확인한다.
 
 ## 3. 설계 규칙
@@ -231,6 +279,15 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Win64 Development 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 16초. 09-30에 실제 입력 재생으로 기동·조작 확인(키 홀드 실험 포함) | `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe` |
 | Win64 Shipping 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 33초 |
 | **Shipping 실제 입력·시각 검증** (`ViewerInputDriver.ps1`이 user32 SendInput으로 실제 마우스/키보드 이벤트를 게임 창에 전달, 단계마다 창 캡처) | 2026-09-30 | 실행 2회, 캡처 25장 육안 확인: ① 드래그 Orbit 회전 ② 휠 4틱 Zoom out ③ R Reset으로 Full Body 복귀 ④ Space Turntable On 후 회전, 짧은 드래그로 Off 정지(2.5초 간격 2장 동일) ⑤ H로 패널 숨김, 숨긴 상태에서 드래그 Orbit 동작, H로 복원 ⑥ I On, 몸통 클릭 시 마젠타 강조 전신 적용, 빈 공간 클릭 시 해제 ⑦ W On 청록 Wireframe, W Off 기본 재질 복원 ⑧ 패널 위 휠 6틱: Zoom 없음, 패널 목록만 스크롤(설명 영역 스크롤 확인). 캔버스 휠 대조군은 Zoom 됨 ⑨ 패널에서 시작한 드래그: Orbit 없음 ⑩ 마우스 누른 채 포커스 상실 후 복귀·이동: Orbit 없음, 버튼 잔류 없음 | `Docs/Evidence/2026-09-30-shipping-real-input/` (PNG 25장 + 드라이버 + 단계 JSON) | `Saved/PackagedShipping/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
+| Editor 빌드 (파츠 단위 강조/실측 수치 변경, 6.11절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(최종 증분 빌드 4개 액션) | 6.11절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0(27개 액션, 93초) | 6.11절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **11/11 통과**, 실패 0(신규 `Viewer.PartHighlightMaterialSlots`/`PartHighlightBoneMarkers`/`MeshStats`/`AnimationSkeletonCompatibility`) | `Saved/Automation/A/index.json`(작업 worktree) |
+| `CreatePortfolioAssets.py` (`M_ViewerPartHighlight` 추가) | 2026-10-01 | 1차: `Created M_ViewerPartHighlight` + 기존 7개 `[keep] ... OK`, `DONE, NO ERRORS`, 종료 코드 0. 2차: `[keep] ... OK` ×8, 종료 코드 0. 기존 `.uasset` 변경 없음(`git status`) | 6.11절 |
+| Editor 빌드 (패널 레이아웃·촬영 패스) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (1차는 `const UGameViewportClient::GetWindow()` 컴파일 오류 1건 → 수정 후 재빌드) | 6.12절 |
+| Game 빌드 (패널 레이아웃·촬영 패스) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0, 30개 액션, 74.9초 | 6.12절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **10/10 통과**(기존 7 + `Viewer.PanelLayout`/`Viewer.CaptureNaming`/`Viewer.CaptureSequence`), 오류 0 / 경고 0. PanelLayout 로그: 1280×720에서 384 Slate 단위 = 307px, 1920×1080에서 460px | `Saved/Automation/B/index.json` |
+| `WBP_CharacterViewer` 재생성 (`CreateViewerWidgetLayout.py` 2회) | 2026-10-01 | 에셋 삭제 후 1차: `[create]` + `[build] ... compiled, and saved.`(SHA-256 `1bacf567…` → `4c49e99a…`). 2차: `[keep] ... All 7 required widgets present ... Optional StatusText present.`, 해시 1차와 동일, 로드 오류 없음 | 6.12절 |
+| `-game` `CharacterShowcase.Game.ViewerCapture` (1280×720 / 1920×1080) | — | **미실행**(NullRHI에서 실행 불가, 4.1절) | — |
 | `CreatePortfolioAssets.py` 스튜디오/Manny 추가 후 1차 실행(`UnrealEditor-Cmd -ExecutePythonScript ... -NullRHI`) | 2026-10-01 | 종료 코드 0, `==== DONE, NO ERRORS ====`. **신규 생성 5개**(`M_StudioBackdrop`, `MI_StudioBackdrop`, `M_StudioFloor`, `MI_StudioFloor`, `DA_Character_Manny`) + 기존 7개 `[keep] ... OK` ×7 + `DefaultEngine.ini` OK | 6.13절 |
 | 1회성 in-place 편집(`LV_Portfolio` 스튜디오 Actor·Profile, GameMode 기본 프로필, MI 값 조정) | 2026-10-01 | 종료 코드 0, 저장 후 다시 읽은 값이 2절 ⑧/⑨ 표와 일치 | 6.13절 |
 | `CreatePortfolioAssets.py` 2차·3차 실행(편집 후) | 2026-10-01 | 둘 다 종료 코드 0, **`[keep] ... OK` ×12** + ini OK, DIFFERS 0. 실행 전후 에셋 해시 2차 11/11, 3차 12/12 동일(아무것도 다시 저장하지 않음) | 6.13절 |
@@ -242,21 +299,25 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **사람이 손으로 직접 조작한 확인**: 2026-09-30 검증은 OS 수준 실제 입력 이벤트(SendInput)를 자동 재생한 것이다. 게임 입장에서는 실제 마우스/키보드와 구분되지 않지만, 사람이 손으로 조작한 기록은 아직 없다. 패널 버튼을 마우스로 직접 클릭하는 경로는 키보드 단축키 경로로만 확인했다(합성 Slate 클릭 테스트는 `-game` 스모크에서 통과). **대기(선택)**.
 - **Expression(표정)의 실제 시각 검증**: `TutorialTPP`/`SkeletalCube` 모두 Morph Target이 없다. Expression 스키마/무충돌만 확인됐고, 실제 Morph 적용 후 얼굴이 바뀌는 모습은 **미검증**이며 Morph가 있는 메시가 들어오기 전까지는 검증할 수 없다.
 - **사람이 만든 디자이너 WBP 레이아웃의 hover 동작**: 지금 존재하는 `WBP_CharacterViewer` 트리는 C++ 에디터 툴이 자동 생성한 것이다. 아티스트가 디자이너에서 직접 커스터마이즈한 레이아웃에서 `IsPointerOverPanel()`/패널 클릭 소비가 그대로 동작하는지는 **미검증**.
-- **파츠 단위(개별) 강조 표시**: 현재 메시 전체 강조만 구현되어 있다(0절/2절 ⑦). 파츠별 강조는 구현되어 있지 않다.
+- **파츠 단위 강조의 실제 화면 확인**: 2026-10-01 구현(슬롯 교체/본 마커/전체 Overlay 폴백, 6.11절). 상태·재질 값은 Editor Automation(NullRHI)으로 검증했지만, 렌더링된 화면에서 마커/슬롯 색이 실제로 보이는지는 **미검증**이다(`-game` 스모크와 패키지 캡처로 확인 필요). `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`)의 강조 관련 assertion을 새 동작(본 마커)에 맞게 고쳤으나 이 세션에서는 실행하지 않았다.
+- **측정 수치의 UI 표시**: `GetMeshStats()`/`GetSlotStats()`/`GetPartMeasuredStats()` API와 Editor 테스트만 있다. INSPECTION 패널은 아직 Part의 손으로 적은 메모 값을 표시한다(패널 연결은 후속 작업). 쿡된 빌드에서 측정값이 나오는지도 **미검증**(코드상 렌더 데이터가 없으면 `bValid=false` + 0 반환).
 - **Manny에서 선택 강조/Wireframe의 화면 표시(비쿠킹 `-game`)**: 2026-10-01 스모크 2회 모두 `Preparing Shaders (1~2)`가 떠 있어 `ViewerSmoke_Inspect.png`에 마젠타 강조가 안 보이고 `ViewerSmoke_Wireframe.png`는 청록 와이어 대신 회색 체커(셰이더 준비 중 대체 재질)로 찍혔다. 값 자체는 테스트가 확인했다(오류 0). 6.10절과 같은 비쿠킹 셰이더 지연으로 보이며 쿡된 패키지에서 Manny로는 아직 확인하지 않았다. 같은 스모크의 `ViewerSmoke_Profile1.png`(TutorialTPP)도 노란 재질 대신 어두운 회색으로 찍혔다(같은 대체 재질로 추정, 미확인).
 - **새 레벨 생성 경로**: `LV_Portfolio`가 없을 때 스크립트가 만드는 경로(`create_or_update_level()` + `apply_studio_setup()`)는 실행하지 않았다. `apply_studio_setup()` 자체는 기존 레벨 편집에서 실행·검증됐다.
 - **패키지(Development/Shipping) 재빌드·실행**: 스튜디오 룩/Manny 기본 프로필 상태로는 하지 않았다.
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
+- **2026-10-01 패널 레이아웃/촬영 패스의 `-game` 확인(대기)**: 이 패스는 NullRHI Editor 테스트와 빌드로만 검증됐다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerCapture`를 1280×720과 1920×1080에서 실행해 `ViewerCapture_UI_*.png`/`ViewerCapture_Clean_*.png`로 패널 폭(약 307px / 460px), 버튼 글자 잘림 없음, 설명 6줄 이상을 육안 확인 ② 같은 테스트에서 F12 파일이 실제로 생기고 크기가 뷰포트 × 2인지(로그의 `F12 capture method`가 `HighResScreenshot`인지 `SlateTakeScreenshot` 폴백인지 기록) ③ Shift+F12 2프레임 저장과 취소 후 회전/Turntable 복원 ④ `CharacterShowcase.Game.ViewerSmoke` 재실행(새 레이아웃에서 패널 경계 테스트 회귀 없음) ⑤ 실제 키 입력으로 F12, Shift+F12(코드 트리거가 일반 F12를 막는지), Esc 취소, 36장 전체 시퀀스 완주 — 이 항목들은 **미검증**이다.
 
 ## 5. 남은 작업·위험
 
 - `ApplyProfile` 순서(`PostLogin`이 `BeginPlay`보다 먼저 실행됨)에 맞춘 방어 코드는 정적으로만 점검했고, 이 UE 버전의 PIE로 최종 확인하지 않았다.
-- `SetAnimation`의 스켈레톤 호환성 검사는 포인터 비교(`Sequence->GetSkeleton() == Mesh->GetSkeletalMeshAsset()->GetSkeleton()`)만 사용한다. 리타겟/호환 스켈레톤 조합에서 지나치게 엄격할 수 있다.
-- 파츠별 Triangle Count/Material Name은 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 섹션을 가지면 재측정이 필요하다.
-- `Config/DefaultGame.ini`의 `ProjectID`는 실제 GUID가 아닌 placeholder 문자열이다.
+- `SetAnimation`의 스켈레톤 호환성 검사(2026-10-01, 6.11절)는 같은 Skeleton, 양방향 Compatible Skeletons 목록, 본 계층 일치(`USkeleton::IsCompatibleMesh`) 중 하나면 허용한다. 계층은 맞지만 비율이 다른 리그의 애니메이션은 허용되며 화면상 리타겟 품질은 보장하지 않는다(IK Retargeter로 미리 리타겟한 Sequence 사용 권장).
+- 파츠별 Triangle Count/Material Name 메모는 현재 메시가 단일 Material Slot이라 전부 동일한 값을 공유한다(2절 ⑦). 실제 캐릭터가 파츠별 슬롯을 가지면 Material Slot Names를 채워 측정값을 쓰는 것이 맞다(패널 표시 연결은 후속).
+- 본 마커 강조는 관절 위치를 점으로 보여 줄 뿐 파츠 표면 전체를 칠하지 않는다. 표면 단위 강조가 필요하면 파츠를 별도 Material Slot으로 나누거나(가장 간단), 별도 Component 구조 또는 Custom Stencil 기반 Post Process 작업이 필요하다.
 - `-game` 스모크의 합성 포인터 단계는 게임 창이 활성·비가려짐 전면 창일 때만 유효하다(원인 확정, 6.10절). 무인 실행 환경에서는 이 조건을 보장할 수 없으므로 실패 시 전제 조건 오류 메시지를 먼저 확인한다.
-- 파츠 단위 강조가 필요하면 별도 Component 구조 또는 Custom Stencil 기반 Post Process Material 작업이 추가로 필요하다.
 - `Scripts/CreatePortfolioAssets.py`의 예전 "레벨 재생성" 로직이 유발하던 간헐적 크래시는 원인을 특정해 제거했지만(6.10절), 대규모 반복 재현 테스트는 하지 않았다.
+- 촬영(1.7절): 고해상도 경로(`GetHighResScreenshotConfig().SetResolution`)가 이 PC의 `-game`에서 실제로 파일을 쓰는지 아직 모른다. 실패해도 6초 후 Slate 캡처(뷰포트 크기, 배율 미적용)로 대신 저장하도록 했지만, 그 경우 F12 결과가 2배 해상도가 아니다(로그와 `GetLastCaptureMethod()`로 구분). Windows는 디버거가 붙은 프로세스에서 F12를 디버그 중단 키로 쓴다(일반 실행에는 영향 없음). PIE에서는 Esc가 PIE 종료 키라 촬영 취소보다 먼저 처리될 수 있다.
+- DPI 곡선 변경(2절 ⑨)은 프로젝트 전체 UMG에 적용된다. 다른 UI(예: PlayDemo)가 생기면 그 화면도 720p에서 약 20% 커진다.
+- 턴테이블 촬영은 카메라는 고정하고 캐릭터 Actor만 돌린다. 조명은 월드에 고정이므로 프레임마다 조명 방향이 캐릭터 기준으로 바뀐다(일반적인 턴테이블과 같음).
 
 ## 6. 과거 기록 (참고)
 
@@ -350,6 +411,29 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - **큐브 프레이밍 조정**: `DA_Character_Cube`의 `DefaultFraming.Distance`를 half-extent × 2.3으로 계산했더니 스크린샷에서 큐브가 화면을 뒤덮어(근접 샷) 형태를 알아볼 수 없었다. × 6.0으로 올려 재확인, 정상 프레이밍 확인. 절대 크기가 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요함을 기록.
 - **Material usage flag 경고**: `bUsedWithSkeletalMesh=True`를 빠뜨리면 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(`LogMaterial` 경고) — 두 신규 Material 모두 명시적으로 설정해 해결.
 - **비쿠킹 `-game`에서 강조/Wireframe이 안 보이던 현상**: 값 자체(`GetOverlayMaterial()`, 슬롯 재질)는 테스트가 프로그램적으로 확인해 통과했지만, 화면에는 "Preparing Shaders" 오버레이가 뜬 채 기본 셰이딩으로 찍혔다(셰이더 프리컴파일이 끝나지 않음). 셰이더를 미리 컴파일해 두는 **쿡된 패키지에서는 두 효과 모두 정상 표시**되어 코드 결함이 아닌 것으로 판단했다. 비쿠킹 `-game`으로 확인하려면 먼저 Editor에서 해당 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장(미검증).
+
+### 6.11 파츠 단위 강조, 메시 수치 실측, 스켈레톤 호환 검사, ProjectID (2026-10-01)
+
+**무엇/왜**: 기존 선택 강조는 `SetOverlayMaterial(M_ViewerHighlight)` + Custom Depth를 SkeletalMeshComponent 전체에 걸어서, 어느 파츠를 클릭했는지 화면으로는 알 수 없었다. 파츠 기술정보(삼각형/재질/텍스처)도 손으로 적은 값이라 6개 Part가 모두 6,118을 공유했다.
+
+- **파츠 단위 강조**(`APortfolioCharacterActor`): `FViewerPartInfo`에 선택 필드 `MaterialSlotNames`를 추가했다. 선택 시 우선순위 ⓐ 슬롯 이름이 `Mesh->GetMaterialIndex()`로 해석되면 그 슬롯에만 신규 `M_ViewerPartHighlight`(unlit/opaque/two-sided, 마젠타 emissive)를 적용 ⓑ 아니면 Bone Names 중 메시 Reference Skeleton에 있는 본과 그 직계 자식 본마다 `/Engine/BasicShapes/Sphere` 마커(지름 10cm, 절대 스케일, 충돌·그림자 없음, Transient, 같은 재질)를 소켓에 붙임 ⓒ 둘 다 없으면 예전 메시 전체 Overlay. 현재 모드는 `GetActiveHighlightMode()`(`EViewerHighlightMode`: None/MaterialSlots/BoneMarkers/WholeMesh, 강조가 숨겨져 있으면 None)로 조회한다. Custom Depth(stencil 1)는 모든 모드에서 유지한다.
+- **정확한 왕복 복원**: 슬롯 재질은 매번 `ApplyMaterialState()`가 (현재 Variant, Wireframe, 선택 파츠, 강조 표시 여부)에서 처음부터 다시 계산한다(기본값 → Variant override → Wireframe 전 슬롯 → 선택 슬롯 강조). 이전 override 배열 위에 덧칠하지 않으므로 Wireframe on/off, Variant 변경, 선택 해제, Clean View 왕복이 정확히 복원된다. 마커는 파츠 사이 전환 시 재사용(pool), Clean View 중 숨김, 선택 해제/프로필 교체(`ClearRuntimeState()`) 시 파괴된다.
+- **메시 수치 실측**: `GetMeshStats()`(LOD0 삼각형/정점, 본, 슬롯, LOD, Morph, Skeleton/Physics Asset 이름, 렌더 데이터가 없으면 `bValid=false`+0), `GetSlotStats()`(슬롯별 삼각형/재질/텍스처 요약), `GetPartMeasuredStats(PartId)`(Part의 MaterialSlotNames 합산). 텍스처는 `GetUsedTextures()`를 우선 쓰고, 컴파일된 머티리얼 리소스가 없으면(-NullRHI Editor) 머티리얼 그래프 참조 텍스처 + Material Instance 텍스처 파라미터 override로 대체한다. Editor에서 플랫폼 데이터가 아직 없으면 원본(Source) 해상도를 쓴다. 손으로 적던 Triangle Count/Material Name/Texture Resolution은 호환을 위해 남기되 "선택 메모"로 바꿨다. **INSPECTION 패널은 아직 이 API를 쓰지 않는다**(위젯은 다른 작업 범위).
+- **스켈레톤 호환**: `SetAnimation`이 포인터 동일성 대신 `IsAnimationSkeletonCompatible()`을 쓴다 — 같은 Skeleton, 양방향 Compatible Skeletons(런타임 데이터), `USkeleton::IsCompatibleMesh()`(본 계층 일치) 중 하나. Editor 전용 `IsCompatibleForEditor()`는 쓰지 않는다. UE5 마네킹(SK_Mannequin) 스켈레톤 ↔ UE4 TutorialTPP 메시는 쇄골의 부모 본이 달라 거부된다.
+- **ProjectID**: `Config/DefaultGame.ini`의 placeholder를 무작위 GUID `E380E637D98F4E00ACE5440D4FEFA3EE`로 교체.
+- `-game` 스모크(`CharacterViewerGameSmokeTest.cpp`)의 "Torso 선택 후 OverlayMaterial이 설정됨" assertion 3곳은 이제 틀린 기대값이라 "BoneMarkers 모드 + 마커 표시"로 바꾸고, 해제/Clean View 단계에 마커 0개 확인을 추가했다(주석 표기). 이 스모크는 이 세션에서 실행하지 않았다.
+
+**어떻게 검증했나**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고(27개 액션). Editor Automation(NullRHI) 11/11 통과 — 신규 4개: `Viewer.PartHighlightMaterialSlots`(SKM_Manny_Simple 슬롯 `M_Torso`만 강조, Wireframe/선택 해제/재선택/Wireframe 중 Variant/Wireframe off/Clean View/Variant 해제/선택 해제/프로필 교체의 각 단계에서 두 슬롯 재질 정확 비교), `Viewer.PartHighlightBoneMarkers`(TutorialTPP `upperarm_l` → 마커 3개 `upperarm_l, lowerarm_l, upperarm_twist_01_l`, Clean View 숨김/재표시, 없는 본 → WholeMesh, 재사용, 해제·프로필 교체 시 0개), `Viewer.MeshStats`(TutorialTPP 6,118 삼각형/3,924 정점/본 68/슬롯 1/텍스처 0, SKM_Manny_Simple 92,178 삼각형/48,705 정점/본 89/슬롯 2/LOD 3, 슬롯 `M_HeadLegs` 38,166 + `M_Torso` 54,012 = 합계 일치, 각 4 텍스처 최대 1024/4096), `Viewer.AnimationSkeletonCompatibility`(null 안전, 같은 스켈레톤 허용, UE5↔UE4 리그 거부 + SetAnimation이 이전 id 유지). 개발 중 1회 실패: 텍스처 해상도가 -NullRHI에서 0x0으로 나와(플랫폼 데이터 미생성) Source 해상도 대체를 추가한 뒤 통과. `CreatePortfolioAssets.py` 2회 실행 결과는 4절 표. 화면 렌더링(마커/슬롯 색이 실제로 보이는지)은 **미검증**(4.1절).
+
+### 6.12 패널 레이아웃·포트폴리오 촬영 패스 (2026-10-01)
+
+**배경**: 2026-09-30 Shipping 캡처(`01_default.png`, `16_cursor_over_panel.png`)에서 1280×720 패널이 약 213px(320 Slate 단위 × 엔진 기본 DPI 0.666)로 좁아 버튼 글자가 잘렸고("Tutorial Mannequi", "Turntable: Off (Space"), 설명은 3줄만 보였다. 원인은 고정 폭 320 + UTextBlock 기본 글꼴(Roboto Bold 24) + 줄바꿈 없음 + 기본 DPI 곡선.
+
+**레이아웃**: 기본 트리 생성을 `UCharacterViewerWidget::BuildDefaultLayoutTree()` 하나로 합쳐 C++ 폴백(`BuildFallbackUI()`)과 Editor 툴(`BuildDefaultViewerWidgetLayout()`)이 같은 트리를 만든다(이전에는 배경 알파/이름 글꼴이 서로 달랐다). 패널 폭은 `NativeTick()`에서 `clamp(뷰포트 × 24%, 300, 460)`으로 맞추고(오른쪽 고정 앵커일 때만, `bAutoPanelWidth`로 끌 수 있음), 버튼 글자 13pt Regular + 자동 줄바꿈, 섹션 제목 15pt Bold, 설명 13pt·최소 6줄(`DescriptionSizeBox` 최대 높이 134), 8번째 선택 이름 `StatusText`를 추가했다. `Config/DefaultEngine.ini`에 DPI 곡선(ShortestSide 720 → 0.8, 1080 → 1.0, 1440 → 1.25)을 설정했다. `WBP_CharacterViewer`는 삭제 후 `CreateViewerWidgetLayout.py`로 재생성했다(이 스크립트가 이제 없는 WBP를 직접 만든다 — 생성 전용 규칙은 그대로). 재생성 첫 실행에서 시작 맵 로드 중 `BP_CharacterViewerGameMode`가 잠시 WBP를 찾지 못한다는 `LoadErrors` 경고가 한 번 나왔지만(그 순간 파일이 없었으므로 정상), GameMode는 저장되지 않았고(`git status` 무변경) 2차 실행에서는 경고가 없었다.
+
+**촬영**: `ACharacterViewerController`에 `TakePortfolioScreenshot()`(F12), `StartTurntableCapture()`(Shift+F12), `CancelCapture()`(Esc)를 추가했다. 순수 로직(파일 이름, 프레임 수/각도, 상태 머신 `FViewerCaptureSequence`)은 `CharacterViewer/ViewerCapture.h/.cpp`에 분리해 Editor 테스트로 검증했다. 한 프레임 = 준비(회전) → `CaptureSettleFrames` 틱 대기 → 요청 → 파일 확인 순서이며 `PlayerTick()`에서 진행한다. 저장 경로는 `FScreenshotRequest::RequestScreenshot(파일, bShowUI=false, 접미사 없음)`, 배율 > 1이면 `GetHighResScreenshotConfig().SetFilename()/SetResolution()`을 함께 쓴다(엔진은 고해상도 요청 시 `FilenameOverride`로 파일 이름을 정하므로 둘 다 필요). `FScreenshotRequest::OnScreenshotRequestProcessed()`와 파일 존재로 완료를 판정하고, 6초 안에 파일이 없으면 그 프레임만 `FSlateApplication::TakeScreenshot`(패널을 그 순간만 숨김)으로 저장한다. Shift+F12는 폴백 IMC에서 `F12` + `UInputTriggerChordAction`(Shift 액션) 매핑을 일반 F12보다 먼저 넣어 엔진의 자동 코드 차단기(chord blocker)가 일반 F12를 막게 했다.
+
+**검증**: Editor 빌드 1차 실패(`const` 포인터로 `UGameViewportClient::GetWindow()` 호출, C2662 1건) → 수정 1회 후 0/0. Game 빌드 0/0. Editor Automation 10/10(신규 `Viewer.PanelLayout`: 폭 계산·DPI 곡선 값·기본 트리 모양·폴백 위젯 버튼 글꼴/줄바꿈·자동 폭 적용·상태 줄·생성된 WBP 트리, `Viewer.CaptureNaming`, `Viewer.CaptureSequence`). `-game` 테스트 `CharacterShowcase.Game.ViewerCapture`는 작성만 했고 이 세션에서는 실행하지 않았다(4.1절).
 
 ### 6.13 스튜디오 룩 + Manny 기본 프로필 (2026-10-01)
 

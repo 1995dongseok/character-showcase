@@ -11,6 +11,8 @@ class ACharacterViewerCameraPawn;
 class UCharacterViewerWidget;
 class UCanvasPanel;
 class UBorder;
+class USizeBox;
+class UWidgetTree;
 class UScrollBox;
 class UVerticalBox;
 class UTextBlock;
@@ -53,6 +55,30 @@ enum class ECharacterViewerButtonKind : uint8
 	// P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): CHARACTER section, one button per
 	// ACharacterViewerGameMode::ProfileLibrary entry. Id is the target UCharacterProfileData's own asset FName.
 	CharacterProfile,
+	// Portfolio capture (Docs/CHARACTER_VIEWER_SETUP.md section 1.7): DISPLAY
+	// buttons forwarding to ACharacterViewerController::TakePortfolioScreenshot()
+	// / StartTurntableCapture() (same as F12 / Shift+F12).
+	PortfolioScreenshot,
+	TurntableCapture,
+};
+
+// Raw pointers to the widgets UCharacterViewerWidget::BuildDefaultLayoutTree()
+// constructs. One builder is shared by the C++ fallback (BuildFallbackUI())
+// and the Editor tool that generates WBP_CharacterViewer's designer tree
+// (UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout()), so both
+// layouts are identical until a designer edits the WBP.
+struct FCharacterViewerLayoutWidgets
+{
+	UCanvasPanel* RootCanvas = nullptr;
+	UBorder* PanelRoot = nullptr;
+	UTextBlock* NameText = nullptr;
+	UVerticalBox* ControlsBox = nullptr;
+	UTextBlock* StatusText = nullptr;
+	USizeBox* DescriptionSizeBox = nullptr;
+	UScrollBox* DescriptionScroll = nullptr;
+	UTextBlock* DescriptionText = nullptr;
+	UScrollBox* ListsScroll = nullptr;
+	UVerticalBox* ListsBox = nullptr;
 };
 
 // Tiny helper object bound to one generated-panel UButton::OnClicked
@@ -93,8 +119,10 @@ public:
 //  - Designer layout: WBP_CharacterViewer (or any WBP subclassing this) has
 //    its own widget tree (WidgetTree->RootWidget != nullptr) and uses
 //    BindWidgetOptional to hand this class PanelRoot/NameText/ControlsBox/
-//    DescriptionScroll/DescriptionText/ListsScroll/ListsBox by name. C++
-//    never builds a tree in this case; it only populates the bound widgets.
+//    DescriptionScroll/DescriptionText/ListsScroll/ListsBox (7 required) and
+//    StatusText (optional) by name. C++ never builds a tree in this case;
+//    it only populates the bound widgets (and, with bAutoPanelWidth, sets
+//    the right-anchored PanelRoot slot width).
 //  - Fallback layout: an empty designer tree. RebuildWidget() builds a
 //    minimal UMG tree in C++ (BuildFallbackUI()) using the exact same
 //    PanelRoot/NameText/... member names, so RefreshUI()/AddListSection()/
@@ -137,6 +165,84 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "Viewer|Designer")
 	TObjectPtr<UVerticalBox> ListsBox;
+
+	// 8th, OPTIONAL name (not part of the 7 required ones): one-line capture
+	// status ("Capturing 12/36", "Saved: Saved/Screenshots/Portfolio/...").
+	// Collapsed while there is no status. A designer tree without it still
+	// works; the status is simply not shown.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "Viewer|Designer")
+	TObjectPtr<UTextBlock> StatusText;
+
+	// --- Layout (Docs/CHARACTER_VIEWER_SETUP.md section 2, step 9) ---
+
+	// When true (default), the panel width follows the viewport:
+	// clamp(viewport width * PanelWidthFraction, PanelMinWidth, PanelMaxWidth),
+	// in Slate units (= pixels at DPI scale 1.0; the project DPI curve in
+	// Config/DefaultEngine.ini scales them, 720p = 0.8, 1080p = 1.0). Only
+	// applied while PanelRoot sits in a CanvasPanelSlot anchored to the right
+	// edge (anchor min/max X == 1); a designer who re-anchors the panel, or
+	// turns this off in the WBP's Class Defaults, keeps their own width.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout")
+	bool bAutoPanelWidth = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float PanelWidthFraction = 0.24f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "100.0"))
+	float PanelMinWidth = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "100.0"))
+	float PanelMaxWidth = 460.f;
+
+	// Font sizes of the runtime-generated rows (buttons / section headers).
+	// Headers are intentionally a little larger than button text.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "6", ClampMax = "48"))
+	int32 ButtonFontSize = 13;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Viewer|Layout", meta = (ClampMin = "6", ClampMax = "48"))
+	int32 HeaderFontSize = 15;
+
+	// Defaults baked into the generated tree (NameText/DescriptionText/StatusText).
+	static constexpr int32 DefaultNameFontSize = 20;
+	static constexpr int32 DefaultDescriptionFontSize = 13;
+	static constexpr int32 DefaultStatusFontSize = 12;
+	static constexpr int32 DescriptionMinVisibleLines = 6;
+	static constexpr float DefaultPanelWidth = 384.f;
+	static constexpr float DefaultPanelPadding = 16.f;
+
+	// clamp(ViewportWidth * Fraction, MinWidth, MaxWidth), never wider than
+	// the viewport itself. Pure; unit-tested.
+	static float ComputePanelWidth(float ViewportWidth, float Fraction, float MinWidth, float MaxWidth);
+
+	// Conservative line height (Slate units) for a Roboto font of FontSize
+	// points, and the description scroll height that shows MinLines lines
+	// before it starts scrolling.
+	static float EstimateLineHeight(int32 FontSize);
+	static float ComputeDescriptionMaxHeight(int32 FontSize, int32 MinLines);
+
+	// Builds the default panel tree (RootCanvas > PanelRoot > PanelContent >
+	// NameText / ControlsBox / StatusText / DescriptionSizeBox >
+	// DescriptionScroll > DescriptionText / ListsScroll(Fill) > ListsBox) into
+	// an EMPTY WidgetTree and marks the 8 bindable widgets bIsVariable. Returns
+	// false (tree untouched) if Tree is null or already has a RootWidget.
+	static bool BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacterViewerLayoutWidgets& Out);
+
+	// Applies the auto panel width for a viewport ViewportWidth Slate units
+	// wide (called every NativeTick with this widget's own geometry; public so
+	// Editor tests can drive it without a game viewport). No-op unless
+	// bAutoPanelWidth and PanelRoot is right-anchored in a CanvasPanelSlot.
+	void ApplyAutoPanelWidth(float ViewportWidth);
+
+	// Last width applied by the auto panel width (0 until the first tick that applied it).
+	UFUNCTION(BlueprintPure, Category = "Viewer|Layout")
+	float GetAppliedPanelWidth() const { return AppliedPanelWidth; }
+
+	// Capture status line (StatusText). Empty text collapses it.
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
+	void SetCaptureStatus(const FText& InStatus);
+
+	UFUNCTION(BlueprintPure, Category = "Viewer|Capture")
+	FText GetCaptureStatus() const { return CaptureStatus; }
 
 	// True once BuildFallbackUI()/RefreshUI() has run and PanelRoot resolved
 	// from a real designer tree (not the C++ fallback). Test/diagnostic use.
@@ -297,6 +403,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Viewer|Wireframe")
 	void RequestToggleWireframe();
 
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
+	void RequestPortfolioScreenshot();
+
+	UFUNCTION(BlueprintCallable, Category = "Viewer|Capture")
+	void RequestTurntableCapture();
+
 protected:
 	// Builds the fallback tree (if needed) BEFORE UUserWidget::RebuildWidget()
 	// converts WidgetTree->RootWidget into Slate. NativeConstruct() runs only
@@ -304,16 +416,19 @@ protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	// Applies the auto panel width (bAutoPanelWidth) from this widget's own
+	// (viewport-filling) geometry; only touches the slot when the width changes.
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
 	// --- Layout (section 13.10) ---
 
-	// Builds the minimal C++ fallback panel described in
-	// Docs/CHARACTER_VIEWER_SETUP.md section 13.10 into this widget's
+	// Builds the C++ fallback panel (BuildDefaultLayoutTree(), the same tree
+	// the Editor tool writes into WBP_CharacterViewer) into this widget's
 	// (currently empty) WidgetTree, assigning the SAME PanelRoot/NameText/
-	// ControlsBox/DescriptionScroll/DescriptionText/ListsScroll/ListsBox
-	// members a designer WBP would resolve via BindWidgetOptional. Only ever
-	// called once, from RebuildWidget() (outside design time), when
+	// ControlsBox/DescriptionScroll/DescriptionText/ListsScroll/ListsBox/
+	// StatusText members a designer WBP would resolve via BindWidgetOptional.
+	// Only ever called once, from RebuildWidget() (outside design time), when
 	// WidgetTree->RootWidget is null.
 	void BuildFallbackUI();
 
@@ -397,4 +512,11 @@ private:
 
 	// Tracked here (not on the Actor/Pawn) purely for UI highlight purposes; not gameplay state.
 	FName CurrentCameraPresetId = NAME_None;
+
+	void ApplyCaptureStatus();
+	FSlateFontInfo MakeFont(const FSlateFontInfo& Base, int32 Size, FName Typeface) const;
+	void AddSectionHeader(UVerticalBox* SectionBox, const FText& Label);
+
+	float AppliedPanelWidth = 0.f;
+	FText CaptureStatus;
 };

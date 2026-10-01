@@ -8,6 +8,7 @@
 #include "CharacterViewer/CharacterViewerGameMode.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
+#include "Components/ButtonSlot.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/ScrollBox.h"
@@ -58,7 +59,160 @@ void UCharacterViewerButtonBinding::HandleClicked()
 	case ECharacterViewerButtonKind::ToggleWireframe:
 		OwnerWidget->RequestToggleWireframe();
 		break;
+	case ECharacterViewerButtonKind::PortfolioScreenshot:
+		OwnerWidget->RequestPortfolioScreenshot();
+		break;
+	case ECharacterViewerButtonKind::TurntableCapture:
+		OwnerWidget->RequestTurntableCapture();
+		break;
 	}
+}
+
+// --- Layout helpers (shared by the C++ fallback and the Editor tool) -----
+
+float UCharacterViewerWidget::ComputePanelWidth(float ViewportWidth, float Fraction, float MinWidth, float MaxWidth)
+{
+	if (!(ViewportWidth > 0.f))
+	{
+		return FMath::Max(MinWidth, 0.f);
+	}
+	const float SafeMax = FMath::Max(MinWidth, MaxWidth);
+	const float Width = FMath::Clamp(ViewportWidth * Fraction, MinWidth, SafeMax);
+	return FMath::Min(Width, ViewportWidth);
+}
+
+float UCharacterViewerWidget::EstimateLineHeight(int32 FontSize)
+{
+	// Slate font sizes are points at 96 DPI (1 pt = 96/72 Slate units); Roboto's
+	// ascender+descender is ~1.17 em, rounded up to 1.25 so the estimate never
+	// undershoots the real line height.
+	return static_cast<float>(FMath::Max(1, FontSize)) * (96.f / 72.f) * 1.25f;
+}
+
+float UCharacterViewerWidget::ComputeDescriptionMaxHeight(int32 FontSize, int32 MinLines)
+{
+	return FMath::CeilToFloat(EstimateLineHeight(FontSize) * static_cast<float>(FMath::Max(1, MinLines))) + 4.f;
+}
+
+bool UCharacterViewerWidget::BuildDefaultLayoutTree(UWidgetTree* Tree, FCharacterViewerLayoutWidgets& Out)
+{
+	Out = FCharacterViewerLayoutWidgets();
+	if (!Tree || Tree->RootWidget != nullptr)
+	{
+		return false;
+	}
+
+	UCanvasPanel* RootCanvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+	UBorder* Panel = Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelRoot"));
+	UVerticalBox* PanelContent = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelContent"));
+	UTextBlock* Name = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
+	UVerticalBox* Controls = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ControlsBox"));
+	UTextBlock* Status = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StatusText"));
+	USizeBox* DescriptionSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("DescriptionSizeBox"));
+	UScrollBox* DescriptionScrollBox = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("DescriptionScroll"));
+	UTextBlock* Description = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DescriptionText"));
+	UScrollBox* ListsScrollBox = Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ListsScroll"));
+	UVerticalBox* Lists = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ListsBox"));
+	if (!RootCanvas || !Panel || !PanelContent || !Name || !Controls || !Status || !DescriptionSize || !DescriptionScrollBox || !Description || !ListsScrollBox || !Lists)
+	{
+		return false;
+	}
+
+	Tree->RootWidget = RootCanvas;
+
+	// Right-edge, full-height dark panel. Anchors (1,0)-(1,1): stretched
+	// vertically, point-anchored to the right edge horizontally, so
+	// Offsets.Right is the panel WIDTH; Alignment.X = 1 keeps its right edge on
+	// the screen edge. DefaultPanelWidth is only the initial value: with
+	// bAutoPanelWidth (default) NativeTick() resizes it to
+	// clamp(24% of the viewport, 300, 460) Slate units.
+	Panel->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.02f, 0.85f));
+	Panel->SetPadding(FMargin(DefaultPanelPadding));
+	Panel->SetVisibility(ESlateVisibility::Visible);
+	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(Panel))
+	{
+		BorderSlot->SetAnchors(FAnchors(1.f, 0.f, 1.f, 1.f));
+		BorderSlot->SetAlignment(FVector2D(1.f, 0.f));
+		BorderSlot->SetOffsets(FMargin(0.f, 0.f, DefaultPanelWidth, 0.f));
+	}
+	Panel->SetContent(PanelContent);
+
+	// Priority order: name -> CHARACTER/VIEW/DISPLAY (never scrolled away) ->
+	// capture status -> description (limited-height scroll) -> lists (scroll, Fill).
+	{
+		FSlateFontInfo Font = Name->GetFont();
+		Font.Size = DefaultNameFontSize;
+		Font.TypefaceFontName = TEXT("Bold");
+		Name->SetFont(Font);
+	}
+	Name->SetAutoWrapText(true);
+	if (UVerticalBoxSlot* NameSlot = PanelContent->AddChildToVerticalBox(Name))
+	{
+		NameSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
+	}
+
+	PanelContent->AddChildToVerticalBox(Controls);
+
+	{
+		FSlateFontInfo Font = Status->GetFont();
+		Font.Size = DefaultStatusFontSize;
+		Font.TypefaceFontName = TEXT("Regular");
+		Status->SetFont(Font);
+	}
+	Status->SetColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.9f, 0.55f, 1.f)));
+	Status->SetAutoWrapText(true);
+	Status->SetVisibility(ESlateVisibility::Collapsed);
+	if (UVerticalBoxSlot* StatusSlot = PanelContent->AddChildToVerticalBox(Status))
+	{
+		StatusSlot->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
+	}
+
+	// Description: wraps, and shows at least DescriptionMinVisibleLines lines
+	// before it scrolls (instead of pushing the controls/lists off screen).
+	DescriptionSize->SetMaxDesiredHeight(ComputeDescriptionMaxHeight(DefaultDescriptionFontSize, DescriptionMinVisibleLines));
+	DescriptionSize->SetContent(DescriptionScrollBox);
+	if (UVerticalBoxSlot* DescriptionSlot = PanelContent->AddChildToVerticalBox(DescriptionSize))
+	{
+		DescriptionSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 4.f));
+	}
+	DescriptionScrollBox->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
+	{
+		FSlateFontInfo Font = Description->GetFont();
+		Font.Size = DefaultDescriptionFontSize;
+		Font.TypefaceFontName = TEXT("Regular");
+		Description->SetFont(Font);
+	}
+	Description->SetAutoWrapText(true);
+	DescriptionScrollBox->AddChild(Description);
+
+	// Without an explicit Fill slot size a VerticalBox gives every child only
+	// its own desired height, so ListsScroll never got a bounded height and
+	// overflowed the screen instead of scrolling (section 6.8). Fill makes it
+	// take the remaining panel height. Keep it Fill in the designer too.
+	ListsScrollBox->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
+	if (UVerticalBoxSlot* ListsScrollSlot = PanelContent->AddChildToVerticalBox(ListsScrollBox))
+	{
+		ListsScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+	ListsScrollBox->AddChild(Lists);
+
+	// The 8 designer-bindable names must be "Is Variable" for BindWidgetOptional.
+	for (UWidget* Bindable : TArray<UWidget*>{ Panel, Name, Controls, Status, DescriptionScrollBox, Description, ListsScrollBox, Lists })
+	{
+		Bindable->bIsVariable = true;
+	}
+
+	Out.RootCanvas = RootCanvas;
+	Out.PanelRoot = Panel;
+	Out.NameText = Name;
+	Out.ControlsBox = Controls;
+	Out.StatusText = Status;
+	Out.DescriptionSizeBox = DescriptionSize;
+	Out.DescriptionScroll = DescriptionScrollBox;
+	Out.DescriptionText = Description;
+	Out.ListsScroll = ListsScrollBox;
+	Out.ListsBox = Lists;
+	return true;
 }
 
 bool UCharacterViewerWidget::IsUsingDesignerLayout() const
@@ -426,6 +580,102 @@ void UCharacterViewerWidget::RequestToggleWireframe()
 	RefreshUI();
 }
 
+void UCharacterViewerWidget::RequestPortfolioScreenshot()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->TakePortfolioScreenshot();
+	}
+}
+
+void UCharacterViewerWidget::RequestTurntableCapture()
+{
+	if (ACharacterViewerController* Controller = WeakController.Get())
+	{
+		Controller->StartTurntableCapture();
+	}
+}
+
+void UCharacterViewerWidget::SetCaptureStatus(const FText& InStatus)
+{
+	CaptureStatus = InStatus;
+	ApplyCaptureStatus();
+}
+
+void UCharacterViewerWidget::ApplyCaptureStatus()
+{
+	if (!StatusText)
+	{
+		return;
+	}
+	StatusText->SetText(CaptureStatus);
+	StatusText->SetVisibility(CaptureStatus.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+}
+
+void UCharacterViewerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// This UserWidget fills the viewport (AddToViewport), so its local size is
+	// the viewport size in Slate units (DPI scale already applied).
+	ApplyAutoPanelWidth(static_cast<float>(MyGeometry.GetLocalSize().X));
+}
+
+void UCharacterViewerWidget::ApplyAutoPanelWidth(float ViewportWidth)
+{
+	if (!bAutoPanelWidth || !PanelRoot || ViewportWidth <= 1.f)
+	{
+		return;
+	}
+
+	UCanvasPanelSlot* PanelSlot = Cast<UCanvasPanelSlot>(PanelRoot->Slot);
+	if (!PanelSlot)
+	{
+		return;
+	}
+
+	// Only the default "point-anchored to the right edge" arrangement is
+	// managed; a designer who re-anchored/stretched the panel keeps it.
+	const FAnchors Anchors = PanelSlot->GetAnchors();
+	if (!FMath::IsNearlyEqual(Anchors.Minimum.X, 1.f) || !FMath::IsNearlyEqual(Anchors.Maximum.X, 1.f))
+	{
+		return;
+	}
+
+	const float Width = ComputePanelWidth(ViewportWidth, PanelWidthFraction, PanelMinWidth, PanelMaxWidth);
+	FMargin Offsets = PanelSlot->GetOffsets();
+	if (!FMath::IsNearlyEqual(Offsets.Right, Width, 0.5f))
+	{
+		Offsets.Right = Width;
+		PanelSlot->SetOffsets(Offsets);
+	}
+	AppliedPanelWidth = Width;
+}
+
+FSlateFontInfo UCharacterViewerWidget::MakeFont(const FSlateFontInfo& Base, int32 Size, FName Typeface) const
+{
+	FSlateFontInfo Font = Base;
+	Font.Size = Size;
+	Font.TypefaceFontName = Typeface;
+	return Font;
+}
+
+void UCharacterViewerWidget::AddSectionHeader(UVerticalBox* SectionBox, const FText& Label)
+{
+	UTextBlock* Header = WidgetTree ? WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass()) : nullptr;
+	if (!SectionBox || !Header)
+	{
+		return;
+	}
+	Header->SetText(Label);
+	Header->SetFont(MakeFont(Header->GetFont(), HeaderFontSize, TEXT("Bold")));
+	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
+	if (UVerticalBoxSlot* HeaderSlot = SectionBox->AddChildToVerticalBox(Header))
+	{
+		HeaderSlot->SetPadding(FMargin(0.f, 6.f, 0.f, 2.f));
+	}
+}
+
 TSharedRef<SWidget> UCharacterViewerWidget::RebuildWidget()
 {
 	// A designer-authored WBP tree (RootWidget != nullptr) is left completely
@@ -496,110 +746,22 @@ void UCharacterViewerWidget::NativeDestruct()
 
 void UCharacterViewerWidget::BuildFallbackUI()
 {
-	if (!WidgetTree || WidgetTree->RootWidget != nullptr)
+	// Same tree (names, fonts, panel slot, Fill rule) the Editor tool writes
+	// into WBP_CharacterViewer -- one builder, so the two paths cannot drift.
+	FCharacterViewerLayoutWidgets Built;
+	if (!BuildDefaultLayoutTree(WidgetTree, Built))
 	{
 		return;
 	}
 
-	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("FallbackRootCanvas"));
-	WidgetTree->RootWidget = RootCanvas;
-	if (!RootCanvas)
-	{
-		return;
-	}
-
-	// Right-edge, full-height, fixed-width (320px) dark panel. Anchors (1,0)-(1,1)
-	// stretch vertically (Offsets.Top/Bottom = margins) and are point-anchored
-	// horizontally to the right edge (Offsets.Left = X position from the anchor,
-	// Offsets.Right = width); Alignment.X = 1 keeps the panel's right edge flush
-	// with the screen's right edge instead of overflowing past it.
-	PanelRoot = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PanelRoot"));
-	if (!PanelRoot)
-	{
-		return;
-	}
-	PanelRoot->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.65f));
-	PanelRoot->SetPadding(FMargin(16.f));
-
-	if (UCanvasPanelSlot* BorderSlot = RootCanvas->AddChildToCanvas(PanelRoot))
-	{
-		BorderSlot->SetAnchors(FAnchors(1.f, 0.f, 1.f, 1.f));
-		BorderSlot->SetAlignment(FVector2D(1.f, 0.f));
-		BorderSlot->SetOffsets(FMargin(0.f, 0.f, 320.f, 0.f));
-	}
-
-	// Structural root inside the panel (not itself designer-bindable): holds
-	// the fixed priority order name -> CHARACTER/VIEW/DISPLAY -> description
-	// (limited-height scroll) -> lists (scroll), top to bottom (section 13.10).
-	UVerticalBox* PanelContent = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelContent"));
-	if (!PanelContent)
-	{
-		return;
-	}
-	PanelRoot->SetContent(PanelContent);
-
-	NameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
-	if (NameText)
-	{
-		FSlateFontInfo NameFont = NameText->GetFont();
-		NameFont.Size = 22;
-		NameText->SetFont(NameFont);
-		NameText->SetAutoWrapText(true);
-		PanelContent->AddChildToVerticalBox(NameText);
-	}
-
-	// CHARACTER/VIEW/DISPLAY: primary controls, always visible, never scrolled away.
-	ControlsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ControlsBox"));
-	if (ControlsBox)
-	{
-		PanelContent->AddChildToVerticalBox(ControlsBox);
-	}
-
-	// Description: the one long-text field, confined to a small fixed-height
-	// scroll area instead of pushing the CHARACTER/VIEW/DISPLAY controls or
-	// the ANIMATION/EXPRESSION/APPEARANCE lists off screen.
-	DescriptionScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("DescriptionScroll"));
-	if (DescriptionScroll)
-	{
-		if (USizeBox* DescriptionSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("DescriptionSizeBox")))
-		{
-			DescriptionSize->SetMaxDesiredHeight(110.f);
-			DescriptionSize->SetContent(DescriptionScroll);
-			PanelContent->AddChildToVerticalBox(DescriptionSize);
-		}
-		else
-		{
-			PanelContent->AddChildToVerticalBox(DescriptionScroll);
-		}
-
-		DescriptionText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DescriptionText"));
-		if (DescriptionText)
-		{
-			DescriptionText->SetAutoWrapText(true);
-			DescriptionScroll->AddChild(DescriptionText);
-		}
-	}
-
-	// ANIMATION/EXPRESSION/APPEARANCE/INSPECTION: the long, data-driven lists,
-	// in their own scroll area separate from the description.
-	ListsScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ListsScroll"));
-	if (ListsScroll)
-	{
-		// Without an explicit Fill slot size, a VerticalBox only gives a child
-		// its own desired (content) height, so ListsScroll never had a bounded
-		// height to scroll within and just overflowed the screen instead of
-		// scrolling. Fill makes it take the remaining space in PanelContent.
-		if (UVerticalBoxSlot* ListsScrollSlot = Cast<UVerticalBoxSlot>(PanelContent->AddChildToVerticalBox(ListsScroll)))
-		{
-			ListsScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		}
-
-		ListsBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ListsBox"));
-		if (ListsBox)
-		{
-			ListsScroll->AddChild(ListsBox);
-		}
-	}
+	PanelRoot = Built.PanelRoot;
+	NameText = Built.NameText;
+	ControlsBox = Built.ControlsBox;
+	StatusText = Built.StatusText;
+	DescriptionScroll = Built.DescriptionScroll;
+	DescriptionText = Built.DescriptionText;
+	ListsScroll = Built.ListsScroll;
+	ListsBox = Built.ListsBox;
 }
 
 FEventReply UCharacterViewerWidget::HandleFallbackPanelMouseButtonDown(FGeometry MyGeometry, const FPointerEvent& MouseEvent)
@@ -665,6 +827,8 @@ void UCharacterViewerWidget::RefreshUI()
 		AddListSection(ListsBox, FText::FromString(TEXT("APPEARANCE")), GetMaterialVariants(), ECharacterViewerButtonKind::MaterialVariant, GetCurrentMaterialVariantId());
 		BuildInspectionSection(ListsBox);
 	}
+
+	ApplyCaptureStatus();
 }
 
 void UCharacterViewerWidget::AddListSection(UVerticalBox* Container, const FText& HeaderLabel, const TArray<FViewerListItem>& Items, ECharacterViewerButtonKind Kind, FName CurrentSelectedId)
@@ -676,14 +840,11 @@ void UCharacterViewerWidget::AddListSection(UVerticalBox* Container, const FText
 	}
 
 	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-	if (!SectionBox || !Header)
+	if (!SectionBox)
 	{
 		return;
 	}
-	Header->SetText(HeaderLabel);
-	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
-	SectionBox->AddChildToVerticalBox(Header);
+	AddSectionHeader(SectionBox, HeaderLabel);
 
 	for (const FViewerListItem& Item : Items)
 	{
@@ -702,14 +863,11 @@ void UCharacterViewerWidget::BuildDisplaySection(UVerticalBox* Container)
 	}
 
 	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-	if (!SectionBox || !Header)
+	if (!SectionBox)
 	{
 		return;
 	}
-	Header->SetText(FText::FromString(TEXT("DISPLAY")));
-	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
-	SectionBox->AddChildToVerticalBox(Header);
+	AddSectionHeader(SectionBox, FText::FromString(TEXT("DISPLAY")));
 
 	const bool bTurntableOn = IsTurntableEnabled();
 	UTextBlock* TurntableLabel = nullptr;
@@ -729,6 +887,13 @@ void UCharacterViewerWidget::BuildDisplaySection(UVerticalBox* Container)
 	const bool bWireframeOn = IsWireframeEnabled();
 	WireframeButton = AddButtonRow(SectionBox, FText::FromString(bWireframeOn ? TEXT("Wireframe: On (W)") : TEXT("Wireframe: Off (W)")), bWireframeAvailable, bWireframeOn, NAME_None, ECharacterViewerButtonKind::ToggleWireframe);
 
+	// Portfolio capture (section 1.7). Disabled while a capture runs (the
+	// controller ignores new requests then anyway).
+	const ACharacterViewerController* Controller = WeakController.Get();
+	const bool bCanCapture = Controller && !Controller->IsCapturing();
+	AddButtonRow(SectionBox, FText::FromString(TEXT("Screenshot (F12)")), bCanCapture, false, NAME_None, ECharacterViewerButtonKind::PortfolioScreenshot);
+	AddButtonRow(SectionBox, FText::FromString(TEXT("Turntable Shots (Shift+F12)")), bCanCapture, false, NAME_None, ECharacterViewerButtonKind::TurntableCapture);
+
 	Container->AddChildToVerticalBox(SectionBox);
 }
 
@@ -740,16 +905,14 @@ void UCharacterViewerWidget::BuildInspectionSection(UVerticalBox* Container)
 	}
 
 	UVerticalBox* SectionBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-	UTextBlock* Header = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 	UTextBlock* BodyText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-	if (!SectionBox || !Header || !BodyText)
+	if (!SectionBox || !BodyText)
 	{
 		return;
 	}
-	Header->SetText(FText::FromString(TEXT("INSPECTION")));
-	Header->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.75f, 0.75f, 1.f)));
-	SectionBox->AddChildToVerticalBox(Header);
+	AddSectionHeader(SectionBox, FText::FromString(TEXT("INSPECTION")));
 
+	BodyText->SetFont(MakeFont(BodyText->GetFont(), ButtonFontSize, TEXT("Regular")));
 	BodyText->SetAutoWrapText(true);
 
 	const bool bShowInspection = IsInspectionEnabled();
@@ -799,7 +962,18 @@ UButton* UCharacterViewerWidget::AddButtonRow(UVerticalBox* Container, const FTe
 	// "Turntable: On (Space)") makes the current selection/toggle unmistakable
 	// (section 13.10 "state display").
 	ButtonText->SetText(bSelected ? FText::FromString(FString::Printf(TEXT("▶ %s"), *Label.ToString())) : Label);
-	Button->AddChild(ButtonText);
+	// Readable size + wrapping instead of the 24pt Bold UTextBlock default,
+	// which clipped long labels ("Tutorial Mannequi", "Turntable: Off (Space")
+	// in the 2026-09-30 captures. The button fills the panel width (VerticalBox
+	// slot HAlign Fill), so a label longer than that wraps to a second line.
+	ButtonText->SetFont(MakeFont(ButtonText->GetFont(), ButtonFontSize, TEXT("Regular")));
+	ButtonText->SetAutoWrapText(true);
+	ButtonText->SetJustification(ETextJustify::Center);
+	if (UButtonSlot* LabelSlot = Cast<UButtonSlot>(Button->AddChild(ButtonText)))
+	{
+		LabelSlot->SetPadding(FMargin(8.f, 3.f));
+		LabelSlot->SetHorizontalAlignment(HAlign_Fill);
+	}
 	Button->SetIsEnabled(bEnabled);
 	// A focusable UButton keeps keyboard focus after being clicked, so a
 	// later Space press (ToggleTurntableAction) re-triggers THIS button
