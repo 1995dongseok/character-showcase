@@ -171,6 +171,24 @@ ffmpeg -framerate 12 -i frame_%03d.png -vf "scale=720:-1:flags=lanczos,split[a][
     '-TestExit=Automation Test Queue Empty' "-ReportExportPath=C:\Users\WINCARD1\Downloads\develop\project\character-showcase\Saved\Automation\ViewerCapture720"
 ```
 
+### 1.8 일괄 촬영·턴테이블 영상
+
+**`Tools\CaptureAll.bat`** — 포트폴리오 이미지 한 벌을 한 번에 찍는다. 뷰어를 `-game`(1920×1080 창, `--720p`면 1280×720)으로 띄워 콘솔 명령 `Viewer.CaptureAll ... quit=1`을 실행하고, 다 찍으면 창이 저절로 닫힌 뒤 새 `Batch_*` 폴더와 PNG 개수, 로그(`Saved\Logs\CaptureAll.log`)의 `[CharacterViewerBatch]` 줄을 보여 준다. 새 파일이 0장이면 종료 코드 1.
+
+| 옵션 | 콘솔 인자 | 내용 |
+| --- | --- | --- |
+| (기본) | `profile=current` | 시작 프로필(GameMode Default Profile)만 |
+| `--all` | `profile=all` | GameMode `ProfileLibrary`의 모든 프로필(목록 순서, 프로필마다 전환 후 대기) |
+| `--expressions` | `expressions=1` | Expression이 2개 이상인 프로필은 표정마다 한 벌 더(Neutral 하나뿐이면 변화 없음) |
+| `--poses` | `poses=1` | `Is Pose` 애니메이션마다 1장 추가(기본 구도 `DefaultPresetId` + 첫 Variant) |
+
+- **무엇을 찍나**: 프로필마다 **카메라 프리셋 × Material Variant**(프리셋/Variant가 없으면 각각 `Default` 1개) 조합을 F12와 똑같이 UI 없이, 뷰포트 × `ScreenshotResolutionMultiplier`(기본 2)로 1장씩. Skeletal Mesh가 없는 프로필은 건너뛴다. Manny는 3 × 2 = **6장**(`--poses`면 7장).
+- **결과**: `Saved/Screenshots/Portfolio/Batch_<프로필>_<yyyyMMdd-HHmmss>/<프로필>_<프리셋>_<Variant>[_<표정>|_<포즈>].png` — 예: `DA_Character_Manny_Face_Default.png`, `DA_Character_Manny_Full_Grid.png`, `DA_Character_Manny_Full_Default_Pose.png`. 시각은 폴더 이름에만 있어 같은 조합은 언제나 같은 파일 이름이다(포트폴리오 문서에 링크하기 쉽다).
+- **뷰어 안에서 직접**: `RunViewer.bat`/PIE의 콘솔(`~` 키)에 `Viewer.CaptureAll`(지금 프로필), `Viewer.CaptureAll profile=DA_Character_Cube`, `Viewer.CaptureAll profile=all poses=1` 등. 상태 줄에 `Batch 3/12`, 끝나면 `Batch saved 6/6 -> Saved/Screenshots/Portfolio/Batch_...`. **Esc**는 일괄 촬영 전체를 취소한다(이미 저장된 파일은 남음). 끝나거나 취소되면 원래 프로필·구도·Variant·표정·애니메이션·Turntable 상태로 돌아간다(손으로 돌려 둔 Orbit 각도는 저장되지 않고, 선택돼 있던 프리셋 구도로 돌아간다).
+- **한 장의 순서**: 프로필 표시 → 1초 + 셰이더 컴파일 대기(비쿠킹 첫 실행의 `Preparing Shaders`, 최대 300초) → 선택 적용 → `CaptureSettleFrames`(4) 틱 + 카메라 보간 끝(최대 5초) → 텍스처 스트리밍(최대 2초) → F12와 같은 저장 경로(6초 안에 안 되면 Slate 캡처 폴백). Turntable은 촬영 동안 멈춘다.
+
+**`Tools\MakeTurntableVideo.bat [폴더] [--gif] [--fps 12]`** — Shift+F12 결과를 영상으로 만든다. 폴더를 주지 않으면 `Saved\Screenshots\Portfolio\Turntable_*` 중 가장 최근 폴더. 같은 폴더에 `turntable.mp4`(H.264, yuv420p, CRF 18, 홀수 해상도는 짝수로 보정)를, `--gif`면 가로 640px `turntable.gif`(팔레트 2단계, 무한 반복)를 만든다. ffmpeg는 **PATH → `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*` → `Toolsfmpegfmpeg.exe`** 순서로 찾고, 없으면 설치 명령 `winget install --id Gyan.FFmpeg --scope user --accept-package-agreements --accept-source-agreements`(관리자 권한 불필요)을 출력하고 종료 코드 2로 끝난다. UE 설치와 무관하게 동작한다. Shift+F12가 끝나면 상태 줄에도 `- video: Tools\MakeTurntableVideo.bat`이 붙는다.
+
 ## 2. 아티스트 작업 절차
 
 아래 절차는 전부 Editor GUI로 수행하며 C++/Blueprint 코드 수정이 필요 없다. Data Asset의 필드명은 Editor Details 패널에 보이는 표시 이름(예: `TargetOffset` → **Target Offset**) 그대로 적었다.
@@ -402,6 +420,13 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **24/24 통과**, 실패 0 / 경고 0 (신규 `Viewer.PlaybackMath`/`AnimationPlayback`/`ForcedLOD`/`BackdropPresets`) | `Saved/Automation/G/index.json`, 최종 재실행 `Saved/Automation/G2/index.json`(작업 worktree, 둘 다 24/24) |
 | `LV_Portfolio` 배경/바닥 재질 확인(읽기 전용 Python, 저장 안 함) | 2026-10-01 | `PlatformCylinder`(`StaticMeshActor_0`) slot 0 = `MI_StudioFloor` → `M_StudioFloor`, `StudioBackdrop`(`StaticMeshActor_1`) slot 0 = `MI_StudioBackdrop` → `M_StudioBackdrop`. `git status` 무변경 | 6.18절 |
 
+| Editor 빌드 (일괄 촬영·턴테이블 영상, 6.19절) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (새 worktree 13개 액션 88.8초, 테스트 수정 후 증분 4개 액션 4.6초) | 6.19절 |
+| Game 빌드 (같은 변경) | 2026-10-01 | 성공, 종료 코드 0, 오류 0 / 경고 0 (17개 액션 85.2초, 최종 소스 증분 재빌드 3개 액션 12.5초도 0/0) | 6.19절 |
+| Editor Automation (`Automation RunTests CharacterShowcase`, NullRHI) | 2026-10-01 | **22/22 통과**, 실패 0 / 경고 0 (신규 `Viewer.BatchCapturePlan`, `Viewer.BatchCaptureRunner`). 1차 실행은 21/22 — Runner 테스트가 일부러 만든 실패 시나리오의 `LogTemp: Error` 줄을 자동화가 오류로 집계 → `AddExpectedError`로 선언한 뒤 통과 | `Saved/Automation/H/index.json`(작업 worktree) |
+| `MakeTurntableVideo.bat` 실제 실행 (ffmpeg 9.0.1 full_build, gyan.dev — winget 사용자 설치로 이미 있었음) | 2026-10-01 | `Turntable_DA_Character_Manny_20261001-121743`(2프레임, 1280×720) → `turntable.mp4` 32,330 B, h264 yuv420p 1280×720 12fps 2프레임 0.167초 / `--gif` → `turntable.gif` 146,972 B 640×360 2프레임, 팔레트 임시 파일 삭제, 종료 코드 0. ffmpeg를 못 찾게 한 실행 → 설치 명령 출력 + 종료 코드 2, `--fps 0` → 종료 코드 1 | 6.19절 |
+| `CaptureAll.bat --check` / `MakeTurntableVideo.bat --check` | 2026-10-01 | 종료 코드 0, 출력은 6.19절. 가짜 `UE_ROOT`(인자를 받아 `Batch_*` 폴더에 PNG 2개를 만드는 콘솔 exe)로 실행 경로 2회: `New folders: 1, new files: 2`, 두 번째 실행은 첫 폴더를 다시 세지 않음, 로그의 `[CharacterViewerBatch]` 줄 출력 | 6.19절 |
+| `-game` `CharacterShowcase.Game.ViewerBatchCapture`, `CaptureAll.bat` 실제 실행 | — | **미실행**(게임 창이 필요, 4.1절) | — |
+
 ### 4.1 미검증·대기 항목
 
 - **사람이 손으로 직접 조작한 확인**: 2026-09-30 검증은 OS 수준 실제 입력 이벤트(SendInput)를 자동 재생한 것이다. 게임 입장에서는 실제 마우스/키보드와 구분되지 않지만, 사람이 손으로 조작한 기록은 아직 없다. 패널 버튼을 마우스로 직접 클릭하는 경로는 키보드 단축키 경로로만 확인했다(합성 Slate 클릭 테스트는 `-game` 스모크에서 통과). **대기(선택)**.
@@ -418,6 +443,7 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **2026-10-01 패널 레이아웃/촬영 패스의 `-game` 확인(대기)**: 이 패스는 NullRHI Editor 테스트와 빌드로만 검증됐다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerCapture`를 1280×720과 1920×1080에서 실행해 `ViewerCapture_UI_*.png`/`ViewerCapture_Clean_*.png`로 패널 폭(약 307px / 460px), 버튼 글자 잘림 없음, 설명 6줄 이상을 육안 확인 ② 같은 테스트에서 F12 파일이 실제로 생기고 크기가 뷰포트 × 2인지(로그의 `F12 capture method`가 `HighResScreenshot`인지 `SlateTakeScreenshot` 폴백인지 기록) ③ Shift+F12 2프레임 저장과 취소 후 회전/Turntable 복원 ④ `CharacterShowcase.Game.ViewerSmoke` 재실행(새 레이아웃에서 패널 경계 테스트 회귀 없음) ⑤ 실제 키 입력으로 F12, Shift+F12(코드 트리거가 일반 F12를 막는지), Esc 취소, 36장 전체 시퀀스 완주 — 이 항목들은 **미검증**이다.
 - **재생 컨트롤·LOD·배경 프리셋의 화면 확인(6.18절)**: 상태 값(일시정지/프레임/속도, 강제 LOD와 그 LOD의 수치, MI 파라미터 값)은 Editor Automation(NullRHI)으로 검증했다. **실제 화면에서** 일시정지·프레임 이동 시 포즈가 그 프레임으로 바뀌는지, 강제 LOD에서 메시가 실제로 거칠어지는지, Black/White/Mid Grey 배경·바닥 색이 보이는지(White 0.8이 날아가지 않는지), PLAYBACK 버튼 2줄과 `◀`/`▶` 글자가 300~460 Slate 폭에서 잘리지 않는지, 실제 키(P, [, ], -, =, 0, L, B) 입력은 **미검증**이다. `LV_Portfolio`의 배경/바닥 Actor가 `MI_StudioBackdrop`/`MI_StudioFloor`를 쓰는지는 레벨을 읽기 전용으로 열어 확인했다(6.18절).
 - **프로필 검증 도구(2.10절)의 런타임 로그**: `PostLogin`/`SwitchProfile`에서 `[ProfileValidator]` 보고서를 찍는 코드는 빌드만 확인했고 `-game`/패키지에서 실제 로그가 나오는지는 **미검증**이다. 또 지금 3개 프로필에는 Error가 없어서 "Error가 있는 실제 에셋 → 종료 코드 ≠ 0" 경로는 같은 예외 경로(없는 경로 지정 → -1)로만 확인했다. 검사 로직 자체는 Editor Automation 4개 테스트로 검증됐다.
+- **일괄 촬영(1.8절, 6.19절)의 `-game` 확인(대기)**: 계획·상태 머신은 Editor Automation(가짜 호스트)으로, .bat은 `--check`와 가짜 엔진으로만 확인했다. 아직 확인하지 않은 것 — ① `CharacterShowcase.Game.ViewerBatchCapture`(현재 프로필 Manny 6장, 90초 이내, 폴더 PNG 수 = 계획 수, 프로필/Variant/애니메이션/프리셋 복원, 상태 줄 `Batch saved ...`) ② `Tools\CaptureAll.bat --all`이 `-ExecCmds`로 명령을 받아 3개 프로필을 찍고 `quit=1`로 스스로 종료하는지(`New folders: 3`) ③ 비쿠킹 첫 실행의 셰이더 대기(`Batch: waiting for shaders (N left)`)가 회색 대체 재질 컷을 실제로 막는지 ④ 일괄 촬영 중 F12/패널 클릭은 막지 않는다 — 샷 사이에 F12를 누르면 그 샷은 실패로 집계된다.
 
 ## 5. 남은 작업·위험
 
@@ -660,3 +686,24 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 **다른 세션과의 경계**: D 세션 영역(`ApplyHighlightState`/`ApplyOverlayState`/`UpdateBoneMarkers`, `BuildInspectionSection`/`BuildInspectionText`)은 수정하지 않았다. Controller에서는 입력 바인딩·폴백 IA·키 매핑을 캡처 항목 바로 뒤에 붙였고, 나머지 함수는 파일 끝의 별도 블록이다. Widget은 `RefreshUI()`에 `BuildPlaybackSection(ListsBox)` 1줄, `BuildDisplaySection()`에 `BuildViewOptionRows(SectionBox)` 1줄, `NativeTick()`에 1줄, 버튼 종류 enum 끝에 8개, 클릭 switch에 8개 case를 추가했다.
 
 **검증**: Editor 빌드 0/0, Game 빌드 0/0(17개 액션, 85.3초). Editor Automation **24/24 통과**(기존 20 + 신규 4) — `Viewer.PlaybackMath`(프레임 순환 8건: 37→0, -1→36, -38→36, 75→1, NumFrames 0/음수 → 0; 속도 clamp 5→2.0, 0/-1→0.1, NaN→1.0; 시간 줄 형식; 프리셋 색), `Viewer.AnimationPlayback`(Manny + MM_Idle: 프로필 없음/AnimBP(`UAnimInstance`)에서 전부 false, +1 → 프레임 1·시간 1/30 s, 프레임 1에서 -2 → 227(= 길이), +1 → 0, 속도 5 → 2.0 / 0 → 0.1, 일시정지·0.5배가 다른 애니메이션 선택 후 유지되고 새 애니메이션은 프레임 0, 재개 상태도 유지, Pose = 정지·PoseTime 0.5 s·재개 거부·프레임 이동 가능, Controller의 P/=/0/[ ] 경로(= 10번 → 2.0에서 멈춤), 패널 시간 줄 = `FormatPlaybackTime` 결과, 다음 프레임 이동 후 `UpdatePlaybackTimeText()`만으로 `frame 4 / 227`, 버튼 글자 `Resume (P)`/`Rate 1.00 (0)`, 프로필 재적용 시 재생·1.0배, AnimBP 패널 문구), `Viewer.ForcedLOD`(LOD 3개, LOD0 92,178 > LOD1 26,998 > LOD2 12,998, `SetForcedLOD(3)` → 컴포넌트 3·기본 통계 LODIndex 2·슬롯 합 = 12,998, `GetSlotStats(0)` 합 = 92,178, 4/-1 거부, INSPECTION 본문 `Triangles 12,998`, Controller 순환 0→1→2→3→0, 패널 글자, 프로필 재적용 시 Auto·LOD0 수치), `Viewer.BackdropPresets`(Actor 없는 월드: 크래시 없음·프리셋 기록·대상 0·순환; 배경 = `MI_StudioBackdrop` 부모 Dynamic MI(그대로 재사용), 바닥 = `MI_StudioFloor`(Dynamic MI 새로 생성, 부모 확인) → 대상 2, Black/White/MidGrey에서 4개 파라미터 값, 프로필 전환·Clean View 후 유지, Studio에서 원래 값 TopColor (0.006, 0.0065, 0.008) / BottomColor (0.060, 0.063, 0.068) / BaseColor 0.18 / EdgeColor (0.035, 0.035, 0.038) 복원, MI 에셋 값 불변, 패널 글자). `LV_Portfolio` 읽기 전용 확인은 4절 표. **화면·실제 키 입력은 미검증**(4.1절) — `-game` 창을 띄우지 않았다.
+
+### 6.19 일괄 포트폴리오 촬영·턴테이블 영상 (2026-10-01)
+
+**목적**: 구도·Variant마다 손으로 F12를 누르던 일을 명령 하나(`Tools\CaptureAll.bat` / 콘솔 `Viewer.CaptureAll`)로, Shift+F12 프레임을 영상으로 바꾸던 ffmpeg 명령을 `Tools\MakeTurntableVideo.bat`으로 바꿨다(사용법 1.8절). Content는 바꾸지 않았다.
+
+- **`CharacterViewer/ViewerBatchCapture.h/.cpp`**(렌더링 없음): `BuildBatchPlan(Profile, Options)` → `FViewerBatchShot` 배열(프리셋 → Variant → 표정 순 데카르트 곱, `poses=1`은 `bIsPose` 항목마다 기본 프리셋·첫 Variant로 1장, 이름은 `ViewerCapture::SanitizeToken` + 중복 시 `_2`), `MakeBatchFolderName`, `ParseConsoleArgs`. `FViewerBatchCaptureRunner`는 `IViewerBatchCaptureHost` 인터페이스만 호출하는 상태 머신(`ShowingProfile → ProfileSettling → ApplyingShot → ShotSettling → Capturing → … → Finished|Cancelled|Failed`)이고 모든 계획을 시작 시 만들어 `Batch 3/12`의 전체 수를 미리 안다. 실패한 샷은 세고 다음으로 넘어가며, 한 장도 못 쓰면 `Failed`.
+- **`CharacterViewer/CharacterViewerControllerBatch.cpp`**: 실제 호스트 `FViewerBatchControllerHost`(컨트롤러의 friend) — 선택은 기존 `Select*` 함수, 촬영은 기존 F12 경로(`BeginCapture(Single, 경로, 1)`: UI 없음·고해상도·Slate 폴백 그대로), 상태 줄은 `SetCaptureStatus`. 프로필 전환은 `SwitchProfile()`(그 안의 `CancelCapture()`가 일괄 촬영을 끊지 않도록 러너의 `IsSwitchingProfile()`로 구분), 셰이더 대기는 `GShaderCompilingManager->GetNumRemainingJobs()`, 샷 직전 `IStreamingManager::StreamAllResources(2초)`. 끝/취소 시 이전 선택 복원, `quit=1`이면 `FPlatformMisc::RequestExit(false)`(명령이 시작조차 못 해도 종료해서 .bat이 멈추지 않음). 콘솔 명령은 같은 파일의 `FAutoConsoleCommandWithWorldAndArgs` 하나로 등록한다.
+- **`ACharacterViewerController` 변경은 최소**: 헤더에 `StartBatchCapture`/`IsBatchCapturing`/`GetBatchRunner` + 멤버 `BatchRunner`, cpp는 `PlayerTick`의 `BatchRunner.Tick`, `CancelCapture()` 첫머리(Esc = 일괄 취소), `EndPlay`(복원 없이 중지) 각 1곳, 그리고 Shift+F12 완료 문구 끝에 `- video: Tools\MakeTurntableVideo.bat`.
+- **.bat**: `CaptureAll.bat`은 `_Common.bat` 규칙(`--check`/`--no-pause`/`--720p`, `UE_ROOT`, `%~dp0..`)을 따르고 자기 옵션(`--all`/`--expressions`/`--poses`)은 먼저 걸러 낸다. `start "" /wait`로 창이 닫힐 때까지 기다리고, 실행 전 `Batch_*` 목록과 비교해 새 폴더만 센다. 명세의 명령줄에 `"-abslog=Saved\Logs\CaptureAll.log"`를 더했다(요약을 그 로그에서 읽기 위해). `MakeTurntableVideo.bat`은 엔진이 필요 없으므로 `_Common.bat`을 부르지 않고 같은 규칙만 따른다. MP4 명령에는 1.7절과 같은 짝수 해상도 보정 필터를 넣었고, GIF 팔레트 단계에 `-update 1`을 넣어 ffmpeg 9의 단일 이미지 경고를 없앴다.
+- **ffmpeg**: 이 PC에는 `Gyan.FFmpeg` 9.0.1이 winget 사용자 범위로 이미 설치되어 PATH에 있었다(`%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin`). 그래서 이번에는 winget 설치를 실행하지 않았다.
+
+**`--check` 출력**(`<UE>` = `C:\Program Files\Epic Games\UE_5.6`, `<P>` = 프로젝트 루트):
+
+| 명령 | 출력 |
+| --- | --- |
+| `CaptureAll.bat --check` | `console : Viewer.CaptureAll profile=current expressions=0 poses=0 quit=1` / `start "" /wait "<UE>\Engine\Binaries\Win64\UnrealEditor.exe" "<P>\CharacterShowcase.uproject" /Game/Portfolio/Maps/LV_Portfolio -game -windowed -ResX=1920 -ResY=1080 -WinX=0 -WinY=0 "-ExecCmds=Viewer.CaptureAll profile=current expressions=0 poses=0 quit=1" -log "-abslog=<P>\Saved\Logs\CaptureAll.log"` |
+| `CaptureAll.bat --all --expressions --poses --720p --check` | `... -ResX=1280 -ResY=720 ... "-ExecCmds=Viewer.CaptureAll profile=all expressions=1 poses=1 quit=1" ...` |
+| `MakeTurntableVideo.bat <폴더> --gif --check` | MP4 `ffmpeg -hide_banner -loglevel warning -y -framerate 12 -i "<폴더>\frame_%03d.png" -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p -crf 18 "<폴더>\turntable.mp4"`, 팔레트 `-vf "scale=640:-1:flags=lanczos,palettegen" -update 1 "<폴더>\turntable_palette.png"`, GIF `-i ... -i <팔레트> -lavfi "scale=640:-1:flags=lanczos[x];[x][1:v]paletteuse" -loop 0 "<폴더>\turntable.gif"` |
+| `MakeTurntableVideo.bat --check`(이 worktree, 턴테이블 폴더 없음) | `[ERROR] No Turntable_* folder in <P>\Saved\Screenshots\Portfolio.` + 촬영 방법 안내, 종료 코드 1 |
+
+**검증**: 4절 표(Editor/Game 빌드 0/0, Editor Automation 22/22, MakeTurntableVideo 실제 실행). `-game` 테스트 `CharacterShowcase.Game.ViewerBatchCapture`는 작성만 했고 실행하지 않았다(사용자가 이 PC를 쓰는 중이라 게임 창을 띄우지 않음, 4.1절).

@@ -4,6 +4,7 @@
 #include "Components/SlateWrapperTypes.h"
 #include "GameFramework/PlayerController.h"
 #include "CharacterViewer/ViewerCapture.h"
+#include "CharacterViewer/ViewerBatchCapture.h"
 #include "CharacterViewerController.generated.h"
 
 class UInputMappingContext;
@@ -375,6 +376,24 @@ public:
 	// False for Studio (the captured original values are restored instead).
 	static bool GetBackdropPresetColors(EViewerBackdropPreset Preset, FLinearColor& OutBackdropTop, FLinearColor& OutBackdropBottom, FLinearColor& OutFloorBase, FLinearColor& OutFloorEdge);
 
+	// --- Batch portfolio capture (console Viewer.CaptureAll, Tools\CaptureAll.bat, section 1.8) ---
+	// Implemented in CharacterViewer/CharacterViewerControllerBatch.cpp; plan
+	// and state machine in CharacterViewer/ViewerBatchCapture.h.
+
+	// Every camera preset x material variant (x expressions / + poses, see
+	// FViewerBatchOptions) of one profile or of the whole ProfileLibrary, one
+	// UI-less F12-style shot each, into
+	// Saved/Screenshots/Portfolio/Batch_<Profile>_<timestamp>/<Profile>_<Preset>_<Variant>[_<Expression>].png.
+	// The previous selection is restored afterwards; Esc (CancelCapture())
+	// stops the batch. Returns false if a capture/batch is running, there is
+	// no viewer actor/viewport, the profile is unknown or nothing is shootable.
+	bool StartBatchCapture(const FViewerBatchOptions& Options);
+
+	bool IsBatchCapturing() const { return BatchRunner.IsActive(); }
+
+	// State of the running or last batch (counts, written files, folders).
+	const FViewerBatchCaptureRunner& GetBatchRunner() const { return BatchRunner; }
+
 	// --- Read-only accessors (mainly for automation tests; see Tests/CharacterViewerGameSmokeTest.cpp) ---
 
 	UFUNCTION(BlueprintPure, Category = "Viewer")
@@ -455,6 +474,13 @@ private:
 	EViewerBackdropPreset BackdropPreset = EViewerBackdropPreset::Studio;
 	TArray<FViewerBackdropTarget> BackdropTargets;
 	bool bBackdropTargetsResolved = false;
+
+	// Batch capture (CharacterViewerControllerBatch.cpp). The host adapter
+	// drives the existing single-shot path (BeginCapture/SetCaptureStatus).
+	friend class FViewerBatchControllerHost;
+	FViewerBatchCaptureRunner BatchRunner;
+	// bRestoreSelection=false: EndPlay (the world is going away).
+	void StopBatchCapture(bool bRestoreSelection);
 
 	void EnsureFallbackInputAssets();
 	void EnsureWidgetCreated();
