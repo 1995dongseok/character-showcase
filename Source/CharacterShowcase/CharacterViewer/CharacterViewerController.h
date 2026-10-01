@@ -188,8 +188,9 @@ public:
 	bool InspectAtScreenPosition(FVector2D ScreenPos);
 
 	// Toggles Actor->SetWireframeEnabled() and notifies the widget (W key and
-	// panel button). Returns false (no-op) if the current profile has no
-	// WireframeMaterial or there is no viewer actor.
+	// panel button). Returns false (no-op) if there is no viewer actor or
+	// Wireframe is unavailable (APortfolioCharacterActor::IsWireframeAvailable():
+	// neither the overlay material nor the profile's WireframeMaterial exists).
 	UFUNCTION(BlueprintCallable, Category = "Viewer|Wireframe")
 	bool ToggleWireframe();
 

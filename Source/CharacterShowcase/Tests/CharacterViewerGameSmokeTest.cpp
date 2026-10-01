@@ -509,8 +509,14 @@ namespace CharacterViewerGameSmokeTest
 				Test->TestTrue(TEXT("Widget reports Inspection enabled"), Widget->IsInspectionEnabled());
 				Test->TestEqual(TEXT("Fallback INSPECTION section box is Visible right after Inspection on"),
 					Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Visible);
-				Test->TestEqual(TEXT("Fallback INSPECTION body shows 'Click a part' before any selection"),
-					Widget->GetFallbackInspectionBodyText().ToString(), FString(TEXT("Click a part")));
+				// Since 2026-10-01 (6.14) the body starts with the measured mesh
+				// summary ("Triangles ... · Verts ...") and per-slot lines, and
+				// ends with "Click a part" until something is selected.
+				const FString Body = Widget->GetFallbackInspectionBodyText().ToString();
+				Test->TestTrue(FString::Printf(TEXT("Fallback INSPECTION body shows 'Click a part' before any selection (body: '%s')"), *Body),
+					Body.EndsWith(TEXT("Click a part")));
+				Test->TestTrue(TEXT("Fallback INSPECTION body shows the measured mesh summary"),
+					Body.StartsWith(TEXT("Triangles ")) || Body.StartsWith(TEXT("measured: n/a")));
 			}
 
 			return true;
@@ -644,14 +650,32 @@ namespace CharacterViewerGameSmokeTest
 			}
 
 			const bool bToggled = Controller->ToggleWireframe();
-			Test->TestTrue(TEXT("ToggleWireframe() (on) returns true (profile has a WireframeMaterial)"), bToggled);
+			Test->TestTrue(TEXT("ToggleWireframe() (on) returns true (a wireframe material is available)"), bToggled);
 			Test->TestTrue(TEXT("Actor reports Wireframe enabled"), Actor->IsWireframeEnabled());
 
+			// 2026-10-01 (6.14): default = shaded overlay (M_WireframeOverlay as
+			// the mesh overlay material, slots untouched); the legacy
+			// slot-replacing path is only used without the overlay material.
 			UMaterialInterface* WireframeMat = Actor->Profile->WireframeMaterial;
 			const int32 NumMaterials = Actor->Mesh->GetNumMaterials();
-			for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
+			if (Actor->GetActiveWireframeMode() == EViewerWireframeMode::Overlay)
 			{
-				Test->TestEqual(FString::Printf(TEXT("Mesh slot %d material is the WireframeMaterial"), SlotIndex), Actor->Mesh->GetMaterial(SlotIndex), WireframeMat);
+				Test->TestEqual(TEXT("Mesh overlay material is the WireframeOverlayMaterial"), Actor->Mesh->GetOverlayMaterial(), Actor->WireframeOverlayMaterial.Get());
+				for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
+				{
+					if (WireframeMat)
+					{
+						Test->TestNotEqual(FString::Printf(TEXT("Mesh slot %d keeps its shaded material (not the legacy WireframeMaterial)"), SlotIndex), Actor->Mesh->GetMaterial(SlotIndex), WireframeMat);
+					}
+				}
+			}
+			else
+			{
+				Test->TestEqual(TEXT("Legacy wireframe mode is ReplaceSlots"), Actor->GetActiveWireframeMode(), EViewerWireframeMode::ReplaceSlots);
+				for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
+				{
+					Test->TestEqual(FString::Printf(TEXT("Mesh slot %d material is the WireframeMaterial"), SlotIndex), Actor->Mesh->GetMaterial(SlotIndex), WireframeMat);
+				}
 			}
 
 			return true;
@@ -688,7 +712,17 @@ namespace CharacterViewerGameSmokeTest
 			Test->TestTrue(TEXT("Wireframe stays enabled while a variant is selected"), Actor->IsWireframeEnabled());
 
 			UMaterialInterface* WireframeMat = Actor->Profile->WireframeMaterial;
-			Test->TestEqual(TEXT("Mesh slot 0 material is still the WireframeMaterial (precedence: Wireframe over Variant)"), Actor->Mesh->GetMaterial(0), WireframeMat);
+			if (Actor->GetActiveWireframeMode() == EViewerWireframeMode::Overlay)
+			{
+				// Shaded wireframe: the Variant is visible under the overlay lines.
+				UMaterialInterface* GridMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
+				Test->TestEqual(TEXT("Mesh slot 0 shows the Grid variant under the wireframe overlay"), Actor->Mesh->GetMaterial(0), GridMaterial);
+				Test->TestEqual(TEXT("Wireframe overlay stays set while a variant is selected"), Actor->Mesh->GetOverlayMaterial(), Actor->WireframeOverlayMaterial.Get());
+			}
+			else
+			{
+				Test->TestEqual(TEXT("Mesh slot 0 material is still the WireframeMaterial (precedence: Wireframe over Variant)"), Actor->Mesh->GetMaterial(0), WireframeMat);
+			}
 
 			return true;
 		}
@@ -723,6 +757,7 @@ namespace CharacterViewerGameSmokeTest
 
 			UMaterialInterface* GridMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
 			Test->TestEqual(TEXT("Mesh slot 0 material equals the Grid variant material after Wireframe off"), Actor->Mesh->GetMaterial(0), GridMaterial);
+			Test->TestNull(TEXT("No overlay material after Wireframe off (nothing selected)"), Actor->Mesh->GetOverlayMaterial());
 
 			Controller->SelectMaterialVariant(FName(TEXT("Default")));
 

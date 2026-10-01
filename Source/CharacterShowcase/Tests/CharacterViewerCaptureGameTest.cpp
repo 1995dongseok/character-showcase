@@ -3,10 +3,13 @@
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationCommon.h"
 
+#include "Character/CharacterProfileData.h"
 #include "Character/PortfolioCharacterActor.h"
 #include "CharacterViewer/CharacterViewerController.h"
 #include "CharacterViewer/ViewerCapture.h"
 #include "Components/Border.h"
+#include "Components/ScrollBox.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -27,6 +30,9 @@
 //  1. window capture (with UI) at the current resolution, then Clean View
 //     and a second capture -> Saved/Screenshots/ViewerCapture/
 //     ViewerCapture_<UI|Clean>_<W>x<H>.png (run it at 1280x720 and 1920x1080);
+//     then (pointer-free) Inspection on + first part selected ->
+//     ViewerCapture_Inspect_<W>x<H>.png, + Wireframe (shaded overlay) ->
+//     ViewerCapture_Wireframe_<W>x<H>.png, then everything off again;
 //  2. ACharacterViewerController::TakePortfolioScreenshot() (= F12) must
 //     write its file within a few seconds (size = viewport x multiplier on
 //     the high-res path); the method used is logged;
@@ -180,6 +186,85 @@ bool FCharacterViewerCaptureGameTest::RunTest(const FString& Parameters)
 		{
 			Controller->ToggleCleanView();
 		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// 2b. Pointer-free visual checks (Docs/CHARACTER_VIEWER_SETUP.md 6.14):
+	// Inspection on + the profile's FIRST part selected programmatically (no
+	// click, so no foreground/cursor precondition), then the shaded Wireframe
+	// overlay on top of that selection. The panel's lists are scrolled to the
+	// end so the INSPECTION text (measured numbers) is in the capture.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		ACharacterViewerController* Controller = State->Controller.Get();
+		APortfolioCharacterActor* Actor = State->Actor.Get();
+		if (!Controller || !Actor || !Actor->Profile || Actor->Profile->Parts.Num() == 0)
+		{
+			Test->AddError(TEXT("Inspect capture step: no controller/actor/profile parts."));
+			return true;
+		}
+		Controller->SetInspectionEnabled(true);
+		const FName PartId = Actor->Profile->Parts[0].Id;
+		Actor->SetSelectedPart(PartId);
+		Test->TestEqual(TEXT("Inspect capture: first part selected"), Actor->GetSelectedPartId(), PartId);
+		Test->TestNotEqual(TEXT("Inspect capture: a highlight mode is active"), Actor->GetActiveHighlightMode(), EViewerHighlightMode::None);
+		if (UCharacterViewerWidget* Widget = State->Widget.Get())
+		{
+			Widget->NotifySelectionChanged();
+			if (Widget->ListsScroll)
+			{
+				Widget->ListsScroll->ScrollToEnd();
+			}
+		}
+		Test->AddInfo(FString::Printf(TEXT("Inspect capture: part '%s', highlight %s, visible bone markers %d (%s)."),
+			*PartId.ToString(), *UEnum::GetValueAsString(Actor->GetActiveHighlightMode()), Actor->GetVisibleBoneMarkerCount(),
+			*FString::JoinBy(Actor->GetBoneMarkerBoneNames(), TEXT(", "), [](const FName& Name) { return Name.ToString(); })));
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		CaptureWindow(Test, TEXT("Inspect"), State->ViewportSize);
+		ACharacterViewerController* Controller = State->Controller.Get();
+		APortfolioCharacterActor* Actor = State->Actor.Get();
+		if (!Controller || !Actor)
+		{
+			return true;
+		}
+		Test->TestTrue(TEXT("Wireframe capture: ToggleWireframe() turns Wireframe on"), Controller->ToggleWireframe() && Actor->IsWireframeEnabled());
+		Test->AddInfo(FString::Printf(TEXT("Wireframe capture: mode %s, overlay %s, highlight %s, visible bone markers %d."),
+			*UEnum::GetValueAsString(Actor->GetActiveWireframeMode()),
+			Actor->Mesh ? *GetNameSafe(Actor->Mesh->GetOverlayMaterial()) : TEXT("(no mesh)"),
+			*UEnum::GetValueAsString(Actor->GetActiveHighlightMode()), Actor->GetVisibleBoneMarkerCount()));
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.0f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, State]()
+	{
+		CaptureWindow(Test, TEXT("Wireframe"), State->ViewportSize);
+		ACharacterViewerController* Controller = State->Controller.Get();
+		APortfolioCharacterActor* Actor = State->Actor.Get();
+		if (Actor)
+		{
+			Actor->ClearSelectedPart();
+		}
+		if (Controller && Actor && Actor->IsWireframeEnabled())
+		{
+			Controller->ToggleWireframe();
+		}
+		if (Controller)
+		{
+			Controller->SetInspectionEnabled(false);
+		}
+		if (UCharacterViewerWidget* Widget = State->Widget.Get())
+		{
+			if (Widget->ListsScroll)
+			{
+				Widget->ListsScroll->ScrollToStart();
+			}
+		}
+		Test->TestFalse(TEXT("Wireframe off again after the capture"), Actor && Actor->IsWireframeEnabled());
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));

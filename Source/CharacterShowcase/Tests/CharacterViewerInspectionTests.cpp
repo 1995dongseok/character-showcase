@@ -4,12 +4,15 @@
 
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
+#include "Blueprint/UserWidget.h"
 #include "Character/CharacterProfileData.h"
 #include "Character/PortfolioCharacterActor.h"
+#include "CharacterViewer/CharacterViewerController.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Materials/Material.h"
+#include "UI/CharacterViewerWidget.h"
 
 // P2: bone-based part lookup and Wireframe/Variant material round-trip. The
 // first two tests need no content asset. The per-part highlight / measured
@@ -112,13 +115,27 @@ bool FCharacterViewerWireframeRestoreTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// --- A: no WireframeMaterial -> SetWireframeEnabled(true) is a safe no-op. ---
+	// --- A: neither the overlay material nor a profile WireframeMaterial ->
+	// SetWireframeEnabled(true) is a safe no-op. (The default overlay material
+	// alone is enough: see Viewer.WireframeOverlay.)
 	UCharacterProfileData* NoWireframeProfile = NewObject<UCharacterProfileData>(World);
 	Actor->ApplyProfile(NoWireframeProfile);
-	TestFalse(TEXT("SetWireframeEnabled(true) fails without a WireframeMaterial"), Actor->SetWireframeEnabled(true));
-	TestFalse(TEXT("IsWireframeEnabled() stays false without a WireframeMaterial"), Actor->IsWireframeEnabled());
+	UMaterialInterface* DefaultOverlay = Actor->WireframeOverlayMaterial;
+	Actor->WireframeOverlayMaterial = nullptr;
+	TestFalse(TEXT("IsWireframeAvailable() is false with no wireframe material at all"), Actor->IsWireframeAvailable());
+	TestFalse(TEXT("SetWireframeEnabled(true) fails with no wireframe material at all"), Actor->SetWireframeEnabled(true));
+	TestFalse(TEXT("IsWireframeEnabled() stays false with no wireframe material at all"), Actor->IsWireframeEnabled());
+	TestTrue(TEXT("SetWireframeEnabled(false) always succeeds"), Actor->SetWireframeEnabled(false));
+	if (DefaultOverlay)
+	{
+		Actor->WireframeOverlayMaterial = DefaultOverlay;
+		TestTrue(TEXT("The default overlay material alone makes Wireframe available (profile has no WireframeMaterial)"), Actor->IsWireframeAvailable());
+		Actor->WireframeOverlayMaterial = nullptr;
+	}
 
-	// --- B: Variant -> Wireframe -> off restores the variant material exactly. ---
+	// --- B: LEGACY slot path. Variant -> Wireframe -> off restores the variant
+	// material exactly. Covers both ways into ReplaceSlots: no overlay
+	// material (fallback), and bWireframeReplacesSlots with the overlay present.
 	UMaterial* WireframeMat = NewObject<UMaterial>(World);
 	UMaterial* VariantMat = NewObject<UMaterial>(World);
 
@@ -139,13 +156,29 @@ bool FCharacterViewerWireframeRestoreTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("SelectMaterialVariant('Grid') succeeds"), Actor->SetMaterialVariant(FName(TEXT("Grid"))));
 	TestEqual(TEXT("Slot 0 material is the Grid variant material"), Actor->Mesh->GetMaterial(0), static_cast<UMaterialInterface*>(VariantMat));
 
-	TestTrue(TEXT("SetWireframeEnabled(true) succeeds with a WireframeMaterial"), Actor->SetWireframeEnabled(true));
-	TestTrue(TEXT("IsWireframeEnabled() reports true"), Actor->IsWireframeEnabled());
-	TestEqual(TEXT("Slot 0 material is the wireframe material while Wireframe is on"), Actor->Mesh->GetMaterial(0), static_cast<UMaterialInterface*>(WireframeMat));
+	auto CheckLegacyRoundTrip = [&](const TCHAR* Label)
+	{
+		TestTrue(FString::Printf(TEXT("%s: SetWireframeEnabled(true) succeeds with a WireframeMaterial"), Label), Actor->SetWireframeEnabled(true));
+		TestTrue(FString::Printf(TEXT("%s: IsWireframeEnabled() reports true"), Label), Actor->IsWireframeEnabled());
+		TestEqual(FString::Printf(TEXT("%s: mode is ReplaceSlots"), Label), UEnum::GetValueAsString(Actor->GetActiveWireframeMode()), UEnum::GetValueAsString(EViewerWireframeMode::ReplaceSlots));
+		TestEqual(FString::Printf(TEXT("%s: slot 0 material is the wireframe material while Wireframe is on"), Label), Actor->Mesh->GetMaterial(0), static_cast<UMaterialInterface*>(WireframeMat));
+		TestNull(FString::Printf(TEXT("%s: no overlay material in ReplaceSlots mode"), Label), Actor->Mesh->GetOverlayMaterial());
 
-	TestTrue(TEXT("SetWireframeEnabled(false) succeeds"), Actor->SetWireframeEnabled(false));
-	TestFalse(TEXT("IsWireframeEnabled() reports false"), Actor->IsWireframeEnabled());
-	TestEqual(TEXT("Slot 0 material is restored to the Grid variant material exactly (not the raw override array)"), Actor->Mesh->GetMaterial(0), static_cast<UMaterialInterface*>(VariantMat));
+		TestTrue(FString::Printf(TEXT("%s: SetWireframeEnabled(false) succeeds"), Label), Actor->SetWireframeEnabled(false));
+		TestFalse(FString::Printf(TEXT("%s: IsWireframeEnabled() reports false"), Label), Actor->IsWireframeEnabled());
+		TestEqual(FString::Printf(TEXT("%s: slot 0 material is restored to the Grid variant material exactly (not the raw override array)"), Label), Actor->Mesh->GetMaterial(0), static_cast<UMaterialInterface*>(VariantMat));
+	};
+
+	// B1: overlay material missing -> fallback to the profile's slot material.
+	CheckLegacyRoundTrip(TEXT("No overlay material"));
+
+	// B2: overlay material present, legacy opt-in on.
+	if (DefaultOverlay)
+	{
+		Actor->WireframeOverlayMaterial = DefaultOverlay;
+		Actor->bWireframeReplacesSlots = true;
+		CheckLegacyRoundTrip(TEXT("bWireframeReplacesSlots"));
+	}
 
 	// --- C: ApplyProfile(nullptr) clears both Wireframe and the part selection. ---
 	FViewerPartInfo SomePart;
@@ -215,6 +248,10 @@ bool FCharacterViewerPartHighlightSlotsTest::RunTest(const FString& Parameters)
 	UCharacterProfileData* Profile = NewObject<UCharacterProfileData>(World);
 	Profile->SkeletalMesh = Manny;
 	Profile->WireframeMaterial = WireframeMat;
+	// This test covers the slot-precedence rules of the LEGACY slot-replacing
+	// wireframe (the default shaded overlay never touches slots and is covered
+	// by Viewer.WireframeOverlay).
+	Actor->bWireframeReplacesSlots = true;
 
 	FViewerMaterialSlotOverride AltSlot;
 	AltSlot.SlotIndex = 0;
@@ -583,6 +620,331 @@ bool FCharacterViewerAnimationSkeletonTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Rejected animation keeps the previous id"), Actor->GetCurrentAnimationId(), FName(TEXT("Own")));
 	TestFalse(TEXT("SetAnimation rejects an entry without a Sequence"), Actor->SetAnimation(FName(TEXT("NoSequence"))));
 
+	World->DestroyWorld(false);
+	return true;
+}
+
+// Shaded wireframe (default Overlay mode) on SKM_Manny_Simple: the overlay
+// material is set/cleared, material slots are never touched, Variant and the
+// per-part highlight stay visible under it, the WholeMesh tint yields to it,
+// and every round-trip is exact.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCharacterViewerWireframeOverlayTest,
+	"CharacterShowcase.Viewer.WireframeOverlay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCharacterViewerWireframeOverlayTest::RunTest(const FString& Parameters)
+{
+	using namespace CharacterViewerInspectionTestsPrivate;
+
+	USkeletalMesh* Manny = LoadObject<USkeletalMesh>(nullptr, MannyMeshPath);
+	if (!TestNotNull(TEXT("SKM_Manny_Simple loads"), Manny)
+		|| !TestEqual(TEXT("SKM_Manny_Simple has 2 material slots"), Manny->GetMaterials().Num(), 2))
+	{
+		return false;
+	}
+
+	UWorld* World = CreateTestWorld();
+	if (!TestNotNull(TEXT("Transient world exists"), World))
+	{
+		return false;
+	}
+	APortfolioCharacterActor* Actor = World->SpawnActor<APortfolioCharacterActor>();
+	if (!TestNotNull(TEXT("Character actor exists"), Actor)
+		|| !TestNotNull(TEXT("WireframeOverlayMaterial (M_WireframeOverlay) is loaded by default"), Actor->WireframeOverlayMaterial.Get())
+		|| !TestNotNull(TEXT("HighlightOverlayMaterial (M_ViewerHighlight) is loaded by default"), Actor->HighlightOverlayMaterial.Get())
+		|| !TestNotNull(TEXT("PartHighlightMaterial is loaded by default"), Actor->PartHighlightMaterial.Get()))
+	{
+		World->DestroyWorld(false);
+		return false;
+	}
+	TestFalse(TEXT("bWireframeReplacesSlots is off by default"), Actor->bWireframeReplacesSlots);
+
+	UMaterialInterface* WireOverlay = Actor->WireframeOverlayMaterial;
+	UMaterialInterface* Tint = Actor->HighlightOverlayMaterial;
+	UMaterialInterface* PartMat = Actor->PartHighlightMaterial;
+	UMaterialInterface* Default0 = Manny->GetMaterials()[0].MaterialInterface;
+	UMaterialInterface* Default1 = Manny->GetMaterials()[1].MaterialInterface;
+
+	if (UMaterial* OverlayBase = WireOverlay->GetMaterial())
+	{
+		TestTrue(TEXT("M_WireframeOverlay has Wireframe on"), (bool)OverlayBase->Wireframe);
+		TestTrue(TEXT("M_WireframeOverlay is usable on skeletal meshes"), (bool)OverlayBase->bUsedWithSkeletalMesh);
+		TestEqual(TEXT("M_WireframeOverlay is opaque"), (int32)OverlayBase->BlendMode, (int32)BLEND_Opaque);
+	}
+
+	UMaterial* LegacyWireframe = NewObject<UMaterial>(World);
+	UMaterial* AltMat = NewObject<UMaterial>(World);
+	UCharacterProfileData* Profile = NewObject<UCharacterProfileData>(World);
+	Profile->SkeletalMesh = Manny;
+	// The legacy slot material is present but must NOT be used by default.
+	Profile->WireframeMaterial = LegacyWireframe;
+
+	FViewerMaterialSlotOverride AltSlot;
+	AltSlot.SlotIndex = 0;
+	AltSlot.Material = AltMat;
+	FViewerMaterialVariant AltVariant;
+	AltVariant.Id = FName(TEXT("Alt"));
+	AltVariant.Slots.Add(AltSlot);
+	Profile->MaterialVariants.Add(AltVariant);
+
+	const FName SlotPartId(TEXT("SlotPart"));
+	FViewerPartInfo SlotPart;
+	SlotPart.Id = SlotPartId;
+	SlotPart.MaterialSlotNames = { Manny->GetMaterials()[1].MaterialSlotName };
+	Profile->Parts.Add(SlotPart);
+
+	const FName BonePartId(TEXT("BonePart"));
+	FViewerPartInfo BonePart;
+	BonePart.Id = BonePartId;
+	BonePart.BoneNames = { FName(TEXT("upperarm_l")) };
+	Profile->Parts.Add(BonePart);
+
+	const FName GhostId(TEXT("Ghost"));
+	FViewerPartInfo GhostPart;
+	GhostPart.Id = GhostId;
+	GhostPart.BoneNames = { FName(TEXT("no_such_bone")) };
+	Profile->Parts.Add(GhostPart);
+
+	Actor->ApplyProfile(Profile);
+	USkeletalMeshComponent* Mesh = Actor->Mesh;
+
+	auto Expect = [this, Mesh](const FString& Step, UMaterialInterface* Expected0, UMaterialInterface* Expected1, UMaterialInterface* ExpectedOverlay)
+	{
+		TestEqual(FString::Printf(TEXT("%s: slot 0 is %s"), *Step, *GetNameSafe(Expected0)), Mesh->GetMaterial(0), Expected0);
+		TestEqual(FString::Printf(TEXT("%s: slot 1 is %s"), *Step, *GetNameSafe(Expected1)), Mesh->GetMaterial(1), Expected1);
+		TestEqual(FString::Printf(TEXT("%s: overlay is %s"), *Step, *GetNameSafe(ExpectedOverlay)), Mesh->GetOverlayMaterial(), ExpectedOverlay);
+	};
+	auto WireMode = [Actor]() { return UEnum::GetValueAsString(Actor->GetActiveWireframeMode()); };
+
+	// 1. On: overlay set, slots untouched (no override at all).
+	TestTrue(TEXT("Wireframe is available"), Actor->IsWireframeAvailable());
+	TestTrue(TEXT("SetWireframeEnabled(true)"), Actor->SetWireframeEnabled(true));
+	TestEqual(TEXT("Default wireframe mode is Overlay"), WireMode(), UEnum::GetValueAsString(EViewerWireframeMode::Overlay));
+	Expect(TEXT("Wireframe on"), Default0, Default1, WireOverlay);
+	TestEqual(TEXT("Wireframe on: no material override (slots untouched)"), Mesh->GetNumOverrideMaterials(), 0);
+
+	// 2. Variant under the overlay is visible.
+	TestTrue(TEXT("SetMaterialVariant('Alt') while Wireframe is on"), Actor->SetMaterialVariant(FName(TEXT("Alt"))));
+	Expect(TEXT("Wireframe on + Alt"), AltMat, Default1, WireOverlay);
+
+	// 3. MaterialSlots highlight under the overlay.
+	Actor->SetSelectedPart(SlotPartId);
+	TestEqual(TEXT("Slot part: MaterialSlots mode"), ModeName(Actor->GetActiveHighlightMode()), ModeName(EViewerHighlightMode::MaterialSlots));
+	Expect(TEXT("Wireframe on + Alt + slot part"), AltMat, PartMat, WireOverlay);
+
+	// 4. BoneMarkers under the overlay.
+	Actor->SetSelectedPart(BonePartId);
+	TestEqual(TEXT("Bone part: BoneMarkers mode"), ModeName(Actor->GetActiveHighlightMode()), ModeName(EViewerHighlightMode::BoneMarkers));
+	TestTrue(TEXT("Bone part: markers visible with Wireframe on"), Actor->GetVisibleBoneMarkerCount() > 0);
+	Expect(TEXT("Wireframe on + Alt + bone part"), AltMat, Default1, WireOverlay);
+
+	// 5. WholeMesh: the wireframe keeps the single overlay slot, Custom Depth only.
+	Actor->SetSelectedPart(GhostId);
+	TestEqual(TEXT("Ghost part: WholeMesh mode"), ModeName(Actor->GetActiveHighlightMode()), ModeName(EViewerHighlightMode::WholeMesh));
+	Expect(TEXT("Wireframe on + WholeMesh"), AltMat, Default1, WireOverlay);
+	TestTrue(TEXT("Wireframe on + WholeMesh: Custom Depth on"), Mesh->bRenderCustomDepth != 0);
+
+	// 6. Clean View hides the selection, not the wireframe.
+	Actor->SetHighlightVisible(false);
+	Expect(TEXT("Wireframe on + highlight hidden"), AltMat, Default1, WireOverlay);
+	TestFalse(TEXT("Highlight hidden: Custom Depth off"), Mesh->bRenderCustomDepth != 0);
+	Actor->SetHighlightVisible(true);
+
+	// 7. Off: the WholeMesh tint takes the overlay slot back.
+	TestTrue(TEXT("SetWireframeEnabled(false)"), Actor->SetWireframeEnabled(false));
+	TestEqual(TEXT("Wireframe off: mode None"), WireMode(), UEnum::GetValueAsString(EViewerWireframeMode::None));
+	Expect(TEXT("Wireframe off + WholeMesh"), AltMat, Default1, Tint);
+
+	// 8. Clear selection and variant: exact defaults, nothing left over.
+	Actor->ClearSelectedPart();
+	TestTrue(TEXT("SetMaterialVariant(None)"), Actor->SetMaterialVariant(NAME_None));
+	Expect(TEXT("All off"), Default0, Default1, nullptr);
+	TestEqual(TEXT("All off: no material override"), Mesh->GetNumOverrideMaterials(), 0);
+
+	// 9. Repeated round-trip stays exact.
+	for (int32 Round = 0; Round < 2; ++Round)
+	{
+		Actor->SetWireframeEnabled(true);
+		Actor->SetWireframeEnabled(false);
+	}
+	Expect(TEXT("After 2 more on/off rounds"), Default0, Default1, nullptr);
+	TestEqual(TEXT("After 2 more on/off rounds: no material override"), Mesh->GetNumOverrideMaterials(), 0);
+
+	// 10. Legacy opt-in on the same profile: slots replaced, no overlay.
+	Actor->bWireframeReplacesSlots = true;
+	TestTrue(TEXT("Legacy: SetWireframeEnabled(true)"), Actor->SetWireframeEnabled(true));
+	TestEqual(TEXT("Legacy: mode ReplaceSlots"), WireMode(), UEnum::GetValueAsString(EViewerWireframeMode::ReplaceSlots));
+	Expect(TEXT("Legacy on"), LegacyWireframe, LegacyWireframe, nullptr);
+	Actor->SetWireframeEnabled(false);
+	Actor->bWireframeReplacesSlots = false;
+	Expect(TEXT("Legacy off"), Default0, Default1, nullptr);
+
+	// 11. Profile switch clears the overlay and the flag.
+	Actor->SetWireframeEnabled(true);
+	Actor->ApplyProfile(nullptr);
+	TestFalse(TEXT("ApplyProfile(nullptr) turns Wireframe off"), Actor->IsWireframeEnabled());
+	TestNull(TEXT("ApplyProfile(nullptr) clears the wireframe overlay"), Mesh->GetOverlayMaterial());
+	TestFalse(TEXT("No profile: Wireframe unavailable"), Actor->IsWireframeAvailable());
+
+	World->DestroyWorld(false);
+	return true;
+}
+
+// INSPECTION panel text (C++ BuildInspectionSection, shared by the fallback and
+// designer layouts) shows measured numbers for SKM_Manny_Simple.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCharacterViewerInspectionPanelTextTest,
+	"CharacterShowcase.Viewer.InspectionPanelText",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCharacterViewerInspectionPanelTextTest::RunTest(const FString& Parameters)
+{
+	using namespace CharacterViewerInspectionTestsPrivate;
+
+	TestEqual(TEXT("FormatThousands(92178)"), UCharacterViewerWidget::FormatThousands(92178), FString(TEXT("92,178")));
+	TestEqual(TEXT("FormatThousands(999)"), UCharacterViewerWidget::FormatThousands(999), FString(TEXT("999")));
+	TestEqual(TEXT("FormatThousands(1000000)"), UCharacterViewerWidget::FormatThousands(1000000), FString(TEXT("1,000,000")));
+	TestEqual(TEXT("FormatThousands(0)"), UCharacterViewerWidget::FormatThousands(0), FString(TEXT("0")));
+
+	USkeletalMesh* Manny = LoadObject<USkeletalMesh>(nullptr, MannyMeshPath);
+	if (!TestNotNull(TEXT("SKM_Manny_Simple loads"), Manny))
+	{
+		return false;
+	}
+
+	UWorld* World = CreateTestWorld();
+	if (!TestNotNull(TEXT("Transient world exists"), World))
+	{
+		return false;
+	}
+	APortfolioCharacterActor* Actor = World->SpawnActor<APortfolioCharacterActor>();
+	ACharacterViewerController* Controller = World->SpawnActor<ACharacterViewerController>();
+	UCharacterViewerWidget* Widget = CreateWidget<UCharacterViewerWidget>(World, UCharacterViewerWidget::StaticClass());
+	if (!TestNotNull(TEXT("Character actor exists"), Actor) || !TestNotNull(TEXT("Viewer controller exists"), Controller)
+		|| !TestNotNull(TEXT("Fallback widget exists"), Widget))
+	{
+		World->DestroyWorld(false);
+		return false;
+	}
+
+	const FString Dot = TEXT(" · ");
+
+	// Without a mesh: measured n/a.
+	UCharacterProfileData* NoMeshProfile = NewObject<UCharacterProfileData>(World);
+	Actor->ApplyProfile(NoMeshProfile);
+	Widget->BindToViewer(Controller, Actor, nullptr);
+	const FString NoMeshText = Widget->BuildInspectionText().ToString();
+	TestTrue(FString::Printf(TEXT("No mesh: 'measured: n/a' (got '%s')"), *NoMeshText), NoMeshText.Contains(TEXT("measured: n/a")));
+	TestTrue(TEXT("No mesh: still 'Click a part'"), NoMeshText.Contains(TEXT("Click a part")));
+
+	UCharacterProfileData* Profile = NewObject<UCharacterProfileData>(World);
+	Profile->SkeletalMesh = Manny;
+
+	const FName SlotPartId(TEXT("TorsoSlots"));
+	FViewerPartInfo SlotPart;
+	SlotPart.Id = SlotPartId;
+	SlotPart.DisplayName = FText::FromString(TEXT("Torso"));
+	SlotPart.PartType = FText::FromString(TEXT("Body"));
+	SlotPart.Description = FText::FromString(TEXT("Jacket and torso."));
+	SlotPart.MaterialSlotNames = { FName(TEXT("M_Torso")) };
+	SlotPart.TriangleCount = 1; // authored note must be replaced by the measurement
+	Profile->Parts.Add(SlotPart);
+
+	const FName BonePartId(TEXT("LeftArm"));
+	FViewerPartInfo BonePart;
+	BonePart.Id = BonePartId;
+	BonePart.DisplayName = FText::FromString(TEXT("Left Arm"));
+	BonePart.PartType = FText::FromString(TEXT("Limb"));
+	BonePart.BoneNames = { FName(TEXT("upperarm_l")) };
+	BonePart.TriangleCount = 19680;
+	BonePart.MaterialName = FText::FromString(TEXT("MI_Manny_02_New 81%"));
+	BonePart.TextureResolution = FText::FromString(TEXT("1024-4096"));
+	Profile->Parts.Add(BonePart);
+
+	const FName GhostId(TEXT("Ghost"));
+	FViewerPartInfo GhostPart;
+	GhostPart.Id = GhostId;
+	GhostPart.DisplayName = FText::FromString(TEXT("Ghost"));
+	GhostPart.BoneNames = { FName(TEXT("no_such_bone")) };
+	Profile->Parts.Add(GhostPart);
+
+	Actor->ApplyProfile(Profile);
+	Controller->SetInspectionEnabled(true);
+	// RebuildWidget() -> BuildFallbackUI(). Keep the Slate widget alive: when
+	// the last reference to it is dropped, UUserWidget::NativeDestruct() runs
+	// and unbinds the viewer (weak pointers reset).
+	TSharedPtr<SWidget> SlateWidget = Widget->TakeWidget();
+	Widget->BindToViewer(Controller, Actor, nullptr);
+	Widget->NotifySelectionChanged();
+
+	const FViewerMeshStats Stats = Actor->GetMeshStats();
+	const TArray<FViewerSlotStats> Slots = Actor->GetSlotStats();
+	if (!TestTrue(TEXT("Manny stats are valid"), Stats.bValid) || !TestEqual(TEXT("Manny has 2 slot stats"), Slots.Num(), 2))
+	{
+		SlateWidget.Reset();
+		World->DestroyWorld(false);
+		return false;
+	}
+
+	auto ExpectContains = [this](const TCHAR* Label, const FString& Body, const FString& Needle)
+	{
+		TestTrue(FString::Printf(TEXT("%s: contains '%s'"), Label, *Needle), Body.Contains(Needle));
+	};
+
+	// Nothing selected yet: mesh summary + slots + "Click a part", on the panel itself.
+	const FString Idle = Widget->GetFallbackInspectionBodyText().ToString();
+	AddInfo(FString::Printf(TEXT("INSPECTION (no selection):\n%s"), *Idle));
+	TestEqual(TEXT("INSPECTION section is visible while Inspection is on"), Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Visible);
+	TestEqual(TEXT("Panel body equals BuildInspectionText()"), Idle, Widget->BuildInspectionText().ToString());
+	ExpectContains(TEXT("Idle"), Idle, FString(TEXT("Triangles 92,178")) + Dot + TEXT("Verts 48,705") + Dot + TEXT("Bones 89") + Dot + TEXT("Slots 2") + Dot + TEXT("LODs 3") + Dot + TEXT("Morphs 0"));
+	ExpectContains(TEXT("Idle"), Idle, FString(TEXT("Skeleton SK_Mannequin")) + Dot + TEXT("Physics PA_Mannequin"));
+	ExpectContains(TEXT("Idle"), Idle, FString(TEXT("M_HeadLegs: 38,166 tris")) + Dot + Slots[0].MaterialName.ToString() + Dot + Slots[0].TextureSummary);
+	ExpectContains(TEXT("Idle"), Idle, FString(TEXT("M_Torso: 54,012 tris")) + Dot + TEXT("MI_Manny_02_New") + Dot + Slots[1].TextureSummary);
+	ExpectContains(TEXT("Idle"), Idle, TEXT("max 4096x4096"));
+	ExpectContains(TEXT("Idle"), Idle, TEXT("Click a part"));
+
+	// Slot part: authored identity + measured numbers + MaterialSlots.
+	Actor->SetSelectedPart(SlotPartId);
+	Widget->NotifySelectionChanged();
+	const FString SlotText = Widget->GetFallbackInspectionBodyText().ToString();
+	AddInfo(FString::Printf(TEXT("INSPECTION (slot part):\n%s"), *SlotText));
+	ExpectContains(TEXT("Slot part"), SlotText, TEXT("Torso (Body)"));
+	ExpectContains(TEXT("Slot part"), SlotText, TEXT("Jacket and torso."));
+	ExpectContains(TEXT("Slot part"), SlotText, FString(TEXT("Measured: 54,012 tris")) + Dot + TEXT("M_Torso") + Dot + TEXT("MI_Manny_02_New") + Dot + Slots[1].TextureSummary);
+	ExpectContains(TEXT("Slot part"), SlotText, TEXT("Highlight: Material slots"));
+	TestFalse(TEXT("Slot part: no 'Authored:' line when measured"), SlotText.Contains(TEXT("Authored:")));
+	TestFalse(TEXT("Slot part: no 'Click a part'"), SlotText.Contains(TEXT("Click a part")));
+	ExpectContains(TEXT("Slot part"), SlotText, TEXT("Triangles 92,178"));
+
+	// Bone part: no resolvable slot -> authored notes + bone marker count.
+	Actor->SetSelectedPart(BonePartId);
+	Widget->NotifySelectionChanged();
+	const FString BoneText = Widget->GetFallbackInspectionBodyText().ToString();
+	const int32 MarkerCount = Actor->GetBoneMarkerBoneNames().Num();
+	AddInfo(FString::Printf(TEXT("INSPECTION (bone part):\n%s"), *BoneText));
+	TestTrue(TEXT("Bone part has markers"), MarkerCount > 0);
+	ExpectContains(TEXT("Bone part"), BoneText, TEXT("Left Arm (Limb)"));
+	ExpectContains(TEXT("Bone part"), BoneText, FString(TEXT("Authored: 19,680 tris")) + Dot + TEXT("MI_Manny_02_New 81%") + Dot + TEXT("1024-4096"));
+	ExpectContains(TEXT("Bone part"), BoneText, FString::Printf(TEXT("Highlight: Bone markers (%d)"), MarkerCount));
+	TestFalse(TEXT("Bone part: no 'Measured:' line"), BoneText.Contains(TEXT("Measured:")));
+
+	// Ghost part: whole mesh; with the Wireframe overlay on the tint is hidden.
+	Actor->SetSelectedPart(GhostId);
+	Widget->NotifySelectionChanged();
+	ExpectContains(TEXT("Ghost part"), Widget->GetFallbackInspectionBodyText().ToString(), TEXT("Highlight: Whole mesh"));
+	if (Actor->SetWireframeEnabled(true))
+	{
+		Widget->NotifySelectionChanged();
+		ExpectContains(TEXT("Ghost part + Wireframe"), Widget->GetFallbackInspectionBodyText().ToString(), TEXT("Highlight: Whole mesh (tint hidden while Wireframe is on)"));
+		Actor->SetWireframeEnabled(false);
+	}
+
+	// Inspection off: section collapsed.
+	Controller->SetInspectionEnabled(false);
+	Widget->NotifySelectionChanged();
+	TestEqual(TEXT("INSPECTION section collapses when Inspection is off"), Widget->GetFallbackInspectionSectionVisibility(), ESlateVisibility::Collapsed);
+
+	Widget->RemoveFromParent();
+	SlateWidget.Reset(); // NativeDestruct while the world still exists
 	World->DestroyWorld(false);
 	return true;
 }

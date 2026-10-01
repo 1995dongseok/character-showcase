@@ -17,7 +17,10 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/UserInterfaceSettings.h"
 #include "Engine/World.h"
+#include "Fonts/FontMeasure.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Misc/DateTime.h"
+#include "Rendering/SlateRenderer.h"
 #include "UI/CharacterViewerWidget.h"
 #include "UObject/Package.h"
 
@@ -46,6 +49,41 @@ namespace CharacterViewerLayoutCaptureTests
 			{ TEXT("ListsBox"), UVerticalBox::StaticClass() },
 			{ TEXT("StatusText"), UTextBlock::StaticClass() },
 		};
+	}
+
+	// Whole-line rule (2026-10-01): a description box of Height Slate units at
+	// LayoutScale shows exactly DescriptionMinVisibleLines (>= 6) WHOLE lines
+	// of Font and nothing of the next line (the old 134-unit box showed ~6.5).
+	static void CheckWholeLineHeight(FAutomationTestBase& Test, const FString& Label, float Height, const FSlateFontInfo& Font, FVector2D Shadow, float LayoutScale)
+	{
+		const int32 Lines = UCharacterViewerWidget::DescriptionMinVisibleLines;
+		const float OneLine = UCharacterViewerWidget::MeasureTextLinesHeight(Font, 1, LayoutScale, Shadow);
+		const float NLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines, LayoutScale, Shadow);
+		const float NextLines = UCharacterViewerWidget::MeasureTextLinesHeight(Font, Lines + 1, LayoutScale, Shadow);
+		const bool bMeasured = FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer() != nullptr;
+		uint16 FontMaxHeightPx = 0;
+		if (bMeasured)
+		{
+			FontMaxHeightPx = FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->GetMaxCharacterHeight(Font, LayoutScale);
+		}
+		Test.AddInfo(FString::Printf(TEXT("%s: font %.1f pt %s, scale %.2f, measured via Slate=%d: line %.3f units (%.2f px, font max char height %d px), %d lines %.3f, %d lines %.3f, box %.3f units = %.3f lines (old 134-unit box = %.2f lines)"),
+			*Label, static_cast<float>(Font.Size), *Font.TypefaceFontName.ToString(), LayoutScale, bMeasured ? 1 : 0, OneLine, OneLine * LayoutScale, static_cast<int32>(FontMaxHeightPx),
+			Lines, NLines, Lines + 1, NextLines, Height, OneLine > 0.f ? Height / OneLine : 0.f, OneLine > 0.f ? 134.f / OneLine : 0.f));
+
+		Test.TestTrue(*FString::Printf(TEXT("%s: at least 6 description lines"), *Label), Lines >= 6);
+		if (!Test.TestTrue(*FString::Printf(TEXT("%s: line height > 0"), *Label), OneLine > 0.f))
+		{
+			return;
+		}
+		Test.TestEqual(*FString::Printf(TEXT("%s: box height is exactly %d measured lines"), *Label, Lines), Height, NLines, 0.01f);
+		Test.TestEqual(*FString::Printf(TEXT("%s: %d lines = %d x one line (uniform line height)"), *Label, Lines, Lines), NLines, OneLine * Lines, 0.01f);
+		Test.TestEqual(*FString::Printf(TEXT("%s: the next line starts exactly at the box bottom (nothing of it shows)"), *Label), NextLines - Height, OneLine, 0.01f);
+		Test.TestEqual(*FString::Printf(TEXT("%s: box / line height is a whole number (%d)"), *Label, Lines), Height / OneLine, static_cast<float>(Lines), 1e-3f);
+		if (bMeasured)
+		{
+			Test.TestTrue(*FString::Printf(TEXT("%s: measured line height (%.2f px) is at least the font max character height (%d px)"), *Label, OneLine * LayoutScale, static_cast<int32>(FontMaxHeightPx)),
+				OneLine * LayoutScale + 0.01f >= static_cast<float>(FontMaxHeightPx));
+		}
 	}
 
 	// Shared shape assertions for any tree built by BuildDefaultLayoutTree()
@@ -83,13 +121,13 @@ namespace CharacterViewerLayoutCaptureTests
 		}
 
 		const USizeBox* DescriptionSize = Tree ? Cast<USizeBox>(Tree->FindWidget(TEXT("DescriptionSizeBox"))) : nullptr;
-		if (Test.TestNotNull(*FString::Printf(TEXT("%s: DescriptionSizeBox exists"), *Label), DescriptionSize))
+		const UTextBlock* DescriptionText = Tree ? Cast<UTextBlock>(Tree->FindWidget(TEXT("DescriptionText"))) : nullptr;
+		if (Test.TestNotNull(*FString::Printf(TEXT("%s: DescriptionSizeBox exists"), *Label), DescriptionSize)
+			&& Test.TestNotNull(*FString::Printf(TEXT("%s: DescriptionText exists"), *Label), DescriptionText))
 		{
-			const UTextBlock* DescriptionText = Tree ? Cast<UTextBlock>(Tree->FindWidget(TEXT("DescriptionText"))) : nullptr;
-			const int32 FontSize = DescriptionText ? DescriptionText->GetFont().Size : UCharacterViewerWidget::DefaultDescriptionFontSize;
-			const float SixLines = UCharacterViewerWidget::EstimateLineHeight(FontSize) * UCharacterViewerWidget::DescriptionMinVisibleLines;
-			Test.TestTrue(*FString::Printf(TEXT("%s: description area shows >= 6 lines (max height %.1f >= %.1f) before scrolling"), *Label, DescriptionSize->GetMaxDesiredHeight(), SixLines),
-				DescriptionSize->GetMaxDesiredHeight() >= SixLines);
+			Test.TestTrue(*FString::Printf(TEXT("%s: DescriptionText is DescriptionSizeBox > DescriptionScroll > DescriptionText"), *Label),
+				DescriptionText->GetParent() && DescriptionText->GetParent()->GetParent() == DescriptionSize);
+			CheckWholeLineHeight(Test, Label + TEXT(" (stored, scale 1.0)"), DescriptionSize->GetMaxDesiredHeight(), DescriptionText->GetFont(), DescriptionText->GetShadowOffset(), 1.f);
 		}
 
 		const UTextBlock* StatusText = Tree ? Cast<UTextBlock>(Tree->FindWidget(TEXT("StatusText"))) : nullptr;
@@ -193,6 +231,29 @@ bool FCharacterViewerPanelLayoutTest::RunTest(const FString& Parameters)
 			}
 			Widget->ApplyAutoPanelWidth(2400.f);
 			TestEqual(TEXT("Auto width at a 2400-unit viewport clamps to 460"), Widget->GetAppliedPanelWidth(), 460.f, 0.5f);
+
+			// Whole-line description height re-fitted per DPI scale (720p = 0.8, 1080p = 1.0, 1440p = 1.25).
+			USizeBox* FallbackDescriptionBox = Cast<USizeBox>(Widget->WidgetTree->FindWidget(TEXT("DescriptionSizeBox")));
+			if (TestNotNull(TEXT("Fallback DescriptionSizeBox"), FallbackDescriptionBox) && TestNotNull(TEXT("Fallback DescriptionText"), Widget->DescriptionText.Get()))
+			{
+				TestTrue(TEXT("bFitDescriptionToWholeLines is on by default"), Widget->bFitDescriptionToWholeLines);
+				TestEqual(TEXT("DescriptionVisibleLines defaults to 6"), Widget->DescriptionVisibleLines, 6);
+				const FSlateFontInfo Font = Widget->DescriptionText->GetFont();
+				const FVector2D Shadow = Widget->DescriptionText->GetShadowOffset();
+				for (const float Scale : { 0.8f, 1.0f, 1.25f })
+				{
+					Widget->ApplyDescriptionLineFit(Scale);
+					const float Applied = FallbackDescriptionBox->GetMaxDesiredHeight();
+					TestEqual(*FString::Printf(TEXT("Line fit at scale %.2f: getter matches the SizeBox"), Scale), Widget->GetAppliedDescriptionMaxHeight(), Applied, 0.01f);
+					CheckWholeLineHeight(*this, FString::Printf(TEXT("Fallback runtime fit @%.2f"), Scale), Applied, Font, Shadow, Scale);
+				}
+
+				Widget->bFitDescriptionToWholeLines = false;
+				const float Before = FallbackDescriptionBox->GetMaxDesiredHeight();
+				Widget->ApplyDescriptionLineFit(0.8f);
+				TestEqual(TEXT("bFitDescriptionToWholeLines=false leaves the height alone"), FallbackDescriptionBox->GetMaxDesiredHeight(), Before, 0.001f);
+				Widget->bFitDescriptionToWholeLines = true;
+			}
 
 			Widget->SetCaptureStatus(FText::FromString(TEXT("Capturing 12/36")));
 			TestEqual(TEXT("StatusText shows the capture status"), Widget->StatusText->GetText().ToString(), FString(TEXT("Capturing 12/36")));
