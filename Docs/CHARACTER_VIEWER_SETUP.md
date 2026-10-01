@@ -3,15 +3,18 @@
 이 프로젝트는 UE 5.6.1 기반 3D 캐릭터 포트폴리오 뷰어다. 캐릭터가 중심이며 C++/Blueprint 기능은 관찰과 촬영을 돕는다.
 이 문서는 **현재 상태를 앞에, 과거 기록을 뒤에** 둔다. 0~5절만 읽으면 아티스트 작업에 충분하다. 6절은 참고용 개발 이력이다.
 
-## 0. 현재 상태 요약 (2026-09-29)
+## 0. 현재 상태 요약 (2026-10-01)
 
 - **구현 완료(코드)**: P0(카메라/입력/GameMode/기본 UI), P1(카메라 프리셋, Turntable, Animation/Pose, Morph 표정, Slot 재질, Clean View), P2(Inspection 파츠 선택, 선택 강조, Wireframe) 전부 C++로 구현되어 있다. 아티스트는 **C++를 수정하지 않고** 새 캐릭터를 등록할 수 있다(2절).
 - **에셋 자동 생성**: `Scripts/CreatePortfolioAssets.py`가 없는 에셋만 만들고, 이미 있는 에셋은 절대 덮어쓰지 않는다(읽기 전용 검증만 함, `[keep] ... OK/DIFFERS`). `Scripts/CreateViewerWidgetLayout.py`는 `WBP_CharacterViewer`에 디자이너 트리가 없을 때만 최소 트리를 만든다. **일상적인 캐릭터 등록(2절)에는 두 스크립트 모두 다시 실행할 필요가 없다** — Editor GUI에서 Data Asset/Blueprint/Level을 직접 편집하면 된다(1절 "언제 스크립트를 실행하지 않는가" 참고).
 - **검증된 것(숫자 있음, 4절 표)**: Editor 빌드 0오류/0경고, Game 빌드 0오류/0경고, Editor Automation 6/6 통과(2026-09-29), Win64 Development 패키지 빌드/실행 스모크 통과, Win64 Shipping 패키지 빌드 성공 + 프로세스 정상 기동/종료 확인(자동화 테스트 미포함), 두 Python 스크립트의 "기존 자산 보존" 동작을 해시 비교로 검증.
 - **2026-09-30 추가 검증(4절 표)**: `-game` 합성 포인터 스모크가 활성 전면 창에서 1/1 통과(이전 실패 3건 해소). Shipping 패키지에 OS 수준 실제 마우스/키보드 입력(SendInput)을 넣어 드래그 Orbit, 휠 Zoom, R, Space와 드래그 정지, H, I/파츠 클릭/빈 공간 해제, W, 패널 위 휠·드래그 차단, 포커스 상실 복귀를 화면 캡처 25장으로 확인. 증거는 `Docs/Evidence/2026-09-30-shipping-real-input/`.
+- **2026-10-01 검증(4절 표)**: `CreatePortfolioAssets.py` 신규 5개 생성 + 재실행 `[keep] OK` ×12, `-game` 스모크 2회 — 커서가 게임 창 밖이라 합성 포인터 전제 조건 1건으로 Fail, 나머지 assertion 오류 0(Manny Torso 클릭 포함), 화면 측정으로 바닥 중간 회색·가슴 클리핑 0 확인. 비쿠킹 실행이라 Manny의 강조/Wireframe 셰이더는 화면에 아직 안 나왔다(4.1절).
 - **미검증/대기(4.1절)**: 사람이 손으로 직접 조작한 확인(자동 입력 재생과 구분), 패널 버튼 클릭 자체의 실제 입력 확인(키보드 경로로만 확인), 표정(Expression)의 실제 시각 검증(현재 캐릭터에 Morph Target이 없음), 사람이 만든 디자이너 WBP 레이아웃에서의 hover 동작, 파츠 단위(부분) 강조 표시.
+- **기본 프로필 = `DA_Character_Manny` (2026-10-01)**: 엔진 3인칭 템플릿 마네킹 `SKM_Manny_Simple`(본 89개, LOD0 92,178 삼각형, Material Slot 2개 `M_HeadLegs`/`M_Torso`, 텍스처 1024²·Torso 노멀만 4096², Physics Asset `PA_Mannequin`, Morph 0)을 쓰는 placeholder 프로필이다. 시작 시 Idle(`MM_Idle`)로 서 있고 Full Body 구도로 보인다. `ProfileLibrary` 순서는 Manny → Tutorial Mannequin(`DA_Character`) → Skeletal Cube(`DA_Character_Cube`)이며, 기존 두 프로필은 변경 없이 남아 있다(2절 ⑧).
+- **스튜디오 룩 (2026-10-01)**: `LV_Portfolio`는 Key/Fill/Rim 3점 조명(전부 Directional, Movable), 고정 노출 `StudioPostProcess`(Manual, 보정 0), 어두운 그라데이션 배경 구(`MI_StudioBackdrop`), 18% 중간 회색 바닥(`MI_StudioFloor`, 멀어질수록 배경으로 페이드)으로 바뀌었다. 배경/바닥은 NoCollision이라 파츠 클릭을 가로채지 않는다. 값과 조정 위치는 2절 ⑨, 변경 이력은 6.13절.
 - **현재 파츠 강조는 메시 전체에 적용된다.** Custom Depth와 Overlay Material은 둘 다 Component 단위로 적용되므로, 어느 파츠를 클릭해도 SkeletalMeshComponent 전체가 강조된다. 선택된 파츠 자체는 INSPECTION 패널의 텍스트로만 구분된다(2절 ⑦, 6.9절).
-- **placeholder 데이터 주의**: 현재 `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개)와 `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진이 기본 제공하는 튜토리얼/기본 도형 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
+- **placeholder 데이터 주의**: `DA_Character_Manny`가 참조하는 `SKM_Manny_Simple`(파츠별 삼각형 9,206~25,680, 6.13절의 측정 방법), `DA_Character`가 참조하는 `TutorialTPP`(6,118 삼각형, Material Slot 1개, 텍스처 0개), `DA_Character_Cube`가 참조하는 `SkeletalCube`(12 삼각형)는 전부 UE 엔진/템플릿이 기본 제공하는 에셋이다. **이 수치는 실제 캐릭터 정보가 아니며**, 실제 아트가 들어오면 각 Part의 `Triangle Count`/`Material Name`/`Texture Resolution`을 그 아트 기준으로 다시 측정해 입력해야 한다.
 - 어디를 보면 되는지: 실행 명령 → 1절, 캐릭터 등록 절차 → 2절, 책임 분리 규칙 → 3절, 검증 수치 전체 → 4절, 남은 위험 → 5절, 과거 실패/원인 분석 상세 기록 → 6절.
 
 ## 1. 실행 방법
@@ -92,8 +95,8 @@ Shipping은 `-clientconfig=Shipping`으로 동일하게 실행한다. Shipping �
     -unattended -nosplash -nop4 -log
 ```
 
-- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight` **7개가 존재하지 않을 때만** 새로 만든다. 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
-- **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 5~7개 중 일부가 삭제되어 없어졌을 때"에만 쓴다.
+- **`CreatePortfolioAssets.py`**는 `DA_Character`, `DA_Character_Cube`, `DA_Character_Manny`, `BP_CharacterViewerGameMode`, `WBP_CharacterViewer`, `LV_Portfolio`, `M_Wireframe`, `M_ViewerHighlight`, `M_StudioBackdrop`, `MI_StudioBackdrop`, `M_StudioFloor`, `MI_StudioFloor` **12개가 존재하지 않을 때만** 새로 만든다(2026-10-01에 뒤의 5개 추가). 이미 있으면 절대 덮어쓰지 않고 `[keep] <경로> OK` 또는 `[keep] <경로> DIFFERS: <내용>` 한 줄만 출력한다.
+- **일상적인 캐릭터 등록(2절)에는 이 스크립트를 다시 실행할 필요가 없다.** 새 캐릭터는 새 `CharacterProfileData` Data Asset을 Editor GUI로 직접 만들고 `ProfileLibrary`에 추가하면 된다 — 스크립트는 "프로젝트 최초 세팅 / 필수 에셋 12개 중 일부가 삭제되어 없어졌을 때"에만 쓴다. `LV_Portfolio`가 없어서 새로 만들 때는 스튜디오 조명/배경/PostProcess(`apply_studio_setup()`)까지 함께 만든다.
 - 스크립트가 만든 에셋을 최신 생성 로직으로 다시 만들고 싶을 때만, 그 에셋을 Editor에서 직접 삭제한 뒤 재실행한다(스크립트가 "없는 에셋"으로 인식해 새로 만든다). 기존 값을 스크립트로 되돌리는 용도로 쓰지 않는다.
 - **`CreateViewerWidgetLayout.py`**는 `WBP_CharacterViewer`(`widget_tree.root_widget`)가 비어 있을 때만 최소 7위젯 트리를 만든다. 이미 트리가 있으면(사람이 디자이너에서 편집했거나 이전에 생성됐으면) `[keep] ... not modified.`만 출력하고 아무것도 바꾸지 않는다. **디자이너에서 스타일을 다듬은 뒤에는 이 스크립트를 다시 실행해도 안전하지만 실행할 이유가 없다.**
 
@@ -145,7 +148,7 @@ Neutral 표정은 **Morphs를 빈 배열로 둔 행**으로 등록한다. 메시
 
 - 현재 구조(단일 `SkeletalMeshComponent`)에서는 **Bone Names**로 파츠를 식별한다. 클릭 지점의 `BoneName`이 어느 Part의 Bone Names와도 정확히 일치하지 않으면 부모 본을 최대 10단계까지 걸어 올라가며 다시 찾는다(예: 손가락 본 → `hand_l` → "왼팔"). 여기 적는 본 이름은 **메시의 Physics Asset에 실제로 존재하는 본 이름과 정확히 같아야** 하며, 파츠 클릭이 되려면 **메시에 Physics Asset이 할당되어 있어야 한다**(Physics Asset이 없으면 그 캐릭터의 파츠는 클릭되지 않는다 — 지금의 `DA_Character_Cube`가 이 경우다).
 - 파츠가 별도 Component(예: Face/Hair/Jacket이 각각 다른 SkeletalMeshComponent)로 구성된 캐릭터라면 **Component Tag**로 식별 방식을 바꿀 수 있다(스키마는 이미 지원, 현재 placeholder는 미사용).
-- **Triangle Count / Material Name / Texture Resolution은 매 프레임 계산하는 값이 아니라 아티스트가 한 번 측정해서 적어 넣는 authored 데이터다.** 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 파츠마다 다른 값을 적어야 한다. 지금의 placeholder(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 그대로 공유한다 — **이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.**
+- **Triangle Count / Material Name / Texture Resolution은 매 프레임 계산하는 값이 아니라 아티스트가 한 번 측정해서 적어 넣는 authored 데이터다.** 실제 캐릭터가 파츠별로 별도 Material Slot/섹션을 가지면 파츠마다 다른 값을 적어야 한다. `DA_Character`(`TutorialTPP`)는 Material Slot이 1개뿐이라 6개 Part 모두 메시 전체 수치(6,118 삼각형)를 그대로 공유한다. 기본 프로필 `DA_Character_Manny`는 파츠별로 측정한 값(Head 9,206 / Torso 25,680 / 팔 각 19,680 / 다리 각 8,966, 합계 92,178 = LOD0 전체)과 슬롯별 비율(예: 팔은 `MI_Manny_02_New` 80% + `MI_Manny_01_New` 19%)을 갖는다(측정 방법 6.13절) — **어느 쪽이든 이 숫자를 실제 캐릭터 스펙으로 착각하지 않는다.**
 - **파츠 강조(선택 시 색이 덮이는 효과)는 현재 메시 전체에 적용된다.** 어느 파츠를 클릭해도 Custom Depth와 Overlay Material이 전체 메시에 걸리므로, 실제로 어느 파츠가 선택됐는지는 INSPECTION 패널의 텍스트(Display Name 등)로만 알 수 있다. 파츠 단위로만 강조하려면 별도 Component 구조이거나 Stencil 기반 Post Process 작업이 추가로 필요하다(5절).
 
 ### ⑧ Default Profile / Profile Library 등록
@@ -155,11 +158,39 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **Profile Library** — 런타임 CHARACTER 섹션에 노출할 프로필 목록(배열). 여기에 에셋을 추가/교체하는 것만으로 새 캐릭터가 코드 수정 없이 선택 목록에 나타난다.
 - **Viewer Widget Class** — 보통 `WBP_CharacterViewer`
 
+현재 값(2026-10-01): **Default Profile = `DA_Character_Manny`**, **Profile Library = [`DA_Character_Manny`, `DA_Character`, `DA_Character_Cube`]**(CHARACTER 섹션 버튼 순서와 같다). 레벨의 `PortfolioCharacter` Actor의 **Profile**도 `DA_Character_Manny`다(⑨) — 두 곳을 같은 프로필로 맞춰 둔다.
+
 ### ⑨ 조명·배경·UI 조정과 실행 확인
 
 - 레벨 `LV_Portfolio`에서 `PortfolioCharacterActor`를 배치하고 `Character` 카테고리의 **Profile**에 새 `CharacterProfileData`를 지정한다. 씬에는 이 Actor가 정확히 1개 있어야 한다(0개/2개 이상이면 Controller가 입력을 안전하게 비활성화한다).
 - World Settings의 **GameMode Override**(또는 `Config/DefaultEngine.ini`의 `GlobalDefaultGameMode`)가 `BP_CharacterViewerGameMode`를 가리키는지 확인한다.
-- 조명은 레벨의 KeyLight/FillLight/SkyLight(전부 Movable, 라이트매스 빌드 불필요)를 직접 조정한다. 배경/플랫폼도 레벨/Blueprint에서 조정한다.
+- **조명·노출·배경(스튜디오 룩, 2026-10-01)**: 레벨 `LV_Portfolio`의 아래 Actor를 World Outliner 라벨로 찾아 Details 패널에서 직접 조정한다. 전부 Movable이라 라이트매스 빌드가 필요 없다. 카메라는 +X 방향을 보고(yaw 0), 캐릭터는 카메라(-X)를 향한다.
+
+  | Actor (Outliner 라벨) | 종류 | 현재 값 | 조정 포인트 |
+  | --- | --- | --- | --- |
+  | `KeyLight` | Directional Light | Rotation Pitch -40 / Yaw 30(카메라 앞-왼쪽 위), Intensity **2.7 lux**, Light Color (255, 244, 229) 따뜻한 흰색, Cast Shadows 켬, Atmosphere Sun Light 켬(유일), Forward Shading Priority 1 | 주광. 그림자를 드리우는 유일한 라이트 |
+  | `FillLight` | Directional Light | Pitch -15 / Yaw -50(카메라 앞-오른쪽, 낮게), **0.9 lux**, (222, 232, 255) 차가운 흰색, Cast Shadows 끔, Atmosphere Sun Light 끔 | 그림자 쪽을 받쳐 주는 보조광 |
+  | `RimLight` | Directional Light | Pitch -35 / Yaw -150(캐릭터 뒤-오른쪽 위), **1.8 lux**, (255, 255, 255), Cast Shadows 끔, Atmosphere Sun Light 끔 | 어두운 배경에서 실루엣을 분리하는 역광 |
+  | `AmbientSkyLight` | Sky Light | Source Type = Specified Cubemap(`DaylightAmbientCubemap`), Intensity **0.36**(이전 1.0) | 전체 환경광/반사. 올리면 그림자가 옅어지고 대비가 줄어든다 |
+  | `StudioPostProcess` | Post Process Volume | **Infinite Extent (Unbound) 켬**, Exposure: Metering Mode **Manual**, Apply Physical Camera Exposure **끔**, Exposure Compensation **0.0**(노출 배율 1.0), Bloom Intensity **0.15**, Vignette Intensity **0.2** | 노출이 고정이므로 화면 전체 밝기는 여기 Exposure Compensation(+1 = 2배) 또는 라이트 lux로 조정 |
+  | `StudioBackdrop` | Static Mesh Actor | `/Engine/BasicShapes/Sphere`, Scale 50(반지름 25 m, 캐릭터 중심), Material `MI_StudioBackdrop`, Cast Shadow **끔**, Collision Preset **NoCollision** | 배경색은 MI에서만 바꾼다(Unlit이라 라이트 영향 없음) |
+  | `PlatformCylinder` | Static Mesh Actor | `/Engine/BasicShapes/Cylinder`, Location Z -10, Scale (51, 51, 0.2)(윗면 Z 0, 반지름 25.5 m — 가장자리가 배경 구 밖이라 보이지 않음), Material `MI_StudioFloor`, Collision Preset **NoCollision** | 바닥 색/광택은 MI에서 바꾼다 |
+
+  Material Instance 파라미터(`Content/Portfolio/Materials`, MI를 더블클릭해 Details의 `Studio` 그룹에서 바꾼다 — 머티리얼 그래프는 건드리지 않는다):
+
+  | MI | 파라미터 | 현재 값 | 의미 |
+  | --- | --- | --- | --- |
+  | `MI_StudioBackdrop` | `BottomColor` / `TopColor` | (0.060, 0.063, 0.068) / (0.006, 0.0065, 0.008) Linear | 지평선(바닥 높이) 색 / 위쪽 색. Unlit 값이 그대로 화면 밝기가 된다 |
+  | | `GradientBottomZ` / `GradientHeight` | 0 / 1200 cm | 월드 Z 0에서 BottomColor, Z 1200 이상에서 TopColor |
+  | | `Brightness` | 1.0 | 배경 전체 밝기 배율 |
+  | `MI_StudioFloor` | `BaseColor` / `EdgeColor` | 0.18 회색 / (0.035, 0.035, 0.038) | 캐릭터 주변 바닥 알베도(18% 중간 회색) / 먼 바닥 알베도 |
+  | | `FadeStartRadius` / `FadeEndRadius` | 350 / 2400 cm | 바닥 Actor 중심에서 이 거리 사이에 BaseColor→EdgeColor, Specular→0으로 페이드(지평선 경계를 부드럽게) |
+  | | `Roughness` / `Specular` | 0.7 / 0.3 | 바닥 광택 |
+
+  - **밝기 기준**: 이 값에서 18% 회색 바닥이 화면에서 중간 회색(sRGB 약 117)으로, Manny의 흰 플라스틱 가슴이 클리핑 없이 보이도록 맞췄다(측정 근거 6.13절). 라이트를 바꾼 뒤에도 흰 재질이 255로 날아가지 않는지 Play/`-game`으로 확인한다.
+  - **배경/바닥 메시는 반드시 NoCollision**(또는 Visibility 채널 Ignore)으로 둔다. Inspection 클릭은 `ECC_Visibility` 라인 트레이스로 캐릭터 본을 찾는데, 카메라를 감싸는 배경 구나 바닥이 Visibility를 Block하면 캐릭터보다 먼저 맞아 파츠 클릭이 전부 실패한다. 새 배경 소품을 추가할 때도 같다.
+  - 배경 구의 **Cast Shadow는 끈 채로** 둔다(닫힌 구가 그림자를 드리우면 장면 전체가 그늘이 된다). 카메라 프로필의 **Max Distance는 배경 구 반지름 2,500 cm보다 작게** 둔다(현재 최대 Manny Full 917 cm, TutorialTPP 700 cm).
+  - `Config/DefaultEngine.ini`의 `r.DefaultFeature.AutoExposure=False`는 그대로 두었고, 레벨 안에서는 `StudioPostProcess`가 우선한다. 이 볼륨을 지우면 노출이 이전 기본값(배율 2.0, 지금보다 1단 밝음)으로 돌아간다.
 - `WBP_CharacterViewer`를 열어 스타일을 다듬을 경우 **PanelRoot / NameText / ControlsBox / DescriptionScroll / DescriptionText / ListsScroll / ListsBox** 7개 이름과 각각의 "Is Variable" 체크를 그대로 유지해야 한다. 이 이름이 바뀌거나 사라지면 C++가 더 이상 찾지 못해 자동으로 내장 폴백 패널로 전환된다(안전하지만 디자이너가 만든 스타일은 사라진다). **`ListsScroll`의 부모(VerticalBox) 슬롯 Size는 반드시 `Fill`로 유지한다** — `Auto`(또는 슬롯 크기를 만지지 않은 기본값)로 바꾸면 제한된 높이를 잃어 목록이 스크롤되지 않고 화면 밖으로 흘러넘친다.
 - 1.2~1.3절의 방법으로 실행해 캐릭터가 보이는지, 우측 패널에 새 캐릭터 이름/목록이 뜨는지 확인한다.
 
@@ -200,6 +231,11 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 | Win64 Development 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 16초. 09-30에 실제 입력 재생으로 기동·조작 확인(키 홀드 실험 포함) | `Saved/Packaged/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase.exe` |
 | Win64 Shipping 패키지 재빌드 (커밋 ca08244 소스) | 2026-09-29 | BUILD SUCCESSFUL, 종료 코드 0, 오류 0/경고 0, 33초 |
 | **Shipping 실제 입력·시각 검증** (`ViewerInputDriver.ps1`이 user32 SendInput으로 실제 마우스/키보드 이벤트를 게임 창에 전달, 단계마다 창 캡처) | 2026-09-30 | 실행 2회, 캡처 25장 육안 확인: ① 드래그 Orbit 회전 ② 휠 4틱 Zoom out ③ R Reset으로 Full Body 복귀 ④ Space Turntable On 후 회전, 짧은 드래그로 Off 정지(2.5초 간격 2장 동일) ⑤ H로 패널 숨김, 숨긴 상태에서 드래그 Orbit 동작, H로 복원 ⑥ I On, 몸통 클릭 시 마젠타 강조 전신 적용, 빈 공간 클릭 시 해제 ⑦ W On 청록 Wireframe, W Off 기본 재질 복원 ⑧ 패널 위 휠 6틱: Zoom 없음, 패널 목록만 스크롤(설명 영역 스크롤 확인). 캔버스 휠 대조군은 Zoom 됨 ⑨ 패널에서 시작한 드래그: Orbit 없음 ⑩ 마우스 누른 채 포커스 상실 후 복귀·이동: Orbit 없음, 버튼 잔류 없음 | `Docs/Evidence/2026-09-30-shipping-real-input/` (PNG 25장 + 드라이버 + 단계 JSON) | `Saved/PackagedShipping/Windows/CharacterShowcase/Binaries/Win64/CharacterShowcase-Win64-Shipping.exe` |
+| `CreatePortfolioAssets.py` 스튜디오/Manny 추가 후 1차 실행(`UnrealEditor-Cmd -ExecutePythonScript ... -NullRHI`) | 2026-10-01 | 종료 코드 0, `==== DONE, NO ERRORS ====`. **신규 생성 5개**(`M_StudioBackdrop`, `MI_StudioBackdrop`, `M_StudioFloor`, `MI_StudioFloor`, `DA_Character_Manny`) + 기존 7개 `[keep] ... OK` ×7 + `DefaultEngine.ini` OK | 6.13절 |
+| 1회성 in-place 편집(`LV_Portfolio` 스튜디오 Actor·Profile, GameMode 기본 프로필, MI 값 조정) | 2026-10-01 | 종료 코드 0, 저장 후 다시 읽은 값이 2절 ⑧/⑨ 표와 일치 | 6.13절 |
+| `CreatePortfolioAssets.py` 2차·3차 실행(편집 후) | 2026-10-01 | 둘 다 종료 코드 0, **`[keep] ... OK` ×12** + ini OK, DIFFERS 0. 실행 전후 에셋 해시 2차 11/11, 3차 12/12 동일(아무것도 다시 저장하지 않음) | 6.13절 |
+| `-game` 스모크(`CharacterShowcase.Game.ViewerSmoke`), Manny 기본 프로필 + 스튜디오 룩 | 2026-10-01 | 2회 실행, 둘 다 **Fail, 오류 1건(같은 내용)**: 합성 포인터 전제 조건 `IsActive()=1, IsCursorDirectlyOverSlateWindow()=0` — 실행 중 OS 커서가 게임 창 밖에 있었음(6.10절의 환경 조건, 커서를 움직이지 않는 규칙으로 실행). 그 외 assertion 오류 0, 경고 0 — Manny에서 Torso 클릭(액터+120 cm 지점 → `Torso`), 빈 공간 클릭 해제, Grid/Default 재질, Idle/Pose, Wireframe 토글, 프로필 전환(Cube → `DA_Character`) 포함. 스크린샷 6장 성공 | `Saved/Automation/AgentC/index.json`, `Saved/Automation/AgentC2/index.json`, `Saved/Screenshots/WindowsEditor/ViewerSmoke_*.png` |
+| 스튜디오 룩 화면 측정(위 스모크 2차 `ViewerSmoke_UI.png`, 1280×720) | 2026-10-01 | 바닥(캐릭터 앞) sRGB 평균 120(18% 회색 목표 118), Manny 가슴 영역 27,200픽셀 중 ≥250 **0개**, 캐릭터 전체 136,500픽셀 중 ≥250 6개(스페큘러 반짝임), 배경 지평선 48~53 / 위쪽 25~29, 먼 바닥 71 | 6.13절 |
 
 ### 4.1 미검증·대기 항목
 
@@ -207,6 +243,9 @@ Content Browser에서 `BP_CharacterViewerGameMode`(부모 클래스 `ACharacterV
 - **Expression(표정)의 실제 시각 검증**: `TutorialTPP`/`SkeletalCube` 모두 Morph Target이 없다. Expression 스키마/무충돌만 확인됐고, 실제 Morph 적용 후 얼굴이 바뀌는 모습은 **미검증**이며 Morph가 있는 메시가 들어오기 전까지는 검증할 수 없다.
 - **사람이 만든 디자이너 WBP 레이아웃의 hover 동작**: 지금 존재하는 `WBP_CharacterViewer` 트리는 C++ 에디터 툴이 자동 생성한 것이다. 아티스트가 디자이너에서 직접 커스터마이즈한 레이아웃에서 `IsPointerOverPanel()`/패널 클릭 소비가 그대로 동작하는지는 **미검증**.
 - **파츠 단위(개별) 강조 표시**: 현재 메시 전체 강조만 구현되어 있다(0절/2절 ⑦). 파츠별 강조는 구현되어 있지 않다.
+- **Manny에서 선택 강조/Wireframe의 화면 표시(비쿠킹 `-game`)**: 2026-10-01 스모크 2회 모두 `Preparing Shaders (1~2)`가 떠 있어 `ViewerSmoke_Inspect.png`에 마젠타 강조가 안 보이고 `ViewerSmoke_Wireframe.png`는 청록 와이어 대신 회색 체커(셰이더 준비 중 대체 재질)로 찍혔다. 값 자체는 테스트가 확인했다(오류 0). 6.10절과 같은 비쿠킹 셰이더 지연으로 보이며 쿡된 패키지에서 Manny로는 아직 확인하지 않았다. 같은 스모크의 `ViewerSmoke_Profile1.png`(TutorialTPP)도 노란 재질 대신 어두운 회색으로 찍혔다(같은 대체 재질로 추정, 미확인).
+- **새 레벨 생성 경로**: `LV_Portfolio`가 없을 때 스크립트가 만드는 경로(`create_or_update_level()` + `apply_studio_setup()`)는 실행하지 않았다. `apply_studio_setup()` 자체는 기존 레벨 편집에서 실행·검증됐다.
+- **패키지(Development/Shipping) 재빌드·실행**: 스튜디오 룩/Manny 기본 프로필 상태로는 하지 않았다.
 - **사용자 GUI PIE**: Editor 툴바의 Play 버튼을 사람이 직접 눌러 확인한 기록이 없다(전부 `-game`/패키지/Automation으로 대체 검증).
 
 ## 5. 남은 작업·위험
@@ -311,3 +350,27 @@ P0/P1을 검증할 수 없는 상태에서 P2로 범위를 넓히지 마라. .ua
 - **큐브 프레이밍 조정**: `DA_Character_Cube`의 `DefaultFraming.Distance`를 half-extent × 2.3으로 계산했더니 스크린샷에서 큐브가 화면을 뒤덮어(근접 샷) 형태를 알아볼 수 없었다. × 6.0으로 올려 재확인, 정상 프레이밍 확인. 절대 크기가 작은 물체일수록 상대적으로 더 큰 여유 배율이 필요함을 기록.
 - **Material usage flag 경고**: `bUsedWithSkeletalMesh=True`를 빠뜨리면 스켈레탈 메시에 적용 시 조용히 기본 머티리얼로 대체된다(`LogMaterial` 경고) — 두 신규 Material 모두 명시적으로 설정해 해결.
 - **비쿠킹 `-game`에서 강조/Wireframe이 안 보이던 현상**: 값 자체(`GetOverlayMaterial()`, 슬롯 재질)는 테스트가 프로그램적으로 확인해 통과했지만, 화면에는 "Preparing Shaders" 오버레이가 뜬 채 기본 셰이딩으로 찍혔다(셰이더 프리컴파일이 끝나지 않음). 셰이더를 미리 컴파일해 두는 **쿡된 패키지에서는 두 효과 모두 정상 표시**되어 코드 결함이 아닌 것으로 판단했다. 비쿠킹 `-game`으로 확인하려면 먼저 Editor에서 해당 머티리얼을 열어 셰이더 컴파일을 끝내 두는 것을 권장(미검증).
+
+### 6.13 스튜디오 룩 + Manny 기본 프로필 (2026-10-01)
+
+**목적**: 기본 화면이 과노출된 노란 `TutorialTPP`(조준 자세)·순검정 배경·체커 무늬 원통 바닥(가장자리 보임)이었던 것을, 캐릭터 아티스트 포트폴리오에 맞는 중립 턴테이블 스튜디오 룩과 실제 인체 비율 placeholder(Manny)로 바꿨다. C++는 바꾸지 않았다(이 체크아웃의 바이너리는 커밋 d0c05b3 빌드 그대로 사용).
+
+**새 에셋(`CreatePortfolioAssets.py`의 create-missing-only 함수 + 읽기 전용 validator)**:
+- `M_StudioBackdrop`(Unlit, Two Sided, `WorldPosition.Z` 기반 세로 그라데이션: `lerp(BottomColor, TopColor, saturate((Z - GradientBottomZ) / GradientHeight)) * Brightness` → Emissive) / `MI_StudioBackdrop`. validator: Shading Model + 파라미터 이름 존재, MI는 Parent만 확인(값은 아티스트 소유라 비교하지 않음).
+- `M_StudioFloor`(Default Lit, 바닥 Actor 피벗 기준 XY 거리로 `BaseColor→EdgeColor`, `Specular→0` 페이드, Roughness/Specular 노출) / `MI_StudioFloor`.
+- `DA_Character_Manny`: `SKM_Manny_Simple`(Physics Asset `PA_Mannequin` 확인 — 메시는 참조만, 재저장 안 함), Animations Idle=`MM_Idle`(loop) / Walk=`MF_Unarmed_Walk_Fwd`(loop) / Jog=`MF_Unarmed_Jog_Fwd`(loop) / Pose=`MM_Idle` 0.5 s(`Is Pose`), Default Animation Id=Idle(Default Anim Class 비움), Expressions=Neutral(빈 Morphs), Material Variants=Default(override 없음) + Grid(실제 슬롯 이름 `M_HeadLegs`(0)/`M_Torso`(1) 둘 다 `WorldGridMaterial`), Wireframe=`M_Wireframe`, Turntable 20°/s. Parts 6개의 본 이름은 메시 참조 스켈레톤(89본)과 `SK_Mannequin`(161본) 양쪽에 모두 있는지 검사해 넣었다(누락 0개): Head(head, neck_01, neck_02), Torso(spine_01~05, pelvis, clavicle_l/r), Left/Right Arm(upperarm, lowerarm, hand), Left/Right Leg(thigh, calf, foot, ball).
+- **카메라 프리셋(측정값 기반 계산, 가로 FOV/16:9)**: 메시 bounds Z 0~180.5 cm, 참조 자세 `head` 본 162.6 cm, `pelvis` 95.9 cm. 저장된 값(에셋에서 다시 읽음): **Full Body** Target Z 90.3 / Distance 458.6 / FOV 45 / Min·Max Distance 206.4·917.2 / Pitch -80~5 — 높이 전체 + 위아래 5% 여백, 발끝이 카메라 쪽으로 나온 깊이(bounds Y 28.1 cm)만큼 뒤로. **Upper Body** 138.2 / 229.6 / 40 / 114.8·574.1 / -80~13 — pelvis~머리 끝 + 5% 여백. **Face** 165.3 / 178.6 / 30 / 89.3·446.6 / -70~21 — Target = head + 0.15×(top−head), 반높이 1.5×(top−head). 계산식은 `create_or_update_character_profile_manny()`. **Max Pitch**는 Max Distance에서도 카메라가 바닥(Z 0) 아래로 내려가지 않도록 계산했다(양의 Pitch = 카메라가 타깃보다 아래).
+- **파츠별 삼각형/재질/텍스처**: 5.6 Python API는 LOD별 정점 수와 섹션→슬롯 매핑은 주지만 섹션/본별 삼각형 수는 주지 않는다. 그래서 메시를 읽기 전용으로 ASCII FBX(LOD0)로 스크래치 폴더에 내보내(`unreal.Exporter.run_asset_export_task`) 삼각형마다 세 정점의 최대 스킨 가중치 본 → 부모를 따라 올라가 Part 본을 찾고 다수결로 Part를 정한 뒤 슬롯별로 셌다. 결과: Head 9,206(`M_HeadLegs` 100%), Torso 25,680(`M_Torso` 22,148 + `M_HeadLegs` 3,532), 팔 각 19,680(`M_Torso` 15,928 + `M_HeadLegs` 3,752), 다리 각 8,966(`M_HeadLegs` 8,962 + `M_Torso` 4), 합계 92,178 = AssetRegistry `Triangles` 태그(스크립트가 생성 시 다시 대조). 슬롯 합계 `M_HeadLegs` 38,166 / `M_Torso` 54,012. Material Name은 Part에서 5% 이상을 차지하는 슬롯의 MI 이름과 비율, Texture Resolution은 그 MI의 텍스처 파라미터에서 읽은 실제 해상도(`MI_Manny_01_New`: Base/BNormal/MRA 전부 1024², `MI_Manny_02_New`: Base 1024², BNormal **4096²**, MRA 1024²).
+
+**기존 에셋의 1회성 in-place 편집(스크래치 스크립트, Editor GUI 조작과 동일한 내용 — 생성 스크립트의 일반 실행은 기존 에셋을 바꾸지 않는다)**:
+1. `LV_Portfolio`(`load_level` → `EditorActorSubsystem`으로 수정 → `save_current_level`): `KeyLight` 7 → 2.7 lux, 색 (255, 244, 229) / `FillLight` 2 → 0.9 lux, 색 (222, 232, 255), Atmosphere Sun Light 켬 → **끔**(Key만 sun으로 남김) / `RimLight` 신규 / `AmbientSkyLight` 1.0 → 0.36 / `PlatformCylinder` Scale (4, 4, 0.2) → (51, 51, 0.2), 재질 DefaultMaterial(체커) → `MI_StudioFloor`, Collision BlockAll → **NoCollision** / `StudioBackdrop` 신규 / `StudioPostProcess` 신규 / `PortfolioCharacter.Profile` `DA_Character` → `DA_Character_Manny`. KeyLight/FillLight 회전은 그대로. 이 편집은 생성 스크립트의 `apply_studio_setup()`을 그대로 호출했으므로, `LV_Portfolio`를 지우고 스크립트로 다시 만들면 같은 결과가 나온다(새 레벨 경로 자체는 미실행 — 4.1절).
+2. `BP_CharacterViewerGameMode` CDO: `DefaultProfile` `DA_Character` → `DA_Character_Manny`, `ProfileLibrary` [DA_Character, DA_Character_Cube] → [DA_Character_Manny, DA_Character, DA_Character_Cube], Compile + Save. 생성 스크립트도 GameMode를 새로 만들 때는 같은 값을 쓴다.
+3. `MI_StudioBackdrop` `BottomColor` (0.090, 0.094, 0.102) → (0.060, 0.063, 0.068), `TopColor` (0.016, 0.017, 0.021) → (0.006, 0.0065, 0.008), `MI_StudioFloor` `EdgeColor` (0.06, 0.06, 0.065) → (0.035, 0.035, 0.038) — 첫 `-game` 스모크에서 배경이 보정 렌더보다 밝게(지평선 68~74, 위쪽 41~47) 나와 MI Details 편집과 같은 방식으로 1회 조정(스크립트 상수도 같은 값으로 갱신). 부모 머티리얼(`M_StudioBackdrop`/`M_StudioFloor`)의 파라미터 기본값은 처음 만들 때의 값(0.090… / 0.06…)으로 남아 있다 — MI가 덮어쓰므로 화면에는 영향이 없고, 스크립트로 다시 만들면 새 상수가 기본값이 된다.
+4. 편집 후 생성 스크립트 validator는 그대로 `[keep] ... OK`(validator 변경 불필요).
+
+**밝기 보정 방법(캘리브레이션 렌더)**: 이 PC에서 `-game` 1회가 약 11분이라, Editor(실제 RHI)에서 레벨을 메모리에서만 수정하고 `SceneCapture2D`(Final Color LDR)로 PNG를 찍은 뒤 레벨을 디스크에서 다시 읽어 버리는 스크래치 스크립트로 값을 정했다(`LV_Portfolio.umap` 해시가 매 실행 전후 동일함을 확인). 씬 캡처는 Post Process의 노출 보정을 무시하고 고정 노출로 찍히므로, **이전 레벨을 라이트 ×4.5로 찍으면 실제 게임 스크린샷(`Docs/Evidence/2026-09-30-shipping-real-input/01_default.png`)의 바닥 밝기(sRGB 170 대 171~176)와 일치**한다는 기준을 먼저 구하고, 새 값(노출 배율 1.0 = 이전 2.0의 절반)은 라이트 ×2.25로 찍어 판단했다. 엔진 소스(`PostProcessEyeAdaptation.cpp`)상 이전 설정(`r.DefaultFeature.AutoExposure=False`, 기본 Bias 1)의 노출 배율은 2.0, 새 볼륨(Manual, Physical Camera 끔, 보정 0)은 1.0이다. 결과: 바닥 sRGB 117(목표 118), Manny 가슴 영역 평균 135, 255 근처(≥250) 픽셀은 16,000개 중 1개(스페큘러 반짝임), 배경 지평선 46~54 / 위쪽 14~19, 먼 바닥 62. 보정 중 발견한 것: 먼 바닥이 스카이라이트 큐브맵을 스치는 각도로 반사해 지평선 바로 아래가 밝은 띠가 됨 → `M_StudioFloor`에서 Specular도 거리로 0까지 페이드하도록 수정. **실제 게임 화면 확인**: `-game` 스모크 1차 바닥 120 / 가슴 ≥250 0~1개(배경만 예상보다 밝아 위 3번 조정), 2차(최종 값) 바닥 120 / 가슴 0개 / 캐릭터 전체 6~10개 / 배경 지평선 48~53·위쪽 25~29 / 먼 바닥 71. 즉 라이트·노출 보정은 게임에서도 맞았고(바닥 117 예측 → 120 실측), Unlit 배경만 캡처와 게임의 밝기가 달랐다(원인 미확인).
+
+**발견한 제약**:
+- 이 엔진 빌드에서 **`-NullRHI`로 `StaticMeshActor`를 spawn하면 `EXCEPTION_INT_DIVIDE_BY_ZERO`로 Editor가 크래시**한다(재현 1/1, 실제 RHI에서는 정상). 레벨 편집 스크립트는 `-NullRHI` 없이 실행했다. 에셋 생성/검증(`CreatePortfolioAssets.py`, 기존 레벨이 있으면 Actor를 spawn하지 않음)은 `-NullRHI`로 정상.
+- `-NullRHI`에서 스켈레탈 메시 FBX 내보내기도 `Assertion failed: MeshObject`로 크래시 — 실제 RHI에서는 정상.
+- `MaterialEditingLibrary.set_material_instance_*_parameter_value`의 bool 반환값은 값이 적용됐는데도 False를 돌려줬다 → 스크립트는 반환값 대신 값을 다시 읽어 검사한다.

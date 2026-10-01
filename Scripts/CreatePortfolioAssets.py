@@ -43,6 +43,16 @@ This mesh has NO morph targets, so Expressions is limited to a single
 "Neutral" entry with an empty Morphs list (valid per
 Docs/CHARACTER_VIEWER_SETUP.md section 8/13.2) -- expression verification is
 out of scope until a real rigged/morphed character asset is imported.
+
+Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.13), same create-missing-only rule:
+  - DA_Character_Manny: the DEFAULT profile, on the engine third-person
+    mannequin copied unchanged into /Game/Characters/Mannequins (SKM_Manny_Simple,
+    MM_Idle, MF_Unarmed_Walk_Fwd/Jog_Fwd; referenced read-only, never re-saved).
+    Also has no morph targets.
+  - M_StudioBackdrop / MI_StudioBackdrop and M_StudioFloor / MI_StudioFloor:
+    the LV_Portfolio studio backdrop gradient and neutral floor.
+  - apply_studio_setup(): the studio lights/backdrop/post-process actors; run
+    by this script only when it creates a NEW LV_Portfolio.
 """
 
 import sys
@@ -95,6 +105,72 @@ SKELETAL_CUBE_MESH = "/Engine/EngineMeshes/SkeletalCube.SkeletalCube"
 CYLINDER_MESH = "/Engine/BasicShapes/Cylinder.Cylinder"
 AMBIENT_CUBEMAP = "/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap"
 DARK_MAT = "/Engine/EngineMaterials/T_Default_Material.T_Default_Material"  # fallback if BasicShapeMaterial unavailable
+SPHERE_MESH = "/Engine/BasicShapes/Sphere.Sphere"
+
+# 2026-10-01: third profile on the engine third-person mannequin (copied
+# unchanged into /Game/Characters/Mannequins by the playable-demo D0 commit;
+# read-only here -- referenced, never re-saved). It is the DEFAULT profile
+# from now on (realistic proportions, 2 material slots, textures, physics
+# asset), DA_Character/DA_Character_Cube stay in the ProfileLibrary.
+DATA_ASSET_MANNY_NAME = "DA_Character_Manny"
+DATA_ASSET_MANNY_PATH = f"{DATA_PACKAGE}/{DATA_ASSET_MANNY_NAME}"
+MANNY_MESH = "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"
+MANNY_IDLE = "/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle.MM_Idle"
+MANNY_WALK = "/Game/Characters/Mannequins/Anims/Unarmed/Walk/MF_Unarmed_Walk_Fwd.MF_Unarmed_Walk_Fwd"
+MANNY_JOG = "/Game/Characters/Mannequins/Anims/Unarmed/Jog/MF_Unarmed_Jog_Fwd.MF_Unarmed_Jog_Fwd"
+
+# LOD0 triangle split of SKM_Manny_Simple, measured once (2026-10-01) because
+# the 5.6 Python API exposes per-LOD vertex counts and section->slot mapping
+# but no per-section/per-bone triangle count: the mesh was exported read-only
+# to an ASCII FBX (unreal.Exporter.run_asset_export_task, LOD0 only), each
+# triangle was assigned to the Part of its vertices' dominant skin-weight bone
+# (majority of the 3 vertices, walking bone parents up to a Part bone) and
+# counted per material slot. Sum = 92,178 = the asset's AssetRegistry
+# "Triangles" tag (checked again at creation time below). Authored data like
+# every TriangleCount: re-measure if the mesh changes.
+MANNY_LOD0_TRIANGLES = 92178
+MANNY_PART_TRIANGLES = {
+    "Head": {"M_HeadLegs": 9206},
+    "Torso": {"M_Torso": 22148, "M_HeadLegs": 3532},
+    "LeftArm": {"M_Torso": 15928, "M_HeadLegs": 3752},
+    "RightArm": {"M_Torso": 15928, "M_HeadLegs": 3752},
+    "LeftLeg": {"M_HeadLegs": 8962, "M_Torso": 4},
+    "RightLeg": {"M_HeadLegs": 8962, "M_Torso": 4},
+}
+
+# Studio look for LV_Portfolio (2026-10-01): gradient backdrop + neutral floor
+# materials (parameters exposed through Material Instances so an artist changes
+# colours in the MI Details panel without touching the graph).
+STUDIO_BACKDROP_MAT_NAME = "M_StudioBackdrop"
+STUDIO_BACKDROP_MAT_PATH = f"{MATERIALS_PACKAGE}/{STUDIO_BACKDROP_MAT_NAME}"
+STUDIO_BACKDROP_MI_NAME = "MI_StudioBackdrop"
+STUDIO_BACKDROP_MI_PATH = f"{MATERIALS_PACKAGE}/{STUDIO_BACKDROP_MI_NAME}"
+STUDIO_FLOOR_MAT_NAME = "M_StudioFloor"
+STUDIO_FLOOR_MAT_PATH = f"{MATERIALS_PACKAGE}/{STUDIO_FLOOR_MAT_NAME}"
+STUDIO_FLOOR_MI_NAME = "MI_StudioFloor"
+STUDIO_FLOOR_MI_PATH = f"{MATERIALS_PACKAGE}/{STUDIO_FLOOR_MI_NAME}"
+
+# Linear colours. Backdrop is UNLIT (emissive), so these are the on-screen
+# values before the tonemapper at the level's fixed exposure (see STUDIO_*).
+STUDIO_BACKDROP_VECTORS = {
+    "BottomColor": (0.060, 0.063, 0.068),  # at the floor horizon (Z = GradientBottomZ)
+    "TopColor": (0.006, 0.0065, 0.008),    # GradientHeight cm above it and up
+}
+STUDIO_BACKDROP_SCALARS = {
+    "GradientBottomZ": 0.0,
+    "GradientHeight": 1200.0,
+    "Brightness": 1.0,
+}
+STUDIO_FLOOR_VECTORS = {
+    "BaseColor": (0.18, 0.18, 0.18),       # 18% mid-grey albedo around the character
+    "EdgeColor": (0.035, 0.035, 0.038),    # albedo the floor fades to far away (close to the backdrop horizon)
+}
+STUDIO_FLOOR_SCALARS = {
+    "Roughness": 0.7,
+    "Specular": 0.3,
+    "FadeStartRadius": 350.0,              # cm from the floor actor's centre
+    "FadeEndRadius": 2400.0,
+}
 
 asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
 EAL = unreal.EditorAssetLibrary
@@ -535,6 +611,257 @@ def create_or_update_highlight_material():
 
 
 # ---------------------------------------------------------------------------
+# 1a-2. Studio backdrop / floor materials + instances (LV_Portfolio studio look)
+# ---------------------------------------------------------------------------
+
+def validate_studio_material(mat, path, shading_model, scalar_names, vector_names):
+    """Read-only check for an existing studio material: shading model and the
+    exposed parameter names the Material Instance relies on. Never writes."""
+    diffs = []
+    try:
+        if mat.get_editor_property("shading_model") != shading_model:
+            diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected {shading_model}")
+    except Exception as exc:
+        diffs.append(f"could not read shading_model ({exc!r})")
+    try:
+        MEL = unreal.MaterialEditingLibrary
+        have_scalars = {str(n) for n in MEL.get_scalar_parameter_names(mat)}
+        have_vectors = {str(n) for n in MEL.get_vector_parameter_names(mat)}
+        missing = [n for n in scalar_names if n not in have_scalars] + [n for n in vector_names if n not in have_vectors]
+        if missing:
+            diffs.append(f"missing parameters {missing}")
+    except Exception as exc:
+        diffs.append(f"could not read parameter names ({exc!r})")
+    report_keep(path, diffs)
+
+
+def validate_studio_material_instance(mi, path, parent_path):
+    """Read-only check for an existing studio Material Instance: parent must be
+    the matching studio material. Parameter VALUES are artist-owned and are
+    deliberately not compared. Never writes."""
+    diffs = []
+    try:
+        parent = mi.get_editor_property("parent")
+        if parent is None or parent.get_path_name().split(".")[0] != parent_path:
+            diffs.append(f"parent is {parent.get_path_name() if parent else None}, expected {parent_path}")
+    except Exception as exc:
+        diffs.append(f"could not read parent ({exc!r})")
+    report_keep(path, diffs)
+
+
+def _connect(from_node, from_output, to_node, to_input):
+    """MaterialEditingLibrary.connect_material_expressions with a hard failure
+    (appended to `errors`) instead of a silently half-wired graph."""
+    ok = unreal.MaterialEditingLibrary.connect_material_expressions(from_node, from_output, to_node, to_input)
+    if not ok:
+        msg = f"[CreatePortfolioAssets] FAILED: connect {from_node.get_name()}.{from_output!r} -> {to_node.get_name()}.{to_input!r}"
+        log_err(msg)
+        errors.append(msg)
+    return ok
+
+
+def _scalar_param(mat, name, default, x, y):
+    node = unreal.MaterialEditingLibrary.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, x, y)
+    node.set_editor_property("parameter_name", name)
+    node.set_editor_property("default_value", default)
+    node.set_editor_property("group", "Studio")
+    return node
+
+
+def _vector_param(mat, name, rgb, x, y):
+    node = unreal.MaterialEditingLibrary.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, x, y)
+    node.set_editor_property("parameter_name", name)
+    node.set_editor_property("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+    node.set_editor_property("group", "Studio")
+    return node
+
+
+def create_or_update_studio_backdrop_material():
+    """M_StudioBackdrop: unlit, opaque, two-sided (seen from INSIDE a large
+    engine sphere), vertical gradient on absolute world Z:
+        Emissive = lerp(BottomColor, TopColor,
+                        saturate((WorldPosition.Z - GradientBottomZ) / GradientHeight)) * Brightness
+    Unlit so the backdrop colour is exactly what the artist picks (no light
+    or shadow on it). Built once on creation only; an existing asset is
+    validated read-only (same rule as M_Wireframe)."""
+    scalar_names = list(STUDIO_BACKDROP_SCALARS)
+    vector_names = list(STUDIO_BACKDROP_VECTORS)
+    if EAL.does_asset_exist(STUDIO_BACKDROP_MAT_PATH):
+        mat = EAL.load_asset(STUDIO_BACKDROP_MAT_PATH)
+        log(f"[CreatePortfolioAssets] {STUDIO_BACKDROP_MAT_NAME} already exists, preserving (read-only): {STUDIO_BACKDROP_MAT_PATH}")
+        validate_studio_material(mat, STUDIO_BACKDROP_MAT_PATH, unreal.MaterialShadingModel.MSM_UNLIT, scalar_names, vector_names)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    mat = asset_tools.create_asset(STUDIO_BACKDROP_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {STUDIO_BACKDROP_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created {STUDIO_BACKDROP_MAT_NAME} at {STUDIO_BACKDROP_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("two_sided", True)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    world_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionWorldPosition, -1400, 0)
+    mask_z = MEL.create_material_expression(mat, unreal.MaterialExpressionComponentMask, -1200, 0)
+    for channel, on in (("r", False), ("g", False), ("b", True), ("a", False)):
+        mask_z.set_editor_property(channel, on)
+    bottom_z = _scalar_param(mat, "GradientBottomZ", STUDIO_BACKDROP_SCALARS["GradientBottomZ"], -1200, 150)
+    height = _scalar_param(mat, "GradientHeight", STUDIO_BACKDROP_SCALARS["GradientHeight"], -1000, 250)
+    sub = MEL.create_material_expression(mat, unreal.MaterialExpressionSubtract, -1000, 50)
+    div = MEL.create_material_expression(mat, unreal.MaterialExpressionDivide, -800, 100)
+    sat = MEL.create_material_expression(mat, unreal.MaterialExpressionSaturate, -600, 100)
+    bottom_color = _vector_param(mat, "BottomColor", STUDIO_BACKDROP_VECTORS["BottomColor"], -600, -250)
+    top_color = _vector_param(mat, "TopColor", STUDIO_BACKDROP_VECTORS["TopColor"], -600, -50)
+    lerp = MEL.create_material_expression(mat, unreal.MaterialExpressionLinearInterpolate, -350, -50)
+    brightness = _scalar_param(mat, "Brightness", STUDIO_BACKDROP_SCALARS["Brightness"], -350, 150)
+    mul = MEL.create_material_expression(mat, unreal.MaterialExpressionMultiply, -150, 0)
+
+    _connect(world_pos, "", mask_z, "")
+    _connect(mask_z, "", sub, "A")
+    _connect(bottom_z, "", sub, "B")
+    _connect(sub, "", div, "A")
+    _connect(height, "", div, "B")
+    _connect(div, "", sat, "")
+    _connect(bottom_color, "", lerp, "A")
+    _connect(top_color, "", lerp, "B")
+    _connect(sat, "", lerp, "Alpha")
+    _connect(lerp, "", mul, "A")
+    _connect(brightness, "", mul, "B")
+    if not MEL.connect_material_property(mul, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect emissive on {STUDIO_BACKDROP_MAT_NAME}")
+    MEL.recompile_material(mat)
+
+    save(STUDIO_BACKDROP_MAT_PATH)
+    return mat
+
+
+def create_or_update_studio_floor_material():
+    """M_StudioFloor: default lit, opaque. BaseColor fades radially (distance
+    in XY from the floor actor's own pivot, so it follows the platform if it is
+    moved) from BaseColor to EdgeColor between FadeStartRadius and
+    FadeEndRadius, so the far floor sinks into the dark backdrop and its edge
+    does not read as a hard line. Specular fades to 0 with the same radial
+    alpha: without that, grazing-angle reflections of the SkyLight cubemap made
+    the far floor a bright band right under the horizon (calibration render
+    2026-10-01). Roughness/Specular exposed. No texture, no checker. Built once on creation only; an existing asset is validated
+    read-only."""
+    scalar_names = list(STUDIO_FLOOR_SCALARS)
+    vector_names = list(STUDIO_FLOOR_VECTORS)
+    if EAL.does_asset_exist(STUDIO_FLOOR_MAT_PATH):
+        mat = EAL.load_asset(STUDIO_FLOOR_MAT_PATH)
+        log(f"[CreatePortfolioAssets] {STUDIO_FLOOR_MAT_NAME} already exists, preserving (read-only): {STUDIO_FLOOR_MAT_PATH}")
+        validate_studio_material(mat, STUDIO_FLOOR_MAT_PATH, unreal.MaterialShadingModel.MSM_DEFAULT_LIT, scalar_names, vector_names)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    mat = asset_tools.create_asset(STUDIO_FLOOR_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {STUDIO_FLOOR_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created {STUDIO_FLOOR_MAT_NAME} at {STUDIO_FLOOR_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    world_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionWorldPosition, -1600, 0)
+    mask_wp = MEL.create_material_expression(mat, unreal.MaterialExpressionComponentMask, -1400, 0)
+    obj_pos = MEL.create_material_expression(mat, unreal.MaterialExpressionObjectPositionWS, -1600, 150)
+    mask_op = MEL.create_material_expression(mat, unreal.MaterialExpressionComponentMask, -1400, 150)
+    for mask in (mask_wp, mask_op):
+        for channel, on in (("r", True), ("g", True), ("b", False), ("a", False)):
+            mask.set_editor_property(channel, on)
+    dist = MEL.create_material_expression(mat, unreal.MaterialExpressionDistance, -1200, 50)
+    fade_start = _scalar_param(mat, "FadeStartRadius", STUDIO_FLOOR_SCALARS["FadeStartRadius"], -1200, 250)
+    fade_end = _scalar_param(mat, "FadeEndRadius", STUDIO_FLOOR_SCALARS["FadeEndRadius"], -1200, 400)
+    sub_dist = MEL.create_material_expression(mat, unreal.MaterialExpressionSubtract, -1000, 100)
+    sub_range = MEL.create_material_expression(mat, unreal.MaterialExpressionSubtract, -1000, 300)
+    div = MEL.create_material_expression(mat, unreal.MaterialExpressionDivide, -800, 150)
+    sat = MEL.create_material_expression(mat, unreal.MaterialExpressionSaturate, -600, 150)
+    base_color = _vector_param(mat, "BaseColor", STUDIO_FLOOR_VECTORS["BaseColor"], -600, -250)
+    edge_color = _vector_param(mat, "EdgeColor", STUDIO_FLOOR_VECTORS["EdgeColor"], -600, -50)
+    lerp = MEL.create_material_expression(mat, unreal.MaterialExpressionLinearInterpolate, -350, -50)
+    roughness = _scalar_param(mat, "Roughness", STUDIO_FLOOR_SCALARS["Roughness"], -350, 200)
+    specular = _scalar_param(mat, "Specular", STUDIO_FLOOR_SCALARS["Specular"], -350, 320)
+    one_minus = MEL.create_material_expression(mat, unreal.MaterialExpressionOneMinus, -350, 420)
+    spec_fade = MEL.create_material_expression(mat, unreal.MaterialExpressionMultiply, -150, 350)
+
+    _connect(world_pos, "", mask_wp, "")
+    _connect(obj_pos, "", mask_op, "")
+    _connect(mask_wp, "", dist, "A")
+    _connect(mask_op, "", dist, "B")
+    _connect(dist, "", sub_dist, "A")
+    _connect(fade_start, "", sub_dist, "B")
+    _connect(fade_end, "", sub_range, "A")
+    _connect(fade_start, "", sub_range, "B")
+    _connect(sub_dist, "", div, "A")
+    _connect(sub_range, "", div, "B")
+    _connect(div, "", sat, "")
+    _connect(base_color, "", lerp, "A")
+    _connect(edge_color, "", lerp, "B")
+    _connect(sat, "", lerp, "Alpha")
+    _connect(sat, "", one_minus, "")
+    _connect(specular, "", spec_fade, "A")
+    _connect(one_minus, "", spec_fade, "B")
+    for node, prop in ((lerp, unreal.MaterialProperty.MP_BASE_COLOR),
+                       (roughness, unreal.MaterialProperty.MP_ROUGHNESS),
+                       (spec_fade, unreal.MaterialProperty.MP_SPECULAR)):
+        if not MEL.connect_material_property(node, "", prop):
+            errors.append(f"[CreatePortfolioAssets] FAILED: connect {prop} on {STUDIO_FLOOR_MAT_NAME}")
+    MEL.recompile_material(mat)
+
+    save(STUDIO_FLOOR_MAT_PATH)
+    return mat
+
+
+def create_or_update_studio_material_instance(mi_name, mi_path, parent, parent_path, vectors, scalars):
+    """MI_StudioBackdrop / MI_StudioFloor: Material Instance of the matching
+    studio material with every exposed parameter set explicitly (so the
+    artist sees and edits them in the MI's Details panel). Created once;
+    an existing MI is validated read-only (its values are artist-owned)."""
+    if EAL.does_asset_exist(mi_path):
+        mi = EAL.load_asset(mi_path)
+        log(f"[CreatePortfolioAssets] {mi_name} already exists, preserving (read-only): {mi_path}")
+        validate_studio_material_instance(mi, mi_path, parent_path)
+        return mi
+
+    if parent is None:
+        msg = f"[CreatePortfolioAssets] FAILED: parent material for {mi_name} is missing"
+        log_err(msg)
+        errors.append(msg)
+        return None
+
+    ensure_directory(MATERIALS_PACKAGE)
+    factory = unreal.MaterialInstanceConstantFactoryNew()
+    mi = asset_tools.create_asset(mi_name, MATERIALS_PACKAGE, unreal.MaterialInstanceConstant, factory)
+    if mi is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {mi_name}")
+    log(f"[CreatePortfolioAssets] Created {mi_name} at {mi_path}")
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.set_material_instance_parent(mi, parent)
+    # The setters' bool return is not a reliable success signal in 5.6 (it
+    # returned False while the value was applied), so read every value back.
+    for name, rgb in vectors.items():
+        MEL.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+        got = MEL.get_material_instance_vector_parameter_value(mi, name)
+        if abs(got.r - rgb[0]) > 1e-4 or abs(got.g - rgb[1]) > 1e-4 or abs(got.b - rgb[2]) > 1e-4:
+            errors.append(f"[CreatePortfolioAssets] FAILED: {mi_name} vector parameter {name} reads back {got}")
+    for name, value in scalars.items():
+        MEL.set_material_instance_scalar_parameter_value(mi, name, value)
+        got = MEL.get_material_instance_scalar_parameter_value(mi, name)
+        if abs(got - value) > 1e-3:
+            errors.append(f"[CreatePortfolioAssets] FAILED: {mi_name} scalar parameter {name} reads back {got}")
+    MEL.update_material_instance(mi)
+
+    save(mi_path)
+    return mi
+
+
+# ---------------------------------------------------------------------------
 # 1b. DA_Character_Cube (second CharacterProfileData, P1 completion evidence:
 #     a code-free runtime profile switch needs a second profile to switch to)
 # ---------------------------------------------------------------------------
@@ -673,6 +1000,316 @@ def create_or_update_character_profile_cube():
 
 
 # ---------------------------------------------------------------------------
+# 1c. DA_Character_Manny (engine third-person mannequin, DEFAULT profile)
+# ---------------------------------------------------------------------------
+
+def read_mesh_bone_names(mesh):
+    """Bone names of `mesh`'s own reference skeleton (read-only: a
+    SkeletonModifier that is never committed). Empty set if unavailable."""
+    try:
+        modifier = unreal.SkeletonModifier()
+        if modifier.set_skeletal_mesh(mesh):
+            return {str(n) for n in modifier.get_all_bone_names()}
+    except Exception as exc:
+        report_exception("SkeletonModifier.get_all_bone_names", exc)
+    return set()
+
+
+def read_reference_bone_z(skeleton, bone_names):
+    """{bone: world-space Z (cm) in the skeleton's reference pose} via
+    AnimPoseExtensions (read-only). Missing bones are simply absent."""
+    result = {}
+    try:
+        pose = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+        for bone in bone_names:
+            try:
+                result[bone] = unreal.AnimPoseExtensions.get_ref_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD).translation.z
+            except Exception as exc:
+                report_exception(f"reference pose of bone '{bone}'", exc)
+    except Exception as exc:
+        report_exception("AnimPoseExtensions.get_reference_pose", exc)
+    return result
+
+
+def describe_material_textures(material):
+    """Texture parameter resolutions of a Material Instance, read from the
+    textures' AssetRegistry "Dimensions" tag, e.g.
+    'Base Texture 1024x1024, BNormal 4096x4096, MRA 1024x1024'."""
+    parts = []
+    try:
+        registry = unreal.AssetRegistryHelpers.get_asset_registry()
+        for value in material.get_editor_property("texture_parameter_values") or []:
+            tex = value.get_editor_property("parameter_value")
+            if tex is None:
+                continue
+            name = value.get_editor_property("parameter_info").get_editor_property("name")
+            dims = registry.get_asset_by_object_path(tex.get_path_name()).get_tag_value("Dimensions")
+            parts.append(f"{name} {dims}")
+    except Exception as exc:
+        report_exception(f"reading texture parameters of {material.get_name() if material else None}", exc)
+    return ", ".join(parts) if parts else "N/A (no texture parameters)"
+
+
+def fit_camera_distance(half_height_cm, fov_deg, aspect=16.0 / 9.0):
+    """Distance at which a vertical half-extent fills half the frame height.
+    FViewerCameraFraming.FOV is the HORIZONTAL FOV (UE default
+    AspectRatioAxisConstraint MaintainXFOV), so the vertical half-angle is
+    atan(tan(FOV/2) / aspect)."""
+    import math
+    tan_vertical = math.tan(math.radians(fov_deg) * 0.5) / aspect
+    return half_height_cm / tan_vertical
+
+
+def make_framing(target_z, distance, fov, min_distance, max_distance, min_pitch, max_pitch):
+    framing = unreal.ViewerCameraFraming()
+    framing.set_editor_property("target_offset", unreal.Vector(0.0, 0.0, round(target_z, 1)))
+    framing.set_editor_property("distance", round(distance, 1))
+    framing.set_editor_property("fov", fov)
+    framing.set_editor_property("min_distance", round(min_distance, 1))
+    framing.set_editor_property("max_distance", round(max_distance, 1))
+    framing.set_editor_property("min_pitch", min_pitch)
+    framing.set_editor_property("max_pitch", max_pitch)
+    return framing
+
+
+def max_pitch_above_floor(target_z, max_distance, floor_clearance=5.0, cap=60.0):
+    """Positive pitch puts the orbit camera BELOW its target
+    (ACharacterViewerCameraPawn: camera = target - Forward * Distance). Clamp
+    it so that even at MaxDistance the camera stays above the studio floor
+    (Z = 0) instead of looking at the floor from underneath."""
+    import math
+    ratio = max(0.0, min(1.0, (target_z - floor_clearance) / max(max_distance, 1.0)))
+    return float(min(cap, math.floor(math.degrees(math.asin(ratio)))))
+
+
+def create_or_update_character_profile_manny():
+    if EAL.does_asset_exist(DATA_ASSET_MANNY_PATH):
+        profile = EAL.load_asset(DATA_ASSET_MANNY_PATH)
+        log(f"[CreatePortfolioAssets] {DATA_ASSET_MANNY_NAME} already exists, preserving (read-only): {DATA_ASSET_MANNY_PATH}")
+        validate_character_profile(profile, DATA_ASSET_MANNY_PATH)
+        return profile
+
+    skel_mesh = load_or_none(MANNY_MESH)
+    if skel_mesh is None:
+        msg = f"[CreatePortfolioAssets] FAILED: {MANNY_MESH} is missing; {DATA_ASSET_MANNY_NAME} not created."
+        log_err(msg)
+        errors.append(msg)
+        return None
+
+    ensure_directory(DATA_PACKAGE)
+    data_asset_class = unreal.CharacterProfileData
+    factory = unreal.DataAssetFactory()
+    try:
+        factory.set_editor_property("data_asset_class", data_asset_class)
+    except Exception as exc:
+        report_exception("DataAssetFactory.data_asset_class (manny)", exc)
+    profile = asset_tools.create_asset(DATA_ASSET_MANNY_NAME, DATA_PACKAGE, data_asset_class, factory)
+    if profile is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {DATA_ASSET_MANNY_NAME}")
+    log(f"[CreatePortfolioAssets] Created {DATA_ASSET_MANNY_NAME} at {DATA_ASSET_MANNY_PATH}")
+
+    # Parts are clickable only through the mesh's Physics Asset (bone bodies).
+    # Report it either way -- the mesh itself is never modified or re-saved.
+    physics_asset = skel_mesh.get_editor_property("physics_asset")
+    if physics_asset is None:
+        log_warn(f"[CreatePortfolioAssets] {MANNY_MESH} has NO physics_asset: Manny parts will not be clickable (mesh left unchanged).")
+    else:
+        log(f"[CreatePortfolioAssets] {skel_mesh.get_name()} physics_asset = {physics_asset.get_path_name()}")
+
+    profile.set_editor_property("display_name", unreal.Text("Manny (placeholder)"))
+    profile.set_editor_property(
+        "description",
+        unreal.Text(
+            "언리얼 엔진 3인칭 템플릿의 기본 마네킹(SKM_Manny_Simple)을 임시로 등록한 프로필입니다. "
+            "실제 포트폴리오 캐릭터가 아니며, 실제 인체 비율·텍스처 2슬롯·Physics Asset을 가진 메시로 "
+            "조명, 카메라 구도, 애니메이션, 파츠 선택 기능을 확인하기 위한 placeholder입니다. "
+            "실제 캐릭터를 Import하면 새 CharacterProfileData를 만들어 Default Profile을 교체하세요."
+        ),
+    )
+    profile.set_editor_property("skeletal_mesh", skel_mesh)
+
+    # --- Camera: measured from the mesh bounds + reference-pose bones ---
+    origin, extent = measure_skeletal_mesh_extent(skel_mesh)
+    bottom_z = origin.z - extent.z
+    top_z = origin.z + extent.z
+    height = max(top_z - bottom_z, 1.0)
+    skeleton = skel_mesh.get_editor_property("skeleton")
+    bone_z = read_reference_bone_z(skeleton, ["head", "pelvis"]) if skeleton else {}
+    head_z = bone_z.get("head", bottom_z + height * 0.9)
+    pelvis_z = bone_z.get("pelvis", bottom_z + height * 0.53)
+    log(f"[CreatePortfolioAssets] Manny framing inputs: bottom={bottom_z:.1f} top={top_z:.1f} head={head_z:.1f} pelvis={pelvis_z:.1f} (cm)")
+
+    # Full Body: whole mesh height with a 5% frame margin top and bottom at 16:9.
+    # The fit is for a flat card at the pivot; the feet/toes stand up to
+    # `front_depth` cm closer to the camera (UE mannequins face +Y; the level
+    # actor is yawed so +Y points at the camera) and project lower, so the
+    # camera backs off by that depth (first calibration render: toes at 2%
+    # margin without it).
+    full_fov = 45.0
+    full_target = bottom_z + height * 0.5
+    front_depth = abs(origin.y) + extent.y
+    full_distance = fit_camera_distance(height / 0.9 * 0.5, full_fov) + front_depth
+    full_max = full_distance * 2.0
+    full_framing = make_framing(full_target, full_distance, full_fov, full_distance * 0.45, full_max,
+                                -80.0, max_pitch_above_floor(full_target, full_max))
+
+    # Upper Body: pelvis to top of head, 5% margins.
+    upper_fov = 40.0
+    upper_target = (pelvis_z + top_z) * 0.5
+    upper_distance = fit_camera_distance((top_z - pelvis_z) / 0.9 * 0.5, upper_fov)
+    upper_max = upper_distance * 2.5
+    upper_framing = make_framing(upper_target, upper_distance, upper_fov, upper_distance * 0.5, upper_max,
+                                 -80.0, max_pitch_above_floor(upper_target, upper_max))
+
+    # Face: centred just above the head bone (skull base; the idle pose drops
+    # the head ~3 cm below the reference pose), half-height 1.5x the bone-to-top
+    # span so the whole head plus chin/neck stay in frame (calibration render:
+    # 0.4/1.2 put the head low and cut the chin).
+    face_fov = 30.0
+    head_span = max(top_z - head_z, 5.0)
+    face_target = head_z + head_span * 0.15
+    face_distance = fit_camera_distance(head_span * 1.5, face_fov)
+    face_max = face_distance * 2.5
+    face_framing = make_framing(face_target, face_distance, face_fov, face_distance * 0.5, face_max,
+                                -70.0, max_pitch_above_floor(face_target, face_max))
+
+    profile.set_editor_property("default_framing", full_framing)
+
+    def make_preset(id_name, display, framing):
+        preset = unreal.ViewerCameraPreset()
+        preset.set_editor_property("id", id_name)
+        preset.set_editor_property("display_name", unreal.Text(display))
+        preset.set_editor_property("framing", framing)
+        return preset
+
+    profile.set_editor_property("camera_presets", [
+        make_preset("Face", "Face", face_framing),
+        make_preset("Upper", "Upper Body", upper_framing),
+        make_preset("Full", "Full Body", full_framing),
+    ])
+    profile.set_editor_property("default_preset_id", "Full")
+
+    # --- Animations (SK_Mannequin clips; Walk/Jog are force_root_lock, i.e. in place) ---
+    idle_seq = load_or_none(MANNY_IDLE)
+    walk_seq = load_or_none(MANNY_WALK)
+    jog_seq = load_or_none(MANNY_JOG)
+
+    def make_anim(id_name, display, sequence, loop, is_pose, pose_time):
+        entry = unreal.ViewerAnimationEntry()
+        entry.set_editor_property("id", id_name)
+        entry.set_editor_property("display_name", unreal.Text(display))
+        entry.set_editor_property("sequence", sequence)
+        entry.set_editor_property("loop", loop)
+        entry.set_editor_property("is_pose", is_pose)
+        entry.set_editor_property("pose_time", pose_time)
+        return entry
+
+    profile.set_editor_property("animations", [
+        make_anim("Idle", "Idle", idle_seq, True, False, 0.0),
+        make_anim("Walk", "Walk", walk_seq, True, False, 0.0),
+        make_anim("Jog", "Jog", jog_seq, True, False, 0.0),
+        make_anim("Pose", "Pose", idle_seq, False, True, 0.5),
+    ])
+    # DefaultAnimClass deliberately left empty: the viewer plays DefaultAnimationId.
+    profile.set_editor_property("default_animation_id", "Idle")
+
+    # --- Expressions: Neutral only (SKM_Manny_Simple has 0 morph targets) ---
+    neutral = unreal.ViewerExpression()
+    neutral.set_editor_property("id", "Neutral")
+    neutral.set_editor_property("display_name", unreal.Text("Neutral"))
+    neutral.set_editor_property("morphs", [])
+    profile.set_editor_property("expressions", [neutral])
+
+    # --- Material variants: Default (no overrides) + Grid on every real slot ---
+    grid_mat = load_or_none(GRID_MAT)
+    slot_materials = {}  # slot name -> material interface
+    grid_slots = []
+    for index, slot in enumerate(skel_mesh.get_editor_property("materials") or []):
+        slot_name = slot.get_editor_property("material_slot_name")
+        slot_materials[str(slot_name)] = slot.get_editor_property("material_interface")
+        override = unreal.ViewerMaterialSlotOverride()
+        override.set_editor_property("slot_name", slot_name)
+        override.set_editor_property("slot_index", index)
+        override.set_editor_property("material", grid_mat)
+        grid_slots.append(override)
+    log(f"[CreatePortfolioAssets] {skel_mesh.get_name()} slots = {list(slot_materials)}")
+
+    default_variant = unreal.ViewerMaterialVariant()
+    default_variant.set_editor_property("id", "Default")
+    default_variant.set_editor_property("display_name", unreal.Text("Default"))
+    default_variant.set_editor_property("slots", [])
+    grid_variant = unreal.ViewerMaterialVariant()
+    grid_variant.set_editor_property("id", "Grid")
+    grid_variant.set_editor_property("display_name", unreal.Text("Grid"))
+    grid_variant.set_editor_property("slots", grid_slots)
+    profile.set_editor_property("material_variants", [default_variant, grid_variant])
+
+    profile.set_editor_property("turntable_speed_degrees_per_second", 20.0)
+
+    # --- Parts: SK_Mannequin bones; every name is checked against BOTH the
+    # mesh's own reference skeleton and the SK_Mannequin skeleton asset, and
+    # dropped (with a log line) if missing from either. ---
+    mesh_bones = read_mesh_bone_names(skel_mesh)
+    skeleton_bones = set()
+    try:
+        skeleton_bones = {str(n) for n in unreal.AnimPoseExtensions.get_bone_names(unreal.AnimPoseExtensions.get_reference_pose(skeleton))}
+    except Exception as exc:
+        report_exception("reading SK_Mannequin bone names", exc)
+    log(f"[CreatePortfolioAssets] bone counts: mesh={len(mesh_bones)} skeleton={len(skeleton_bones)}")
+
+    try:
+        registry_tris = int(unreal.AssetRegistryHelpers.get_asset_registry().get_asset_by_object_path(MANNY_MESH).get_tag_value("Triangles"))
+    except Exception:
+        registry_tris = -1
+    measured_total = sum(sum(v.values()) for v in MANNY_PART_TRIANGLES.values())
+    if registry_tris != MANNY_LOD0_TRIANGLES or measured_total != MANNY_LOD0_TRIANGLES:
+        log_warn(f"[CreatePortfolioAssets] Manny triangle table out of date: registry={registry_tris} "
+                 f"table total={measured_total} expected={MANNY_LOD0_TRIANGLES} -- re-measure MANNY_PART_TRIANGLES.")
+
+    texture_text = {name: describe_material_textures(mat) for name, mat in slot_materials.items()}
+
+    def make_part(id_name, display, description, bone_names):
+        valid = [b for b in bone_names if b in mesh_bones and b in skeleton_bones]
+        dropped = [b for b in bone_names if b not in valid]
+        if dropped:
+            log_warn(f"[CreatePortfolioAssets] {DATA_ASSET_MANNY_NAME} part {id_name}: dropped bones not in mesh/skeleton: {dropped}")
+        split = MANNY_PART_TRIANGLES.get(id_name, {})
+        total = sum(split.values())
+        # Slots that hold >= 5% of this part's triangles, largest first.
+        major = [s for s, n in sorted(split.items(), key=lambda kv: -kv[1]) if total and n >= 0.05 * total]
+        mat_text = " + ".join(
+            f"{slot_materials[s].get_name() if slot_materials.get(s) else '?'} ({s} {split[s] * 100 // total}%)" for s in major
+        )
+        tex_text = " / ".join(f"{s}: {texture_text.get(s, '?')}" for s in major)
+        part = unreal.ViewerPartInfo()
+        part.set_editor_property("id", id_name)
+        part.set_editor_property("display_name", unreal.Text(display))
+        part.set_editor_property("part_type", unreal.Text("Body Part"))
+        part.set_editor_property("description", unreal.Text(description))
+        part.set_editor_property("bone_names", [unreal.Name(b) for b in valid])
+        part.set_editor_property("component_tag", unreal.Name())
+        part.set_editor_property("triangle_count", total)
+        part.set_editor_property("material_name", unreal.Text(mat_text))
+        part.set_editor_property("texture_resolution", unreal.Text(tex_text))
+        return part
+
+    profile.set_editor_property("parts", [
+        make_part("Head", "Head", "Head and neck.", ["head", "neck_01", "neck_02"]),
+        make_part("Torso", "Torso", "Pelvis, spine and clavicles.",
+                  ["spine_01", "spine_02", "spine_03", "spine_04", "spine_05", "pelvis", "clavicle_l", "clavicle_r"]),
+        make_part("LeftArm", "Left Arm", "Left upper arm through hand.", ["upperarm_l", "lowerarm_l", "hand_l"]),
+        make_part("RightArm", "Right Arm", "Right upper arm through hand.", ["upperarm_r", "lowerarm_r", "hand_r"]),
+        make_part("LeftLeg", "Left Leg", "Left thigh through ball of foot.", ["thigh_l", "calf_l", "foot_l", "ball_l"]),
+        make_part("RightLeg", "Right Leg", "Right thigh through ball of foot.", ["thigh_r", "calf_r", "foot_r", "ball_r"]),
+    ])
+
+    profile.set_editor_property("wireframe_material", load_or_none(WIREFRAME_MAT_PATH))
+
+    save(DATA_ASSET_MANNY_PATH)
+    return profile
+
+
+# ---------------------------------------------------------------------------
 # 2. WBP_CharacterViewer (Widget Blueprint, parent = UCharacterViewerWidget)
 #    Created here with an empty designer tree; Scripts/CreateViewerWidgetLayout.py
 #    (UCharacterViewerEditorTools::BuildDefaultViewerWidgetLayout(), run
@@ -760,7 +1397,7 @@ def validate_gamemode_blueprint(bp, path):
     report_keep(path, diffs)
 
 
-def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
+def create_or_update_gamemode_blueprint(default_profile, profile_library, wbp):
     if EAL.does_asset_exist(BP_ASSET_PATH):
         bp = EAL.load_asset(BP_ASSET_PATH)
         log(f"[CreatePortfolioAssets] BP_CharacterViewerGameMode already exists, preserving (read-only): {BP_ASSET_PATH}")
@@ -788,14 +1425,15 @@ def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
         raise RuntimeError("BP_CharacterViewerGameMode has no generated_class() even after compiling")
 
     cdo = unreal.get_default_object(generated_class)
-    cdo.set_editor_property("default_profile", profile)
+    # Since 2026-10-01 the default is DA_Character_Manny (see main()).
+    cdo.set_editor_property("default_profile", default_profile)
     wbp_generated_class = wbp.generated_class() if wbp else None
     cdo.set_editor_property("viewer_widget_class", wbp_generated_class)
     # P1 completion evidence (Docs/CHARACTER_VIEWER_SETUP.md section 6): the
     # runtime CHARACTER UI section offers every entry here (default profile
     # first) via ACharacterViewerController::SelectCharacterProfile() -- no
     # C++/Blueprint change needed to add DA_Character_Cube as a second choice.
-    cdo.set_editor_property("profile_library", [profile, cube_profile])
+    cdo.set_editor_property("profile_library", [p for p in profile_library if p is not None])
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(bp)
@@ -809,6 +1447,148 @@ def create_or_update_gamemode_blueprint(profile, cube_profile, wbp):
 # ---------------------------------------------------------------------------
 # 4. LV_Portfolio (level)
 # ---------------------------------------------------------------------------
+
+# Studio look (2026-10-01). Light intensities are lux at the fixed exposure
+# set by the StudioPostProcess volume below (Manual, physical-camera exposure
+# off, bias STUDIO_EXPOSURE_BIAS => scene exposure scale 2^bias), tuned so a
+# 0.18 albedo floor reads mid-grey and the light-grey mannequin does not clip.
+# Rotations: keyword Rotator (positional order is roll, pitch, yaw!). The
+# viewer camera looks along +X at yaw 0; the character faces -X (the camera).
+STUDIO_LIGHTS = [
+    # Key: camera front-left, 40 deg down, warm, the only shadow caster and
+    # the only atmosphere sun.
+    dict(label="KeyLight", location=(0.0, 0.0, 400.0), pitch=-40.0, yaw=30.0, intensity=2.7,
+         color=(255, 244, 229), cast_shadows=True, atmosphere_sun=True, sun_index=0, forward_priority=1),
+    # Fill: camera front-right, low, cool, no shadow.
+    dict(label="FillLight", location=(0.0, 0.0, 450.0), pitch=-15.0, yaw=-50.0, intensity=0.9,
+         color=(222, 232, 255), cast_shadows=False, atmosphere_sun=False, sun_index=1, forward_priority=0),
+    # Rim: behind the character on the camera-right side, separates the
+    # silhouette from the dark backdrop, no shadow.
+    dict(label="RimLight", location=(0.0, 0.0, 500.0), pitch=-35.0, yaw=-150.0, intensity=1.8,
+         color=(255, 255, 255), cast_shadows=False, atmosphere_sun=False, sun_index=1, forward_priority=0),
+]
+STUDIO_SKYLIGHT_INTENSITY = 0.36
+STUDIO_EXPOSURE_BIAS = 0.0
+STUDIO_BLOOM_INTENSITY = 0.15
+STUDIO_VIGNETTE_INTENSITY = 0.2
+# Engine sphere is 100 cm across: scale 50 => 2500 cm radius, centred on the
+# character so the camera (MaxDistance <= ~900 cm) is always inside it.
+STUDIO_BACKDROP_SCALE = 50.0
+# Engine cylinder is 100 cm across / 100 cm tall, pivot at its centre: scale
+# 51 x 0.2 => 2550 cm radius, 20 cm thick, top face at Z = 0. The rim lies
+# just OUTSIDE the backdrop sphere, so the platform edge is never visible;
+# M_StudioFloor additionally fades the far floor into the backdrop.
+STUDIO_PLATFORM_LOCATION = (0.0, 0.0, -10.0)
+STUDIO_PLATFORM_SCALE = (51.0, 51.0, 0.2)
+
+
+def _no_collision(mesh_comp):
+    """Backdrop/floor must never intercept the Inspection line trace
+    (ECC_Visibility) or anything else: NoCollision profile."""
+    mesh_comp.set_collision_profile_name("NoCollision")
+    mesh_comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+
+
+def apply_studio_setup(actor_subsystem):
+    """Adds or updates (by actor label) the studio actors of the currently
+    open level: KeyLight/FillLight/RimLight (Directional, Movable),
+    AmbientSkyLight intensity, PlatformCylinder (MI_StudioFloor, NoCollision),
+    StudioBackdrop (inverted-view engine sphere, MI_StudioBackdrop, unlit,
+    no shadow, NoCollision) and StudioPostProcess (unbound PostProcessVolume:
+    manual exposure, low bloom, light vignette). Never touches the
+    PortfolioCharacterActor, World Settings, or saves anything -- the caller
+    decides that. Called by create_or_update_level() for a NEW level only;
+    an existing LV_Portfolio is only ever changed by a deliberate one-off
+    edit (Docs/CHARACTER_VIEWER_SETUP.md 6.13), never by this script's
+    normal run. Returns a list of human-readable change lines."""
+    changes = []
+    actors = actor_subsystem.get_all_level_actors()
+    by_label = {}
+    for actor in actors:
+        by_label.setdefault(actor.get_actor_label(), actor)
+
+    def get_or_spawn(label, actor_class, location, rotation):
+        actor = by_label.get(label)
+        if actor is not None and not isinstance(actor, actor_class):
+            raise RuntimeError(f"actor '{label}' exists but is a {actor.get_class().get_name()}, expected {actor_class.__name__}")
+        if actor is None:
+            actor = actor_subsystem.spawn_actor_from_class(actor_class, unreal.Vector(*location), rotation)
+            actor.set_actor_label(label)
+            by_label[label] = actor
+            changes.append(f"spawned {label} ({actor_class.__name__})")
+        return actor
+
+    for spec in STUDIO_LIGHTS:
+        rotation = unreal.Rotator(roll=0.0, pitch=spec["pitch"], yaw=spec["yaw"])
+        light = get_or_spawn(spec["label"], unreal.DirectionalLight, spec["location"], rotation)
+        light.set_actor_location(unreal.Vector(*spec["location"]), False, False)
+        light.set_actor_rotation(rotation, False)
+        comp = light.get_component_by_class(unreal.DirectionalLightComponent)
+        comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+        comp.set_editor_property("intensity", spec["intensity"])
+        r, g, b = spec["color"]
+        comp.set_editor_property("light_color", unreal.Color(r=r, g=g, b=b, a=255))
+        comp.set_editor_property("cast_shadows", spec["cast_shadows"])
+        comp.set_editor_property("atmosphere_sun_light", spec["atmosphere_sun"])
+        comp.set_editor_property("atmosphere_sun_light_index", spec["sun_index"])
+        comp.set_editor_property("forward_shading_priority", spec["forward_priority"])
+        changes.append(f"{spec['label']}: pitch {spec['pitch']} yaw {spec['yaw']} {spec['intensity']} lux color {spec['color']} "
+                       f"shadows={spec['cast_shadows']} sun={spec['atmosphere_sun']}")
+
+    sky = get_or_spawn("AmbientSkyLight", unreal.SkyLight, (0.0, 0.0, 500.0), unreal.Rotator(roll=0.0, pitch=0.0, yaw=0.0))
+    sky_comp = sky.get_component_by_class(unreal.SkyLightComponent)
+    sky_comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    if sky_comp.get_editor_property("cubemap") is None:
+        cubemap = load_or_none(AMBIENT_CUBEMAP)
+        if cubemap:
+            sky_comp.set_editor_property("source_type", unreal.SkyLightSourceType.SLS_SPECIFIED_CUBEMAP)
+            sky_comp.set_editor_property("cubemap", cubemap)
+    sky_comp.set_editor_property("intensity", STUDIO_SKYLIGHT_INTENSITY)
+    sky_comp.recapture_sky()
+    changes.append(f"AmbientSkyLight: intensity {STUDIO_SKYLIGHT_INTENSITY}")
+
+    floor_mi = load_or_none(STUDIO_FLOOR_MI_PATH)
+    platform = get_or_spawn("PlatformCylinder", unreal.StaticMeshActor, STUDIO_PLATFORM_LOCATION, unreal.Rotator(roll=0.0, pitch=0.0, yaw=0.0))
+    platform.set_actor_location(unreal.Vector(*STUDIO_PLATFORM_LOCATION), False, False)
+    platform_comp = platform.get_component_by_class(unreal.StaticMeshComponent)
+    platform_comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    platform_comp.set_static_mesh(load_or_none(CYLINDER_MESH))
+    platform_comp.set_world_scale3d(unreal.Vector(*STUDIO_PLATFORM_SCALE))
+    if floor_mi:
+        platform_comp.set_material(0, floor_mi)
+    _no_collision(platform_comp)
+    changes.append(f"PlatformCylinder: scale {STUDIO_PLATFORM_SCALE} at {STUDIO_PLATFORM_LOCATION}, material {STUDIO_FLOOR_MI_NAME}, NoCollision")
+
+    backdrop_mi = load_or_none(STUDIO_BACKDROP_MI_PATH)
+    backdrop = get_or_spawn("StudioBackdrop", unreal.StaticMeshActor, (0.0, 0.0, 0.0), unreal.Rotator(roll=0.0, pitch=0.0, yaw=0.0))
+    backdrop.set_actor_location(unreal.Vector(0.0, 0.0, 0.0), False, False)
+    backdrop_comp = backdrop.get_component_by_class(unreal.StaticMeshComponent)
+    backdrop_comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    backdrop_comp.set_static_mesh(load_or_none(SPHERE_MESH))
+    backdrop_comp.set_world_scale3d(unreal.Vector(STUDIO_BACKDROP_SCALE, STUDIO_BACKDROP_SCALE, STUDIO_BACKDROP_SCALE))
+    if backdrop_mi:
+        backdrop_comp.set_material(0, backdrop_mi)
+    # A closed sphere that casts shadows would put the whole scene in shadow.
+    backdrop_comp.set_cast_shadow(False)
+    _no_collision(backdrop_comp)
+    changes.append(f"StudioBackdrop: {SPHERE_MESH} scale {STUDIO_BACKDROP_SCALE}, material {STUDIO_BACKDROP_MI_NAME}, no shadow, NoCollision")
+
+    ppv = get_or_spawn("StudioPostProcess", unreal.PostProcessVolume, (0.0, 0.0, 0.0), unreal.Rotator(roll=0.0, pitch=0.0, yaw=0.0))
+    ppv.set_editor_property("unbound", True)
+    settings = ppv.get_editor_property("settings")
+    for key, value in (
+        ("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL),
+        ("auto_exposure_apply_physical_camera_exposure", False),
+        ("auto_exposure_bias", STUDIO_EXPOSURE_BIAS),
+        ("bloom_intensity", STUDIO_BLOOM_INTENSITY),
+        ("vignette_intensity", STUDIO_VIGNETTE_INTENSITY),
+    ):
+        settings.set_editor_property(f"override_{key}", True)
+        settings.set_editor_property(key, value)
+    ppv.set_editor_property("settings", settings)
+    changes.append(f"StudioPostProcess: unbound, AutoExposure Manual (physical camera off) bias {STUDIO_EXPOSURE_BIAS}, "
+                   f"bloom {STUDIO_BLOOM_INTENSITY}, vignette {STUDIO_VIGNETTE_INTENSITY}")
+    return changes
 
 def validate_level(path):
     """Minimal read-only shape check for an existing LV_Portfolio: exactly
@@ -1029,6 +1809,16 @@ def create_or_update_level(profile, gamemode_bp):
         platform_mesh_comp.set_world_scale3d(unreal.Vector(4.0, 4.0, 0.2))
         platform_mesh_comp.set_mobility(unreal.ComponentMobility.MOVABLE)
 
+    # --- Studio look (2026-10-01): re-tunes the lights/platform spawned above
+    # by label and adds RimLight, StudioBackdrop and StudioPostProcess -- the
+    # same function the one-off in-place edit of the existing LV_Portfolio used,
+    # so a recreated level matches the committed one. ---
+    try:
+        for line in apply_studio_setup(actor_subsystem):
+            log(f"[CreatePortfolioAssets] studio: {line}")
+    except Exception as exc:
+        report_exception("apply_studio_setup (new LV_Portfolio)", exc)
+
     # --- World Settings: GameMode override ---
     world = unreal.EditorLevelLibrary.get_editor_world()
     if world is None:
@@ -1111,11 +1901,23 @@ def main():
     log("[CreatePortfolioAssets] ==== START ====")
     create_or_update_wireframe_material()
     create_or_update_highlight_material()
+    backdrop_mat = create_or_update_studio_backdrop_material()
+    create_or_update_studio_material_instance(
+        STUDIO_BACKDROP_MI_NAME, STUDIO_BACKDROP_MI_PATH, backdrop_mat, STUDIO_BACKDROP_MAT_PATH,
+        STUDIO_BACKDROP_VECTORS, STUDIO_BACKDROP_SCALARS)
+    floor_mat = create_or_update_studio_floor_material()
+    create_or_update_studio_material_instance(
+        STUDIO_FLOOR_MI_NAME, STUDIO_FLOOR_MI_PATH, floor_mat, STUDIO_FLOOR_MAT_PATH,
+        STUDIO_FLOOR_VECTORS, STUDIO_FLOOR_SCALARS)
     profile = create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
+    manny_profile = create_or_update_character_profile_manny()
     wbp = create_or_update_widget_blueprint()
-    gamemode_bp = create_or_update_gamemode_blueprint(profile, cube_profile, wbp)
-    create_or_update_level(profile, gamemode_bp)
+    # Since 2026-10-01 a newly created GameMode/level default to Manny; an
+    # existing GameMode/level is only validated (never changed) here.
+    default_profile = manny_profile or profile
+    gamemode_bp = create_or_update_gamemode_blueprint(default_profile, [manny_profile, profile, cube_profile], wbp)
+    create_or_update_level(default_profile, gamemode_bp)
     update_default_engine_ini()
 
     if errors:
