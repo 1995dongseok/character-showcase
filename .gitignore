@@ -25,3 +25,15 @@
 *.spp
 *.psd
 *.psb
+
+# DCC source / intermediate files stay outside the runtime repository (Docs/FBX_IMPORT_GUIDE.md).
+*.blend
+*.blend1
+*.fbx
+*.obj
+*.abc
+*.tif
+*.tiff
+*.exr
+*.sbs
+*.sbsar
