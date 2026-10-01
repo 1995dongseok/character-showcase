@@ -434,7 +434,7 @@ bool FCharacterViewerPartHighlightBonesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Markers include the elbow (lowerarm_l)"), MarkerBones.Contains(FName(TEXT("lowerarm_l"))));
 
 	// Markers use the see-through marker material (joints sit inside the mesh).
-	TestEqual(TEXT("Default BoneMarkerDiameter is 12 cm"), Actor->BoneMarkerDiameter, 12.f);
+	TestEqual(TEXT("Default BoneMarkerDiameter is 8 cm"), Actor->BoneMarkerDiameter, 8.f);
 	if (TestNotNull(TEXT("BoneMarkerMaterial (M_ViewerBoneMarker) is loaded by default"), Actor->BoneMarkerMaterial.Get()))
 	{
 		if (const UMaterial* MarkerBase = Actor->BoneMarkerMaterial->GetMaterial())

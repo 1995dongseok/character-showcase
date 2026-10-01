@@ -59,6 +59,10 @@ Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.14), same rule:
     (APortfolioCharacterActor::WireframeOverlayMaterial).
   - M_ViewerBoneMarker: translucent, depth-test-disabled marker material
     (APortfolioCharacterActor::BoneMarkerMaterial).
+
+Added 2026-10-01 (Docs/CHARACTER_VIEWER_SETUP.md 6.20), same rule:
+  - M_ViewerRuler: unlit opaque material with a "Color" vector parameter for
+    the height reference ruler (AViewerHeightRuler, G key).
 """
 
 import sys
@@ -113,6 +117,10 @@ WIREFRAME_OVERLAY_MAT_PATH = f"{MATERIALS_PACKAGE}/{WIREFRAME_OVERLAY_MAT_NAME}"
 # Bone marker spheres (BoneMarkers highlight), drawn through the mesh.
 BONE_MARKER_MAT_NAME = "M_ViewerBoneMarker"
 BONE_MARKER_MAT_PATH = f"{MATERIALS_PACKAGE}/{BONE_MARKER_MAT_NAME}"
+# Height reference ruler (2026-10-01, Docs/CHARACTER_VIEWER_SETUP.md 6.20):
+# bar/ticks of AViewerHeightRuler (dynamic instances set "Color").
+RULER_MAT_NAME = "M_ViewerRuler"
+RULER_MAT_PATH = f"{MATERIALS_PACKAGE}/{RULER_MAT_NAME}"
 
 TUTORIAL_MESH = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"
 TUTORIAL_IDLE = "/Engine/Tutorial/SubEditors/TutorialAssets/Character/Tutorial_Idle.Tutorial_Idle"
@@ -907,6 +915,69 @@ def create_or_update_bone_marker_material():
     MEL.recompile_material(mat)
 
     save(BONE_MARKER_MAT_PATH)
+    return mat
+
+
+RULER_COLOR = (0.6, 0.6, 0.6)  # light grey, AViewerHeightRuler::RulerColor
+
+
+def validate_ruler_material(mat, path):
+    """Read-only check for an existing M_ViewerRuler: unlit, opaque, and the
+    "Color" vector parameter AViewerHeightRuler sets on its dynamic
+    instances. Never writes to `mat`."""
+    diffs = []
+    try:
+        if mat.get_editor_property("shading_model") != unreal.MaterialShadingModel.MSM_UNLIT:
+            diffs.append(f"shading_model is {mat.get_editor_property('shading_model')}, expected MSM_UNLIT")
+        if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_OPAQUE:
+            diffs.append(f"blend_mode is {mat.get_editor_property('blend_mode')}, expected BLEND_OPAQUE")
+    except Exception as exc:
+        diffs.append(f"could not read shading_model/blend_mode ({exc!r})")
+    try:
+        names = {str(n) for n in unreal.MaterialEditingLibrary.get_vector_parameter_names(mat)}
+        if "Color" not in names:
+            diffs.append("missing vector parameter 'Color'")
+    except Exception as exc:
+        diffs.append(f"could not read parameter names ({exc!r})")
+    report_keep(path, diffs)
+
+
+def create_or_update_ruler_material():
+    """M_ViewerRuler: unlit, OPAQUE, two-sided, Emissive = vector parameter
+    "Color" (default light grey 0.6). Used on the /Engine/BasicShapes/Cube
+    bar, ticks and height marker of the height reference ruler
+    (AViewerHeightRuler); the ruler sets "Color" per dynamic instance (grey
+    scale, amber height marker). Unlit so the ruler reads the same under
+    every lighting preset (N). Static mesh components need no usage flag.
+
+    CREATE-MISSING-ONLY like the materials above."""
+    if EAL.does_asset_exist(RULER_MAT_PATH):
+        mat = EAL.load_asset(RULER_MAT_PATH)
+        log(f"[CreatePortfolioAssets] {RULER_MAT_NAME} already exists, preserving (read-only): {RULER_MAT_PATH}")
+        validate_ruler_material(mat, RULER_MAT_PATH)
+        return mat
+
+    ensure_directory(MATERIALS_PACKAGE)
+    mat = asset_tools.create_asset(RULER_MAT_NAME, MATERIALS_PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if mat is None:
+        raise RuntimeError(f"asset_tools.create_asset returned None for {RULER_MAT_NAME}")
+    log(f"[CreatePortfolioAssets] Created {RULER_MAT_NAME} at {RULER_MAT_PATH}")
+
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    mat.set_editor_property("two_sided", True)
+
+    MEL = unreal.MaterialEditingLibrary
+    MEL.delete_all_material_expressions(mat)
+    color_node = MEL.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, -300, 0)
+    color_node.set_editor_property("parameter_name", "Color")
+    color_node.set_editor_property("default_value", unreal.LinearColor(RULER_COLOR[0], RULER_COLOR[1], RULER_COLOR[2], 1.0))
+    color_node.set_editor_property("group", "Ruler")
+    if not MEL.connect_material_property(color_node, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR):
+        errors.append(f"[CreatePortfolioAssets] FAILED: connect emissive on {RULER_MAT_NAME}")
+    MEL.recompile_material(mat)
+
+    save(RULER_MAT_PATH)
     return mat
 
 
@@ -2212,6 +2283,7 @@ def main():
     create_or_update_part_highlight_material()
     create_or_update_wireframe_overlay_material()
     create_or_update_bone_marker_material()
+    create_or_update_ruler_material()
     profile =create_or_update_character_profile()
     cube_profile = create_or_update_character_profile_cube()
     manny_profile = create_or_update_character_profile_manny()

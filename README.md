@@ -33,6 +33,8 @@ Unreal Engine 5.6.1로 만든 **캐릭터 전시용 뷰어**다. 캐릭터 한 �
 | - / = / 0 | 재생 속도 느리게/빠르게/1.0배 | | |
 | L | 표시 LOD 바꾸기 (Auto → LOD0 → LOD1 …) | | |
 | B | 배경색 바꾸기 (Studio → Black → White → Mid Grey) | | |
+| G | 키 기준자 (0~200 cm 자 + 캐릭터 실측 키) | | |
+| N | 조명 바꾸기 (Studio → Flat → Rim → Top) | | |
 
 패널 버튼(CHARACTER / VIEW / DISPLAY / ANIMATION / EXPRESSION …)으로도 같은 기능을 쓸 수 있다.
 

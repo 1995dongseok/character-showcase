@@ -100,9 +100,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection")
 	TObjectPtr<UMaterialInterface> BoneMarkerMaterial = nullptr;
 
-	// World-space diameter (cm) of one bone marker sphere.
+	// World-space diameter (cm) of one bone marker sphere. 8 cm (was 12): at
+	// 12 cm the 13 Torso markers on Manny merged into one blob (packaged smoke).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Inspection", meta = (ClampMin = "1"))
-	float BoneMarkerDiameter = 12.f;
+	float BoneMarkerDiameter = 8.f;
 
 	// Opt-in: also keep the faint whole-mesh overlay tint while BoneMarkers
 	// are shown. Off by default: the markers are the indication.
@@ -259,6 +260,17 @@ public:
 	// the part's authored notes (TriangleCount/MaterialName/TextureResolution).
 	UFUNCTION(BlueprintPure, Category = "Character|Stats")
 	bool GetPartMeasuredStats(FName PartId, FViewerSlotStats& Out) const;
+
+	// Measured size of the current mesh for the height ruler (G) and the
+	// INSPECTION "Height N cm": the Skeletal Mesh's imported bounds (the
+	// reference/bind pose as imported -- not the animated pose, and not the
+	// Physics Asset bodies) transformed by the Mesh component's world
+	// transform. OutHeightCm = top - bottom, OutBottomZ/OutTopZ are world Z,
+	// OutHalfWidthCm is the larger horizontal half-extent (arm span / 2 for an
+	// A/T pose), OutCenter the world centre of the bounds. False (outputs 0)
+	// without a mesh. Turntable yaw does not change the height.
+	UFUNCTION(BlueprintPure, Category = "Character|Stats")
+	bool GetMeshHeightInfo(float& OutHeightCm, float& OutBottomZ, float& OutTopZ, float& OutHalfWidthCm, FVector& OutCenter) const;
 
 	// --- Wireframe (P2-4) ---
 

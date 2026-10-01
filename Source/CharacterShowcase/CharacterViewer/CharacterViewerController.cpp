@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "CharacterViewer/CharacterViewerCameraPawn.h"
 #include "CharacterViewer/CharacterViewerGameMode.h"
+#include "CharacterViewer/ViewerHeightRuler.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SlateWrapperTypes.h"
 #include "Engine/EngineTypes.h"
@@ -90,6 +91,11 @@ void ACharacterViewerController::EndPlay(EEndPlayReason::Type EndPlayReason)
 	StopBatchCapture(false);
 	// Restores the actor rotation/turntable state of an interrupted turntable capture.
 	CancelCapture();
+	if (IsValid(HeightRuler))
+	{
+		HeightRuler->Destroy();
+	}
+	HeightRuler = nullptr;
 	if (ScreenshotProcessedHandle.IsValid())
 	{
 		FScreenshotRequest::OnScreenshotRequestProcessed().Remove(ScreenshotProcessedHandle);
@@ -212,6 +218,16 @@ void ACharacterViewerController::SetupInputComponent()
 		{
 			EnhancedInputComp->BindAction(CycleBackdropAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCycleBackdrop);
 		}
+
+		// Height ruler / lighting presets (G, N; section 6.20).
+		if (ToggleHeightRulerAction)
+		{
+			EnhancedInputComp->BindAction(ToggleHeightRulerAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleToggleHeightRuler);
+		}
+		if (CycleLightingAction)
+		{
+			EnhancedInputComp->BindAction(CycleLightingAction, ETriggerEvent::Started, this, &ACharacterViewerController::HandleCycleLighting);
+		}
 	}
 }
 
@@ -316,6 +332,9 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 	EnsureBoolAction(AnimationRateResetAction, TEXT("IA_ViewerAnimationRateReset_Fallback"));
 	EnsureBoolAction(CycleLODAction, TEXT("IA_ViewerCycleLOD_Fallback"));
 	EnsureBoolAction(CycleBackdropAction, TEXT("IA_ViewerCycleBackdrop_Fallback"));
+	// Height ruler / lighting presets (section 6.20).
+	EnsureBoolAction(ToggleHeightRulerAction, TEXT("IA_ViewerToggleHeightRuler_Fallback"));
+	EnsureBoolAction(CycleLightingAction, TEXT("IA_ViewerCycleLighting_Fallback"));
 
 	if (MappingContext)
 	{
@@ -354,6 +373,8 @@ void ACharacterViewerController::EnsureFallbackInputAssets()
 		MappingContext->MapKey(AnimationRateResetAction, EKeys::Zero);
 		MappingContext->MapKey(CycleLODAction, EKeys::L);
 		MappingContext->MapKey(CycleBackdropAction, EKeys::B);
+		MappingContext->MapKey(ToggleHeightRulerAction, EKeys::G);
+		MappingContext->MapKey(CycleLightingAction, EKeys::N);
 	}
 }
 
@@ -696,6 +717,9 @@ void ACharacterViewerController::ToggleCleanView()
 		}
 	}
 
+	// The height ruler is part of the viewer UI: hidden while Clean View is on.
+	ApplyHeightRulerVisibility();
+
 	// Orbit, Zoom, Space (turntable) and H itself remain bound and active while clean view is on;
 	// only UI/highlight visibility and cursor visibility change here. Inspection
 	// clicks are ignored while Clean View is on (InspectAtScreenPosition()).
@@ -858,6 +882,14 @@ void ACharacterViewerController::SwitchProfile(UCharacterProfileData* NewProfile
 	{
 		ViewerWidget->BindToViewer(this, ViewerActor, CameraPawn);
 	}
+
+	// The ruler toggle survives the switch; the new mesh is measured now.
+	if (bHeightRulerEnabled)
+	{
+		UpdateHeightRuler();
+	}
+	// Profile check result in the status line (section 2.10 / 6.20).
+	ShowProfileValidationStatus();
 }
 
 void ACharacterViewerController::SelectCharacterProfile(FName ProfileAssetName)
@@ -893,6 +925,12 @@ void ACharacterViewerController::PlayerTick(float DeltaTime)
 	TickCapture();
 	// Batch capture (Viewer.CaptureAll), after TickCapture() so a shot finished this tick is seen at once.
 	BatchRunner.Tick(DeltaTime);
+
+	// Height ruler: follow the character and keep facing the camera.
+	if (bHeightRulerEnabled && !bCleanViewActive)
+	{
+		UpdateHeightRuler();
+	}
 
 	if (CaptureStatusExpireSeconds > 0.0 && FPlatformTime::Seconds() >= CaptureStatusExpireSeconds)
 	{
